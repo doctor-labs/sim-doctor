@@ -378,6 +378,30 @@ fn arr_advance_past_sc_do(r: &[u8], start: usize) -> usize {
     start + 2 + usize::from(len)
 }
 
+/// One EF.EXT record (TS 31.102 4.4.2.4): a 13-byte record split as record type (byte 0),
+/// 11 data bytes (bytes 1..12) and a next-extension-record id (byte 12). Type 0x01 is a
+/// subaddress (data[0] length, then that many bytes as lowercase hex), 0x02 is additional
+/// dialling data (data[0] BCD-digit count, then that many swapped-BCD octets), anything
+/// else (0x00, 0xFF, ...) is unused. Everything is bounds-checked so short records decode
+/// what they can and never panic.
+fn ext_record(r: &[u8]) -> Value {
+    let rtype = r.first().copied();
+    let next = r.get(12).copied().filter(|&b| b != 0xFF).map(|b| json!(b));
+    match rtype {
+        Some(0x01) => {
+            let len = usize::from(r.get(1).copied().unwrap_or(0)).min(11); // the data field is 11 bytes
+            let sa = r.get(2..2 + len).unwrap_or(&[]);
+            json!({ "type": "subaddress", "subaddress": lower(sa), "next": next })
+        }
+        Some(0x02) => {
+            let len = usize::from(r.get(1).copied().unwrap_or(0)).min(11); // the data field is 11 bytes
+            let digits = bcd(r.get(2..2 + len).unwrap_or(&[]));
+            json!({ "type": "additional data", "digits": digits, "next": next })
+        }
+        _ => json!({ "type": Value::Null, "next": next }),
+    }
+}
+
 /// One EF.PNN record: TLVs (0x43 full name, 0x45 short name) until 0xFF padding or the end.
 fn pnn_record(r: &[u8]) -> Value {
     let (mut full_name, mut short_name) = (None, None);
@@ -581,6 +605,13 @@ pub fn decode_ef(kind: &str, name: &str, records: &[Vec<u8>]) -> Value {
                 pnn_record(first)
             }
         }
+        "ext" => {
+            if records.len() > 1 {
+                per_record(records, ext_record)
+            } else {
+                ext_record(first)
+            }
+        }
         "mwis" => {
             if records.len() > 1 {
                 per_record(records, mwis_record)
@@ -642,6 +673,32 @@ mod tests {
         assert_eq!(alpha(&[0x80, 0x00, 0x48, 0x00, 0x69, 0xFF]), "Hi");
         assert_eq!(alpha(&[0x81, 0x02, 0x08, b'A', 0x81]), "A\u{0401}");
         assert_eq!(alpha(&[0xFF, 0xFF]), "");
+    }
+
+    #[test]
+    fn ext_records_decode_additional_digits_and_the_chain() {
+        // TS 31.102 4.4.2.4: record type (01 subaddress, 02 additional data), 11 data bytes, next record id (FF = none).
+        // Additional data: length of the BCD digits, then swapped BCD (F filler): 21 43 F5 = "12345".
+        let rec = vec![
+            0x02, 0x03, 0x21, 0x43, 0xF5, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x05,
+        ];
+        let v = decode_ef("ext", "EF.EXT1", &[rec]);
+        assert_eq!(v["type"], "additional data", "{v}");
+        assert_eq!(v["digits"], "12345", "{v}");
+        assert_eq!(v["next"], 5, "{v}");
+        // a subaddress keeps its bytes as hex; no next record
+        let sub = decode_ef(
+            "ext",
+            "EF.EXT1",
+            &[vec![
+                0x01, 0x02, 0xA0, 0x50, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            ]],
+        );
+        assert_eq!(sub["type"], "subaddress", "{sub}");
+        assert_eq!(sub["subaddress"], "a050", "{sub}");
+        assert!(sub["next"].is_null(), "{sub}");
+        // an unused record (type 00 or FF) has no type
+        assert!(decode_ef("ext", "EF.EXT1", &[vec![0xFF; 13]])["type"].is_null());
     }
 
     #[test]
@@ -790,6 +847,7 @@ mod tests {
             "ecc",
             "opl",
             "pnn",
+            "ext",
             "suci",
             "iccid",
             "acl",

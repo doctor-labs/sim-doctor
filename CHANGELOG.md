@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - `sms decode` reads the SCTS timestamp as swapped semi-octets with a signed quarter-hour zone; it printed raw byte values before.
 
 ### Added
+- EXT1-EXT8 records decode to additional digits or subaddress and the next-record chain (#175).
 - EF.ARR records decode to access rules: operations and the PIN/ADM condition (#172).
 - EF.MWIS, EF.MBI, EF.CFIS and EF.SMSR decode to their fields instead of hex (#173).
 - EF.PNN records decode to their full and short network names (GSM 7-bit or UCS2) (#174).
