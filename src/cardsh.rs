@@ -1810,6 +1810,11 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("hex").required(true).num_args(1..).help("one record per argument")),
         )
         .subcommand(
+            C::new("decode_hex")
+                .about("Decode HEX with the selected file's decoder, offline (sends nothing): decode_hex 0809...")
+                .arg(Arg::new("hex").required(true).num_args(1..).help("one record per argument")),
+        )
+        .subcommand(
             C::new("files")
                 .about("List the standard files this shell knows by name (optionally those whose name contains TEXT)")
                 .arg(Arg::new("filter").value_name("TEXT")),
@@ -1969,6 +1974,7 @@ impl Shell {
             )),
             "read_records_decoded" => self.cmd_read_decoded(Which::All),
             "decode" => cmd_decode(args),
+            "decode_hex" => self.cmd_decode_hex(args),
             "files" => Ok(cmd_files(
                 args.get_one::<String>("filter").map(String::as_str),
             )),
@@ -2380,6 +2386,21 @@ impl Shell {
             "fcp": file.fcp,
         });
         Ok(Reply::ok(text, data))
+    }
+
+    /// `decode_hex HEX...`: decode hex with the SELECTED file's decoder, offline (sends nothing).
+    fn cmd_decode_hex(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let card = self.equipped()?;
+        let chan = card.chans.get(&card.channel).expect("channel in use");
+        let std = std_ef_of(chan)
+            .ok_or_else(|| CmdErr::new("select a standard EF first (see `files`)"))?;
+        let records = args
+            .get_many::<String>("hex")
+            .expect("required")
+            .map(|h| parse_hex(h))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(CmdErr::new)?;
+        Ok(decoded_reply(Some(std), &records, Value::Null))
     }
 }
 

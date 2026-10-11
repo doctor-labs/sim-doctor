@@ -535,3 +535,23 @@ fn dir_lists_the_current_directory_and_desc_describes_the_selected_file() {
     assert_eq!(d["structure"], "transparent");
     assert_eq!(d["size"], 9);
 }
+
+#[test]
+fn decode_hex_decodes_with_the_selected_files_decoder_and_needs_a_selected_ef() {
+    let out = card(
+        "cardsh_decoded.jsonl",
+        &[
+            "--json",
+            "-c",
+            "decode_hex 080910101032547698; select ADF.USIM; select EF.IMSI; decode_hex 080910101032547698; decode_hex zz",
+        ],
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 5, "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(r[0]["ok"], false, "no EF is selected at the MF");
+    assert_eq!(r[3]["ok"], true);
+    assert_eq!(r[3]["data"]["ef"], "EF.IMSI");
+    assert_eq!(r[3]["data"]["decoded"]["imsi"], "001010123456789");
+    assert_eq!(r[4]["ok"], false, "not hex");
+    assert_eq!(out.status.code(), Some(1));
+}
