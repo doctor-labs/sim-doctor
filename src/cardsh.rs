@@ -1815,6 +1815,15 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("filter").value_name("TEXT")),
         )
         .subcommand(
+            C::new("dir")
+                .about("List what can be selected in the current directory (from the file catalog; sends nothing)")
+                .arg(Arg::new("fids").long("fids").action(clap::ArgAction::SetTrue))
+                .arg(Arg::new("names").long("names").action(clap::ArgAction::SetTrue))
+                .arg(Arg::new("apps").long("apps").action(clap::ArgAction::SetTrue))
+                .arg(Arg::new("all").long("all").action(clap::ArgAction::SetTrue)),
+        )
+        .subcommand(C::new("desc").about("Describe the selected file: name, description, structure, sizes (from the last SELECT)"))
+        .subcommand(
             C::new("verify_chv")
                 .about("VERIFY a PIN (default PIN1) with the value from --chv-file / --chv-env; a dry run unless --yes")
                 .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
@@ -1963,6 +1972,8 @@ impl Shell {
             "files" => Ok(cmd_files(
                 args.get_one::<String>("filter").map(String::as_str),
             )),
+            "dir" => self.cmd_dir(args),
+            "desc" => self.cmd_desc(),
             "verify_chv" => self.cmd_verify_chv(args),
             "unblock_chv" => self.cmd_unblock_chv(args),
             "run_gsm_algorithm" => self.cmd_run_gsm(args),
@@ -2187,6 +2198,188 @@ impl Shell {
             format!("channel {n} in use"),
             json!({ "channel": n }),
         ))
+    }
+
+    fn cmd_dir(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let card = self.equipped()?;
+        let chan = card.chans.get(&card.channel).expect("channel in use");
+        let dir = chan.dir.clone();
+        let adf = chan.adf.clone();
+        let scopes = names::scopes_of(&dir, adf.as_deref());
+        let scope = scopes.first().copied().unwrap_or("MF");
+        /// One entry in a directory listing.
+        struct Entry {
+            name: String,
+            fid: String,
+            kind: &'static str,
+            description: String,
+        }
+
+        let mut entries: Vec<Entry> = Vec::new();
+
+        // EF: every names::all() entry whose scope == scope.
+        for e in names::all() {
+            if e.scope == scope {
+                entries.push(Entry {
+                    name: e.name.to_owned(),
+                    fid: e.fid.to_string(),
+                    kind: "EF",
+                    description: e.desc.to_owned(),
+                });
+            }
+        }
+
+        // DF: every DIRS entry whose parent == scope.
+        for (name, fid, parent) in names::DIRS {
+            if *parent == scope {
+                entries.push(Entry {
+                    name: (*name).to_owned(),
+                    fid: FileId::from_bytes(fid.to_be_bytes()).to_string(),
+                    kind: "DF",
+                    description: String::new(),
+                });
+            }
+        }
+
+        // ADF: only when scope == "MF".
+        if scope == "MF" {
+            for name in ["ADF.USIM", "ADF.ISIM", "ADF.CSIM"] {
+                if adf_prefix(name).is_some() {
+                    entries.push(Entry {
+                        name: name.to_owned(),
+                        fid: String::new(),
+                        kind: "ADF",
+                        description: String::new(),
+                    });
+                }
+            }
+        }
+
+        let all = args.get_flag("all");
+        let fids = args.get_flag("fids");
+        let names = args.get_flag("names");
+        let apps = args.get_flag("apps");
+        let show: Vec<String> = if all {
+            vec!["names".to_owned(), "fids".to_owned()]
+        } else {
+            let mut s = Vec::new();
+            if names {
+                s.push("names".to_owned());
+            }
+            if fids {
+                s.push("fids".to_owned());
+            }
+            if apps {
+                s.push("apps".to_owned());
+            }
+            if s.is_empty() {
+                s.push("names".to_owned());
+            }
+            s
+        };
+
+        let filtered: Vec<&Entry> = if all {
+            entries.iter().collect()
+        } else if apps {
+            entries.iter().filter(|e| e.kind == "ADF").collect()
+        } else {
+            entries.iter().collect()
+        };
+
+        let mut text_lines: Vec<String> = Vec::new();
+        for e in &filtered {
+            let mut line = String::new();
+            if show.contains(&"names".to_owned()) {
+                line.push_str(&e.name);
+            }
+            if show.contains(&"fids".to_owned()) {
+                if !line.is_empty() {
+                    line.push(' ');
+                }
+                line.push_str(&e.fid);
+            }
+            text_lines.push(line);
+        }
+        text_lines.push(format!("{} files", filtered.len()));
+
+        let files_json: Vec<Value> = filtered
+            .iter()
+            .map(|e| json!({ "name": e.name, "fid": e.fid, "kind": e.kind, "description": e.description }))
+            .collect();
+
+        let data = json!({
+            "path": chan.path(),
+            "scope": scope,
+            "show": show,
+            "count": filtered.len(),
+            "files": files_json,
+        });
+        Ok(Reply::ok(text_lines.join("\n"), data))
+    }
+
+    fn cmd_desc(&mut self) -> CmdResult {
+        let card = self.equipped()?;
+        let chan = card.chans.get(&card.channel).expect("channel in use");
+        let chan_clone = chan.clone();
+        let path = chan_clone.path();
+        let file = chan_clone
+            .file
+            .as_ref()
+            .ok_or_else(|| CmdErr::new("no file selected: `select` a file first"))?;
+        let std = std_ef_of(&chan_clone);
+
+        // Name: the standard EF name, or the DIRS name for a DF, or null.
+        let name = std.map(|e| e.name.to_owned()).or_else(|| {
+            if file.is_df {
+                file.fid.and_then(|fid| {
+                    names::DIRS
+                        .iter()
+                        .find(|(_, f, _)| {
+                            fid.to_bytes() == FileId::from_bytes(f.to_be_bytes()).to_bytes()
+                        })
+                        .map(|(n, _, _)| (*n).to_owned())
+                })
+            } else {
+                None
+            }
+        });
+        // Description: the catalog desc for a known EF, or null.
+        let description = std.map(|e| e.desc.to_owned());
+
+        let structure = if file.is_df {
+            Some("df")
+        } else {
+            file.structure
+        };
+
+        let head = match (&name, &description) {
+            (Some(n), Some(d)) => format!("{n}: {d}"),
+            (Some(n), None) => format!("{n}: no description available"),
+            (None, _) => "no file selected: `select` a file first".to_owned(),
+        };
+
+        let mut text = head;
+        if let Some(st) = structure {
+            text.push_str(&format!("\n  file structure: {st}"));
+        }
+        if let Some(sz) = file.size {
+            text.push_str(&format!("\n  file size: {sz} bytes"));
+        }
+        if let (Some(rl), Some(n)) = (file.record_length, file.records) {
+            text.push_str(&format!("\n  records: {n} records of {rl} bytes"));
+        }
+
+        let data = json!({
+            "path": path,
+            "name": name,
+            "description": description,
+            "structure": structure,
+            "size": file.size,
+            "record_length": file.record_length,
+            "records": file.records,
+            "fcp": file.fcp,
+        });
+        Ok(Reply::ok(text, data))
     }
 }
 

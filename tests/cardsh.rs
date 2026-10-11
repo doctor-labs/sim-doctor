@@ -478,3 +478,60 @@ fn authenticate_distinguishes_success_sync_failure_and_mac_failure_through_the_b
     let all = String::from_utf8_lossy(&out.stdout);
     assert!(!all.contains("465b5ce8") && !all.to_lowercase().contains("cd63cb71"));
 }
+
+#[test]
+fn dir_lists_the_current_directory_and_desc_describes_the_selected_file() {
+    let out = card(
+        "cardsh_select.jsonl",
+        &[
+            "--json",
+            "-c",
+            "select 3F00; dir; dir --fids; dir --apps; select 7F20; dir; select 6F07; desc",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 8);
+    let col = |v: &serde_json::Value, key: &str| -> Vec<String> {
+        v["data"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f[key].as_str().unwrap().to_string())
+            .collect()
+    };
+    let mf = col(&r[1], "name");
+    for want in ["EF.DIR", "EF.ICCID", "DF.TELECOM", "DF.GSM", "ADF.USIM"] {
+        assert!(mf.contains(&want.to_string()), "{want} in {mf:?}");
+    }
+    assert_eq!(r[1]["data"]["path"], "3F00");
+    assert_eq!(r[1]["data"]["scope"], "MF");
+    assert_eq!(r[1]["data"]["show"], serde_json::json!(["names"]));
+    assert_eq!(r[1]["data"]["count"], mf.len());
+    assert_eq!(r[2]["data"]["show"], serde_json::json!(["fids"]));
+    let fids = col(&r[2], "fid");
+    assert!(
+        fids.contains(&"2FE2".to_string()) && fids.contains(&"7F10".to_string()),
+        "{fids:?}"
+    );
+    assert_eq!(r[3]["data"]["show"], serde_json::json!(["apps"]));
+    assert!(col(&r[3], "kind").iter().all(|k| k == "ADF"));
+    assert!(col(&r[3], "name").contains(&"ADF.USIM".to_string()));
+    assert_eq!(r[5]["data"]["scope"], "DF.GSM");
+    let gsm = col(&r[5], "name");
+    assert!(
+        gsm.contains(&"EF.IMSI".to_string()) && !gsm.contains(&"EF.ICCID".to_string()),
+        "{gsm:?}"
+    );
+    let d = &r[7]["data"];
+    assert_eq!(d["path"], "3F00/7F20/6F07");
+    assert_eq!(d["name"], "EF.IMSI");
+    assert_eq!(d["description"], "IMSI");
+    assert_eq!(d["structure"], "transparent");
+    assert_eq!(d["size"], 9);
+}
