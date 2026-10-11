@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `sms decode` reads the SCTS timestamp as swapped semi-octets with a signed quarter-hour zone; it printed raw byte values before.
+
 ### Added
 - `sim-doctor sms decode`: offline SMS TPDU decoder (DELIVER, SUBMIT, STATUS-REPORT; GSM 7-bit, 8-bit, UCS2; UDH and concatenation) (#199).
 
