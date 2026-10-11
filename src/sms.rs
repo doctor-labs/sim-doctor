@@ -261,20 +261,28 @@ fn parse_udh(udh: &[u8]) -> Result<(serde_json::Value, Option<serde_json::Value>
     Ok((serde_json::Value::Array(ies), concat_val))
 }
 
-/// Format a 7-octet SCTS into "YY-MM-DD hh:mm:ss".
+/// Format a 7-octet SCTS (swapped semi-octets, TS 23.040 9.2.3.11) as "YYYY-MM-DD hh:mm:ss (UTC+hh:mm)".
+/// The time zone is in quarter hours; bit 3 of its octet is the sign.
 fn format_scts(scts: &[u8]) -> String {
     if scts.len() < 7 {
         return String::new();
     }
-    let b = |i: usize| format!("{:02}", scts[i]);
-    let yy = b(0);
-    let mo = b(1);
-    let dd = b(2);
-    let hh = b(3);
-    let mm = b(4);
-    let ss = b(5);
-    let tz = b(6);
-    format!("20{}-{}-{} {}:{}:{} (+{})", yy, mo, dd, hh, mm, ss, tz)
+    let d = |b: u8| (b & 0x0f) * 10 + (b >> 4);
+    let tz = scts[6];
+    let quarters = u32::from(d(tz & 0xf7));
+    let sign = if tz & 0x08 != 0 { '-' } else { '+' };
+    // ponytail: two-digit year pivot at 90 (SMS predates 1990), revisit in 2090.
+    let year = 2000 + u32::from(d(scts[0])) - if d(scts[0]) >= 90 { 100 } else { 0 };
+    format!(
+        "{year}-{:02}-{:02} {:02}:{:02}:{:02} (UTC{sign}{:02}:{:02})",
+        d(scts[1]),
+        d(scts[2]),
+        d(scts[3]),
+        d(scts[4]),
+        d(scts[5]),
+        quarters / 4,
+        quarters % 4 * 15
+    )
 }
 
 /// Decode an SMS TPDU (with optional leading SMSC) into a JSON object.
@@ -553,5 +561,19 @@ mod tests {
     fn truncated_input_is_an_error_not_a_panic() {
         assert!(decode(&hex("0791"), true).is_err());
         assert!(decode(&[], true).is_err());
+    }
+
+    #[test]
+    fn scts_is_read_as_swapped_semi_octets_with_a_signed_quarter_hour_zone() {
+        // TS 23.040 example: 99 30 92 51 61 95 80 is 1999-03-29 15:16:59 at GMT+2 (8 quarters).
+        assert_eq!(
+            super::format_scts(&[0x99, 0x30, 0x92, 0x51, 0x61, 0x95, 0x80]),
+            "1999-03-29 15:16:59 (UTC+02:00)"
+        );
+        // bit 3 of the zone octet is the sign: 0x4A is tens 2, units 4, negative: -24 quarters = -06:00.
+        assert_eq!(
+            super::format_scts(&[0x21, 0x01, 0x01, 0x00, 0x00, 0x00, 0x4A]),
+            "2012-10-10 00:00:00 (UTC-06:00)"
+        );
     }
 }
