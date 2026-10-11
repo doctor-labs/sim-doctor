@@ -129,6 +129,7 @@ pub mod fuzz;
 pub mod gp;
 pub mod mcp;
 pub mod notif;
+pub mod otacrypto;
 pub mod rules;
 pub mod sarif;
 pub mod scan;

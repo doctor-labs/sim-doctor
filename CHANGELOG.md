@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `sim-doctor ota-crypto`: offline DES/3DES/AES-CBC encrypt and decrypt, cryptographic checksum sign and check (CBC-MAC, AES-CMAC), as pySim's OTA layer uses (#204).
 - `decode`/reads: EF.SST decoded with two bits per service (allocated, activated) and EF.IST services named, from pySim's tables (#171).
 - `card` shell: `decode_hex`, as in pySim-shell: decode hex with the selected file's decoder, offline (#169).
 - `card` shell: `cardinfo` (reader, ATR, profile, class byte, ICCID, channels), as in pySim-shell (#161).

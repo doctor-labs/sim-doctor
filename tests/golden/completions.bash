@@ -52,6 +52,9 @@ _sim__doctor() {
             sim__doctor,modules)
                 cmd="sim__doctor__subcmd__modules"
                 ;;
+            sim__doctor,ota-crypto)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto"
+                ;;
             sim__doctor,rules)
                 cmd="sim__doctor__subcmd__rules"
                 ;;
@@ -316,6 +319,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,modules)
                 cmd="sim__doctor__subcmd__help__subcmd__modules"
                 ;;
+            sim__doctor__subcmd__help,ota-crypto)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto"
+                ;;
             sim__doctor__subcmd__help,rules)
                 cmd="sim__doctor__subcmd__help__subcmd__rules"
                 ;;
@@ -409,6 +415,18 @@ _sim__doctor() {
             sim__doctor__subcmd__help__subcmd__gp__subcmd__channel,open)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__open"
                 ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto,check)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__check"
+                ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto,decrypt)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__decrypt"
+                ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto,encrypt)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__encrypt"
+                ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto,sign)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__sign"
+                ;;
             sim__doctor__subcmd__help__subcmd__rules,explain)
                 cmd="sim__doctor__subcmd__help__subcmd__rules__subcmd__explain"
                 ;;
@@ -417,6 +435,36 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__ts48,compare)
                 cmd="sim__doctor__subcmd__help__subcmd__ts48__subcmd__compare"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto,check)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__check"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto,decrypt)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__decrypt"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto,encrypt)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__encrypt"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto,help)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto,sign)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__sign"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help,check)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__check"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help,decrypt)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__decrypt"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help,encrypt)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__encrypt"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help,help)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help,sign)
+                cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__sign"
                 ;;
             sim__doctor__subcmd__rules,explain)
                 cmd="sim__doctor__subcmd__rules__subcmd__explain"
@@ -455,7 +503,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules scan ts48 install ci completions mcp rules why fix gp trace cat fuzz euicc card help"
+            opts="-h -V --help --version modules scan ts48 install ci completions mcp rules why fix gp trace cat ota-crypto fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1987,7 +2035,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules scan ts48 install ci completions mcp rules why fix gp trace cat fuzz euicc card help"
+            opts="modules scan ts48 install ci completions mcp rules why fix gp trace cat ota-crypto fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2532,6 +2580,76 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__crypto)
+            opts="encrypt decrypt sign check"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__check)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__decrypt)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__encrypt)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__sign)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__help__subcmd__rules)
             opts="list explain"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -2687,6 +2805,208 @@ _sim__doctor() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto)
+            opts="-h --help encrypt decrypt sign check help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__check)
+            opts="-h --alg --key --mac --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --alg)
+                    COMPREPLY=($(compgen -W "des 3des aes" -- "${cur}"))
+                    return 0
+                    ;;
+                --key)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mac)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__decrypt)
+            opts="-h --alg --key --iv --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --alg)
+                    COMPREPLY=($(compgen -W "des 3des aes" -- "${cur}"))
+                    return 0
+                    ;;
+                --key)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --iv)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__encrypt)
+            opts="-h --alg --key --iv --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --alg)
+                    COMPREPLY=($(compgen -W "des 3des aes" -- "${cur}"))
+                    return 0
+                    ;;
+                --key)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --iv)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__help)
+            opts="encrypt decrypt sign check help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__check)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__decrypt)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__encrypt)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__sign)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__crypto__subcmd__sign)
+            opts="-h --alg --key --mac-len --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --alg)
+                    COMPREPLY=($(compgen -W "des 3des aes" -- "${cur}"))
+                    return 0
+                    ;;
+                --key)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mac-len)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
