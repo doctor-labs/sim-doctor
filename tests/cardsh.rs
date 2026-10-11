@@ -581,3 +581,46 @@ fn cardinfo_reads_the_iccid_and_leaves_the_selection_where_it_was() {
         "cardinfo restored the selection"
     );
 }
+
+#[test]
+fn sst_uses_two_bits_per_service_and_ist_names_its_services() {
+    let dir = std::env::temp_dir().join("cardsh-offline-sst.jsonl");
+    std::fs::write(&dir, "").unwrap();
+    // SST byte 0x0F: services 1 and 2 allocated+activated; 0x01: service 5 allocated only; 0x00: 9-12 off.
+    // IST byte 0x03: services 1 and 2.
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .args([
+            "card",
+            "--json",
+            "-c",
+            "decode EF.SST 0F0100; decode EF.IST 03",
+        ])
+        .env("SIM_DOCTOR_TEST_REPLAY", &dir)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    let sst = &r[0]["data"]["decoded"];
+    assert_eq!(sst["allocated"], serde_json::json!([1, 2, 5]));
+    assert_eq!(sst["activated"], serde_json::json!([1, 2]));
+    assert_eq!(
+        sst["enabled"],
+        serde_json::json!([1, 2]),
+        "enabled = allocated and activated"
+    );
+    let ist = &r[1]["data"]["decoded"];
+    assert_eq!(ist["enabled"], serde_json::json!([1, 2]));
+    let names: Vec<&str> = ist["services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap_or(""))
+        .collect();
+    assert!(names[0].contains("P-CSCF"), "{names:?}");
+    assert!(names.iter().all(|n| !n.is_empty()), "{names:?}");
+}

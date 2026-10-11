@@ -844,6 +844,10 @@ pub enum Table {
     Ust,
     /// EF.EST, TS 31.102 clause 4.2.47.
     Est,
+    /// EF.IST, TS 31.103 clause 4.2.7.
+    Ist,
+    /// EF.SST, TS 51.011 clause 10.3.7.
+    Sst,
 }
 
 /// The services a table marks available (UST) or enabled (EST).
@@ -873,11 +877,112 @@ pub fn decode_services(table: Table, bytes: &[u8]) -> Result<Services, Malformed
     Ok(Services { table, enabled })
 }
 
+/// ISIM service names (TS 31.103 clause 4.2.7; names verbatim from pySim's `EF_IST_map`).
+pub fn ist_service_name(n: u16) -> Option<&'static str> {
+    let name = match n {
+        1 => "P-CSCF address",
+        2 => "Generic Bootstrapping Architecture (GBA)",
+        3 => "HTTP Digest",
+        4 => "GBA-based Local Key Establishment Mechanism",
+        5 => "Support of P-CSCF discovery for IMS Local Break Out",
+        6 => "Short Message Storage (SMS)",
+        7 => "Short Message Status Reports (SMSR)",
+        8 => {
+            "Support for SM-over-IP including data download via SMS-PP as defined in TS 31.111 [31]"
+        }
+        9 => "Communication Control for IMS by ISIM",
+        10 => "Support of UICC access to IMS",
+        11 => "URI support by UICC",
+        12 => "Media Type support",
+        13 => "IMS call disconnection cause",
+        14 => "URI support for MO SHORT MESSAGE CONTROL",
+        15 => "MCPTT",
+        16 => "URI support for SMS-PP DOWNLOAD as defined in 3GPP TS 31.111 [31]",
+        17 => "From Preferred",
+        18 => "IMS configuration data",
+        19 => "XCAP Configuration Data",
+        20 => "WebRTC URI",
+        21 => "MuD and MiD configuration data",
+        22 => "IMS Data Channel indication",
+        _ => return None,
+    };
+    Some(name)
+}
+
+/// SIM service names (TS 51.011 clause 10.3.7; names verbatim from pySim's `EF_SST_map`).
+pub fn sst_service_name(n: u16) -> Option<&'static str> {
+    let name = match n {
+        1 => "CHV1 disable function",
+        2 => "Abbreviated Dialling Numbers (ADN)",
+        3 => "Fixed Dialling Numbers (FDN)",
+        4 => "Short Message Storage (SMS)",
+        5 => "Advice of Charge (AoC)",
+        6 => "Capability Configuration Parameters (CCP)",
+        7 => "PLMN selector",
+        8 => "RFU",
+        9 => "MSISDN",
+        10 => "Extension1",
+        11 => "Extension2",
+        12 => "SMS Parameters",
+        13 => "Last Number Dialled (LND)",
+        14 => "Cell Broadcast Message Identifier",
+        15 => "Group Identifier Level 1",
+        16 => "Group Identifier Level 2",
+        17 => "Service Provider Name",
+        18 => "Service Dialling Numbers (SDN)",
+        19 => "Extension3",
+        20 => "RFU",
+        21 => "VGCS Group Identifier List (EFVGCS and EFVGCSS)",
+        22 => "VBS Group Identifier List (EFVBS and EFVBSS)",
+        23 => "enhanced Multi-Level Precedence and Pre-emption Service",
+        24 => "Automatic Answer for eMLPP",
+        25 => "Data download via SMS-CB",
+        26 => "Data download via SMS-PP",
+        27 => "Menu selection",
+        28 => "Call control",
+        29 => "Proactive SIM",
+        30 => "Cell Broadcast Message Identifier Ranges",
+        31 => "Barred Dialling Numbers (BDN)",
+        32 => "Extension4",
+        33 => "De-personalization Control Keys",
+        34 => "Co-operative Network List",
+        35 => "Short Message Status Reports",
+        36 => "Network's indication of alerting in the MS",
+        37 => "Mobile Originated Short Message control by SIM",
+        38 => "GPRS",
+        39 => "Image (IMG)",
+        40 => "SoLSA (Support of Local Service Area)",
+        41 => "USSD string data object supported in Call Control",
+        42 => "RUN AT COMMAND command",
+        43 => "User controlled PLMN Selector with Access Technology",
+        44 => "Operator controlled PLMN Selector with Access Technology",
+        45 => "HPLMN Selector with Access Technology",
+        46 => "CPBCCH Information",
+        47 => "Investigation Scan",
+        48 => "Extended Capability Configuration Parameters",
+        49 => "MExE",
+        50 => "Reserved and shall be ignored",
+        51 => "PLMN Network Name",
+        52 => "Operator PLMN List",
+        53 => "Mailbox Dialling Numbers",
+        54 => "Message Waiting Indication Status",
+        55 => "Call Forwarding Indication Status",
+        56 => "Service Provider Display Information",
+        57 => "Multimedia Messaging Service (MMS)",
+        58 => "Extension 8",
+        59 => "MMS User Connectivity Parameters",
+        _ => return None,
+    };
+    Some(name)
+}
+
 /// The name of a service, for the ones a security report cares about
 /// (TS 31.102 clause 4.2.8 table; names as in pySim `EF_UST_map` / `EF_EST_map`).
 /// The other numbers are listed without a name rather than guessed.
 pub fn service_name(table: Table, n: u16) -> Option<&'static str> {
     match (table, n) {
+        (Table::Ist, _) => ist_service_name(n),
+        (Table::Sst, _) => sst_service_name(n),
         (Table::Ust, 2) | (Table::Est, 1) => Some("Fixed Dialling Numbers (FDN)"),
         (Table::Ust, 6) | (Table::Est, 2) => Some("Barred Dialling Numbers (BDN)"),
         (Table::Ust, 35) | (Table::Est, 3) => Some("APN Control List (ACL)"),
@@ -901,6 +1006,31 @@ pub fn service_name(table: Table, n: u16) -> Option<&'static str> {
         (Table::Ust, 125) => Some("SUCI calculation by the USIM"),
         _ => None,
     }
+}
+
+/// EF.SST: TS 51.011 clause 10.3.7 — two bits per service, four services per
+/// octet. Service `n` (`n >= 1`) uses bits `2*((n-1)%4)` (allocated) and
+/// `2*((n-1)%4)+1` (activated) of octet `(n-1)/4`. Returns `(allocated, activated)`
+/// service numbers, each ascending.
+pub fn decode_sst(bytes: &[u8]) -> (Vec<u16>, Vec<u16>) {
+    let mut allocated = Vec::new();
+    let mut activated = Vec::new();
+    for (i, octet) in bytes.iter().enumerate() {
+        for bit in 0..8u32 {
+            let service = (i as u32 * 4 + bit / 2 + 1) as u16;
+            let mask = 1u8 << bit;
+            if octet & mask != 0 {
+                if bit % 2 == 0 {
+                    allocated.push(service);
+                } else {
+                    activated.push(service);
+                }
+            }
+        }
+    }
+    allocated.sort_unstable();
+    activated.sort_unstable();
+    (allocated, activated)
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,6 +1284,7 @@ impl Decoded {
                     match s.table {
                         Table::Ust => "available",
                         Table::Est => "enabled",
+                        Table::Ist | Table::Sst => "enabled",
                     },
                     if shown.is_empty() {
                         "none".to_owned()
@@ -1250,7 +1381,7 @@ impl Decoded {
                 "name": s.name,
             }),
             Self::Services(s) => json!({
-                "table": match s.table { Table::Ust => "UST", Table::Est => "EST" },
+                "table": match s.table { Table::Ust => "UST", Table::Est => "EST", Table::Ist => "IST", Table::Sst => "SST" },
                 "count": s.enabled.len(),
                 "enabled": s.enabled,
                 "named": s.enabled.iter().filter_map(|n| {
