@@ -3071,8 +3071,9 @@ fn run_sms_decode(args: &[String], tpdu: bool, json: bool) -> contract::ExitCode
             Err(e) => return refuse(format!("`{item}`: {e}")),
         }
     }
+    let reassembled = sms::reassemble(&messages);
     let rendered = if json {
-        let data = serde_json::json!({ "card_touched": false, "count": messages.len(), "messages": messages });
+        let data = serde_json::json!({ "card_touched": false, "count": messages.len(), "messages": messages, "reassembled": reassembled });
         match contract::Envelope::new(
             KIND,
             contract::ExitCode::Success,
@@ -3085,7 +3086,7 @@ fn run_sms_decode(args: &[String], tpdu: bool, json: bool) -> contract::ExitCode
             Err(err) => return refuse(err.to_string()),
         }
     } else {
-        messages
+        let mut blocks: Vec<String> = messages
             .iter()
             .map(|m| {
                 m.as_object()
@@ -3097,8 +3098,42 @@ fn run_sms_decode(args: &[String], tpdu: bool, json: bool) -> contract::ExitCode
                     })
                     .unwrap_or_default()
             })
-            .collect::<Vec<_>>()
-            .join("\n\n")
+            .collect();
+        for g in &reassembled {
+            let reference = g
+                .get("reference")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let address = g.get("address").and_then(|v| v.as_str()).unwrap_or("");
+            let total = g.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+            let parts: Vec<String> = g
+                .get("parts")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|v| v.as_u64().unwrap_or(0).to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let missing: Vec<String> = g
+                .get("missing")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|v| v.as_u64().unwrap_or(0).to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let text = g.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            let mut block = format!("reassembled {reference} {address}\n");
+            block.push_str(&format!("parts {} of {}", parts.join(","), total));
+            if !missing.is_empty() {
+                block.push_str(&format!(" (missing {})", missing.join(",")));
+            }
+            block.push_str(&format!("\ntext {}", text));
+            blocks.push(block);
+        }
+        blocks.join("\n\n")
     };
     match emit_stdout(&rendered, "the decoded SMS") {
         Ok(()) => contract::ExitCode::Success,

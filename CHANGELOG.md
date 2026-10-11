@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - `sms decode` reads the SCTS timestamp as swapped semi-octets with a signed quarter-hour zone; it printed raw byte values before.
 
 ### Added
+- `sim-doctor sms decode` reassembles concatenated SMS parts by reference and reports missing parts (#200).
 - `sim-doctor sms decode`: offline SMS TPDU decoder (DELIVER, SUBMIT, STATUS-REPORT; GSM 7-bit, 8-bit, UCS2; UDH and concatenation) (#199).
 
 - `sim-doctor ota-crypto`: offline DES/3DES/AES-CBC encrypt and decrypt, cryptographic checksum sign and check (CBC-MAC, AES-CMAC), as pySim's OTA layer uses (#204).
