@@ -285,6 +285,103 @@ fn format_scts(scts: &[u8]) -> String {
     )
 }
 
+/// Join concatenated parts (TS 23.040 9.2.3.24.1): group by address, reference and total, order by sequence.
+pub fn reassemble(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    use std::collections::BTreeMap;
+
+    // A group: preserve first-seen order, hold one part per sequence number.
+    struct Group {
+        address: String,
+        reference: serde_json::Value,
+        total: u64,
+        parts: BTreeMap<u64, String>, // seq -> text
+    }
+    let mut groups: Vec<Group> = Vec::new();
+
+    for m in messages {
+        // Only messages that have a "concatenation" object take part.
+        let concat = match m.get("concatenation") {
+            Some(c) if c.is_object() => c,
+            _ => continue,
+        };
+
+        let reference = concat
+            .get("reference")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let total_val = match concat.get("total") {
+            Some(t) => t.as_u64().unwrap_or(0),
+            None => continue,
+        };
+        let seq = match concat.get("sequence") {
+            Some(s) => s.as_u64().unwrap_or(0),
+            None => continue,
+        };
+
+        let address = m
+            .get("originating_address")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .or_else(|| {
+                m.get("destination_address")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_default();
+
+        // Find existing group by (address, reference, total). serde_json::Value
+        // does not implement Ord, so compare by serialized form.
+        let ref_str = serde_json::to_string(&reference).unwrap_or_default();
+        let idx = groups.iter().position(|g| {
+            g.address == address
+                && serde_json::to_string(&g.reference).unwrap_or_default() == ref_str
+                && g.total == total_val
+        });
+        if idx.is_none() {
+            groups.push(Group {
+                address: address.clone(),
+                reference: reference.clone(),
+                total: total_val,
+                parts: BTreeMap::new(),
+            });
+        }
+        let idx = idx.unwrap_or(groups.len() - 1);
+        // Keep ONE part per sequence (the first seen).
+        groups[idx].parts.entry(seq).or_insert_with(|| {
+            m.get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned()
+        });
+    }
+
+    let result: Vec<serde_json::Value> = groups
+        .iter()
+        .map(|g| {
+            let total = g.total;
+            let parts: Vec<u64> = g.parts.keys().copied().collect();
+            let missing: Vec<u64> = (1..=total).filter(|n| !g.parts.contains_key(n)).collect();
+            let complete = missing.is_empty();
+            let text: String = parts
+                .iter()
+                .filter_map(|s| g.parts.get(s))
+                .cloned()
+                .collect();
+            serde_json::json!({
+                "address": g.address,
+                "reference": g.reference,
+                "total": total,
+                "parts": parts,
+                "complete": complete,
+                "missing": missing,
+                "text": text,
+            })
+        })
+        .collect();
+
+    result
+}
+
 /// Decode an SMS TPDU (with optional leading SMSC) into a JSON object.
 pub fn decode(bytes: &[u8], has_smsc: bool) -> Result<serde_json::Value, String> {
     if bytes.is_empty() {
