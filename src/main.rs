@@ -31,8 +31,8 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, ci, contract, euicc, fix, fuzz, gp, notif, rules, scan, session,
-    tar, trace,
+    apdu_fuzz, apdu_scan, cat, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules, scan,
+    session, tar, trace,
     transport::{
         pcsc::{Pcsc, PcscSession},
         replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
@@ -229,6 +229,12 @@ enum Command {
     /// 14 envelope tags, 90 information elements, result codes and devices; the fields of the
     /// elements a review reads are decoded and the rest are shown as hex, named.
     Cat(CatArgs),
+
+    /// Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt,
+    /// CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them.
+    /// No card and no reader: pure crypto over hex given on the command line.
+    #[command(name = "ota-crypto")]
+    OtaCrypto(OtaCryptoArgs),
 
     /// APDU discovery and the OTA/SMS fuzz sweep.
     ///
@@ -1428,6 +1434,100 @@ enum CatAction {
     },
 }
 
+/// Everything `sim-doctor ota-crypto` takes.
+#[derive(Args)]
+struct OtaCryptoArgs {
+    #[command(subcommand)]
+    action: OtaCryptoAction,
+}
+
+#[derive(Subcommand)]
+enum OtaCryptoAction {
+    /// Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex.
+    Encrypt {
+        /// DES (8-byte key), 3DES (16- or 24-byte key) or AES (16/24/32-byte key).
+        #[arg(long, value_enum)]
+        alg: OtaAlg,
+        /// The key as hex; length selects the AES variant (16/24/32) or must
+        /// match the algorithm (DES 8, 3DES 16 or 24).
+        #[arg(long, value_name = "HEX")]
+        key: String,
+        /// The IV as hex (one block); all zeros when absent.
+        #[arg(long, value_name = "HEX")]
+        iv: Option<String>,
+        /// The data to encrypt, as hex.
+        data: String,
+        /// Emit one JSON envelope of kind "ota-crypto" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex.
+    Decrypt {
+        #[arg(long, value_enum)]
+        alg: OtaAlg,
+        #[arg(long, value_name = "HEX")]
+        key: String,
+        /// The IV as hex (one block); all zeros when absent.
+        #[arg(long, value_name = "HEX")]
+        iv: Option<String>,
+        /// The ciphertext to decrypt, as hex.
+        data: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES).
+    Sign {
+        #[arg(long, value_enum)]
+        alg: OtaAlg,
+        #[arg(long, value_name = "HEX")]
+        key: String,
+        /// The data to sign, as hex.
+        data: String,
+        /// Length of the MAC to return (default 8, the OTA checksum length).
+        #[arg(long, value_name = "N", default_value_t = 8)]
+        mac_len: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Recompute the checksum and compare it to --mac in constant time.
+    Check {
+        #[arg(long, value_enum)]
+        alg: OtaAlg,
+        #[arg(long, value_name = "HEX")]
+        key: String,
+        /// The data that was signed, as hex.
+        data: String,
+        /// The expected MAC as hex; its length sets the MAC length.
+        #[arg(long, value_name = "HEX")]
+        mac: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// `--alg` accepts the three OTA cipher families.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum OtaAlg {
+    #[value(name = "des")]
+    Des,
+    /// 2-key (16-byte) or 3-key (24-byte) Triple DES.
+    #[value(name = "3des")]
+    Tdes,
+    /// AES-128, AES-192 or AES-256 from the key length.
+    #[value(name = "aes")]
+    Aes,
+}
+
+impl From<OtaAlg> for otacrypto::Alg {
+    fn from(a: OtaAlg) -> Self {
+        match a {
+            OtaAlg::Des => otacrypto::Alg::Des,
+            OtaAlg::Tdes => otacrypto::Alg::Tdes,
+            OtaAlg::Aes => otacrypto::Alg::Aes,
+        }
+    }
+}
+
 /// Everything `sim-doctor trace` takes.
 #[derive(Args)]
 struct TraceArgs {
@@ -1573,6 +1673,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::Cat(args) => match args.action {
             CatAction::Decode { hex, json } => run_cat_decode(&hex, json),
         },
+        Command::OtaCrypto(args) => run_otacrypto(args),
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
         Command::Rules(args) => match args.action {
@@ -2959,6 +3060,144 @@ fn run_cat_decode(args: &[String], json: bool) -> contract::ExitCode {
     match emit_stdout(&rendered, "the decoded CAT data") {
         Ok(()) => contract::ExitCode::Success,
         Err(message) => refuse(message),
+    }
+}
+
+/// Runs `sim-doctor ota-crypto`: offline DES/3DES/AES-CBC encrypt, decrypt,
+/// checksum sign and check. The envelope kind is "ota-crypto"; its `data` carries
+/// the algorithm, operation, key length and input/output bytes, never the key
+/// itself.
+///
+/// Exit codes: 0 on a completed operation; 1 only when `check`'s MAC does not
+/// match (still a delivered answer, so `valid` is `false`); 2 for bad hex, a
+/// wrong key length, a wrong IV length or data that is not a whole number of
+/// blocks - the same refusal shape [`run_cat_decode`] uses.
+fn run_otacrypto(args: OtaCryptoArgs) -> contract::ExitCode {
+    const KIND: &str = "ota-crypto";
+
+    // Pull the operation apart so the hex parsing and the crypto dispatch share
+    // one pair of hands on each field.
+    let (alg, op, key, iv, data, mac_len, mac, json) = match args.action {
+        OtaCryptoAction::Encrypt {
+            alg,
+            key,
+            iv,
+            data,
+            json,
+        } => (alg.into(), "encrypt", key, iv, data, None, None, json),
+        OtaCryptoAction::Decrypt {
+            alg,
+            key,
+            iv,
+            data,
+            json,
+        } => (alg.into(), "decrypt", key, iv, data, None, None, json),
+        OtaCryptoAction::Sign {
+            alg,
+            key,
+            data,
+            mac_len,
+            json,
+        } => (
+            alg.into(),
+            "sign",
+            key,
+            None,
+            data,
+            Some(mac_len),
+            None,
+            json,
+        ),
+        OtaCryptoAction::Check {
+            alg,
+            key,
+            data,
+            mac,
+            json,
+        } => (alg.into(), "check", key, None, data, None, Some(mac), json),
+    };
+
+    let refuse = |m: String| report_refusal(KIND, &m, serde_json::json!({ "error": m }), json);
+
+    let key_bytes = match cat::parse_hex(&key) {
+        Ok(b) => b,
+        Err(e) => return refuse(format!("`--key`: {e}")),
+    };
+    let input_bytes = match cat::parse_hex(&data) {
+        Ok(b) => b,
+        Err(e) => return refuse(format!("DATA: {e}")),
+    };
+    let iv_bytes = match iv {
+        Some(s) => Some(match cat::parse_hex(&s) {
+            Ok(b) => b,
+            Err(e) => return refuse(format!("`--iv`: {e}")),
+        }),
+        None => None,
+    };
+    let mac_bytes = match mac {
+        Some(s) => match cat::parse_hex(&s) {
+            Ok(b) => b,
+            Err(e) => return refuse(format!("`--mac`: {e}")),
+        },
+        None => Vec::new(),
+    };
+
+    let outcome: Result<serde_json::Value, otacrypto::Error> = match op {
+        "encrypt" => otacrypto::encrypt(alg, &key_bytes, iv_bytes.as_deref(), &input_bytes)
+            .map(|out| serde_json::json!({ "output": hex::encode(&out) })),
+        "decrypt" => otacrypto::decrypt(alg, &key_bytes, iv_bytes.as_deref(), &input_bytes)
+            .map(|out| serde_json::json!({ "output": hex::encode(&out) })),
+        "sign" => otacrypto::sign(alg, &key_bytes, &input_bytes, mac_len)
+            .map(|out| serde_json::json!({ "mac": hex::encode(&out) })),
+        "check" => otacrypto::check(alg, &key_bytes, &input_bytes, &mac_bytes)
+            .map(|ok| serde_json::json!({ "valid": ok })),
+        _ => unreachable!(),
+    };
+
+    match outcome {
+        Err(e) => {
+            // Crypto preconditions (bad key length, bad IV length, a partial
+            // block): exit 2, the same refusal shape run_cat_decode uses.
+            let m = e.to_string();
+            let data = serde_json::json!({ "error": m });
+            let envelope = contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data);
+            let line = match envelope.to_json() {
+                Ok(l) => l,
+                Err(e) => return refuse(e.to_string()),
+            };
+            match emit_stdout(&line, "the ota-crypto error") {
+                Ok(()) => contract::ExitCode::Error,
+                Err(message) => refuse(message),
+            }
+        }
+        Ok(inner) => {
+            let mut data = serde_json::json!({
+                "alg": format!("{alg:?}").to_lowercase(),
+                "op": op,
+                "key_bytes": key_bytes.len(),
+                "input_bytes": input_bytes.len(),
+            });
+            if let serde_json::Value::Object(more) = inner {
+                for (k, v) in more {
+                    data[k] = v;
+                }
+            }
+            // `check` with a wrong MAC is a delivered answer (exit 1), not a
+            // refusal: the MAC is valid input, it just did not match.
+            let code = match (op, data["valid"].as_bool()) {
+                ("check", Some(false)) => contract::ExitCode::Findings,
+                _ => contract::ExitCode::Success,
+            };
+            let envelope = contract::Envelope::new(KIND, code, contract::OK_MESSAGE, data);
+            let line = match envelope.to_json() {
+                Ok(l) => l,
+                Err(e) => return refuse(e.to_string()),
+            };
+            match emit_stdout(&line, "the ota-crypto result") {
+                Ok(()) => code,
+                Err(message) => refuse(message),
+            }
+        }
     }
 }
 

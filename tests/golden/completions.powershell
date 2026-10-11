@@ -38,6 +38,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('gp', 'gp', [CompletionResultType]::ParameterValue, 'Read-only GlobalPlatform queries')
             [CompletionResult]::new('trace', 'trace', [CompletionResultType]::ParameterValue, 'Decode a captured APDU trace offline (no card, no reader)')
             [CompletionResult]::new('cat', 'cat', [CompletionResultType]::ParameterValue, 'Decode Card Application Toolkit data offline (no card, no reader)')
+            [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('fuzz', 'fuzz', [CompletionResultType]::ParameterValue, 'APDU discovery and the OTA/SMS fuzz sweep')
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
@@ -429,6 +430,75 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         'sim-doctor;cat;help;help' {
             break
         }
+        'sim-doctor;ota-crypto' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('encrypt', 'encrypt', [CompletionResultType]::ParameterValue, 'Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex')
+            [CompletionResult]::new('decrypt', 'decrypt', [CompletionResultType]::ParameterValue, 'Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex')
+            [CompletionResult]::new('sign', 'sign', [CompletionResultType]::ParameterValue, 'Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES)')
+            [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Recompute the checksum and compare it to --mac in constant time')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;ota-crypto;encrypt' {
+            [CompletionResult]::new('--alg', '--alg', [CompletionResultType]::ParameterName, 'DES (8-byte key), 3DES (16- or 24-byte key) or AES (16/24/32-byte key)')
+            [CompletionResult]::new('--key', '--key', [CompletionResultType]::ParameterName, 'The key as hex; length selects the AES variant (16/24/32) or must match the algorithm (DES 8, 3DES 16 or 24)')
+            [CompletionResult]::new('--iv', '--iv', [CompletionResultType]::ParameterName, 'The IV as hex (one block); all zeros when absent')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "ota-crypto" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'sim-doctor;ota-crypto;decrypt' {
+            [CompletionResult]::new('--alg', '--alg', [CompletionResultType]::ParameterName, 'alg')
+            [CompletionResult]::new('--key', '--key', [CompletionResultType]::ParameterName, 'key')
+            [CompletionResult]::new('--iv', '--iv', [CompletionResultType]::ParameterName, 'The IV as hex (one block); all zeros when absent')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'sim-doctor;ota-crypto;sign' {
+            [CompletionResult]::new('--alg', '--alg', [CompletionResultType]::ParameterName, 'alg')
+            [CompletionResult]::new('--key', '--key', [CompletionResultType]::ParameterName, 'key')
+            [CompletionResult]::new('--mac-len', '--mac-len', [CompletionResultType]::ParameterName, 'Length of the MAC to return (default 8, the OTA checksum length)')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'sim-doctor;ota-crypto;check' {
+            [CompletionResult]::new('--alg', '--alg', [CompletionResultType]::ParameterName, 'alg')
+            [CompletionResult]::new('--key', '--key', [CompletionResultType]::ParameterName, 'key')
+            [CompletionResult]::new('--mac', '--mac', [CompletionResultType]::ParameterName, 'The expected MAC as hex; its length sets the MAC length')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'sim-doctor;ota-crypto;help' {
+            [CompletionResult]::new('encrypt', 'encrypt', [CompletionResultType]::ParameterValue, 'Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex')
+            [CompletionResult]::new('decrypt', 'decrypt', [CompletionResultType]::ParameterValue, 'Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex')
+            [CompletionResult]::new('sign', 'sign', [CompletionResultType]::ParameterValue, 'Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES)')
+            [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Recompute the checksum and compare it to --mac in constant time')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;ota-crypto;help;encrypt' {
+            break
+        }
+        'sim-doctor;ota-crypto;help;decrypt' {
+            break
+        }
+        'sim-doctor;ota-crypto;help;sign' {
+            break
+        }
+        'sim-doctor;ota-crypto;help;check' {
+            break
+        }
+        'sim-doctor;ota-crypto;help;help' {
+            break
+        }
         'sim-doctor;fuzz' {
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
@@ -719,6 +789,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('gp', 'gp', [CompletionResultType]::ParameterValue, 'Read-only GlobalPlatform queries')
             [CompletionResult]::new('trace', 'trace', [CompletionResultType]::ParameterValue, 'Decode a captured APDU trace offline (no card, no reader)')
             [CompletionResult]::new('cat', 'cat', [CompletionResultType]::ParameterValue, 'Decode Card Application Toolkit data offline (no card, no reader)')
+            [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('fuzz', 'fuzz', [CompletionResultType]::ParameterValue, 'APDU discovery and the OTA/SMS fuzz sweep')
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
@@ -822,6 +893,25 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;cat;decode' {
+            break
+        }
+        'sim-doctor;help;ota-crypto' {
+            [CompletionResult]::new('encrypt', 'encrypt', [CompletionResultType]::ParameterValue, 'Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex')
+            [CompletionResult]::new('decrypt', 'decrypt', [CompletionResultType]::ParameterValue, 'Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex')
+            [CompletionResult]::new('sign', 'sign', [CompletionResultType]::ParameterValue, 'Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES)')
+            [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Recompute the checksum and compare it to --mac in constant time')
+            break
+        }
+        'sim-doctor;help;ota-crypto;encrypt' {
+            break
+        }
+        'sim-doctor;help;ota-crypto;decrypt' {
+            break
+        }
+        'sim-doctor;help;ota-crypto;sign' {
+            break
+        }
+        'sim-doctor;help;ota-crypto;check' {
             break
         }
         'sim-doctor;help;fuzz' {

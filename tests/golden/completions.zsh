@@ -588,6 +588,112 @@ esac
     ;;
 esac
 ;;
+(ota-crypto)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sim-doctor__subcmd__ota-crypto_commands" \
+"*::: :->ota-crypto" \
+&& ret=0
+
+    case $state in
+    (ota-crypto)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-ota-crypto-command-$line[1]:"
+        case $line[1] in
+            (encrypt)
+_arguments "${_arguments_options[@]}" : \
+'--alg=[DES (8-byte key), 3DES (16- or 24-byte key) or AES (16/24/32-byte key)]:ALG:((des\:""
+3des\:"2-key (16-byte) or 3-key (24-byte) Triple DES"
+aes\:"AES-128, AES-192 or AES-256 from the key length"))' \
+'--key=[The key as hex; length selects the AES variant (16/24/32) or must match the algorithm (DES 8, 3DES 16 or 24)]:HEX:_default' \
+'--iv=[The IV as hex (one block); all zeros when absent]:HEX:_default' \
+'--json[Emit one JSON envelope of kind "ota-crypto" on stdout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':data -- The data to encrypt, as hex:_default' \
+&& ret=0
+;;
+(decrypt)
+_arguments "${_arguments_options[@]}" : \
+'--alg=[]:ALG:((des\:""
+3des\:"2-key (16-byte) or 3-key (24-byte) Triple DES"
+aes\:"AES-128, AES-192 or AES-256 from the key length"))' \
+'--key=[]:HEX:_default' \
+'--iv=[The IV as hex (one block); all zeros when absent]:HEX:_default' \
+'--json[]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':data -- The ciphertext to decrypt, as hex:_default' \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+'--alg=[]:ALG:((des\:""
+3des\:"2-key (16-byte) or 3-key (24-byte) Triple DES"
+aes\:"AES-128, AES-192 or AES-256 from the key length"))' \
+'--key=[]:HEX:_default' \
+'--mac-len=[Length of the MAC to return (default 8, the OTA checksum length)]:N:_default' \
+'--json[]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':data -- The data to sign, as hex:_default' \
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : \
+'--alg=[]:ALG:((des\:""
+3des\:"2-key (16-byte) or 3-key (24-byte) Triple DES"
+aes\:"AES-128, AES-192 or AES-256 from the key length"))' \
+'--key=[]:HEX:_default' \
+'--mac=[The expected MAC as hex; its length sets the MAC length]:HEX:_default' \
+'--json[]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':data -- The data that was signed, as hex:_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__ota-crypto__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-ota-crypto-help-command-$line[1]:"
+        case $line[1] in
+            (encrypt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(decrypt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -1153,6 +1259,38 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(ota-crypto)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__ota-crypto_commands" \
+"*::: :->ota-crypto" \
+&& ret=0
+
+    case $state in
+    (ota-crypto)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-ota-crypto-command-$line[1]:"
+        case $line[1] in
+            (encrypt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(decrypt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__fuzz_commands" \
@@ -1286,6 +1424,7 @@ _sim-doctor_commands() {
 'gp:Read-only GlobalPlatform queries' \
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
+'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -1791,6 +1930,7 @@ _sim-doctor__subcmd__help_commands() {
 'gp:Read-only GlobalPlatform queries' \
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
+'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -2021,6 +2161,36 @@ _sim-doctor__subcmd__help__subcmd__modules_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help modules commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-crypto_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-crypto_commands() {
+    local commands; commands=(
+'encrypt:Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex' \
+'decrypt:Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex' \
+'sign:Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES)' \
+'check:Recompute the checksum and compare it to --mac in constant time' \
+    )
+    _describe -t commands 'sim-doctor help ota-crypto commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__check_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-crypto check commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__decrypt_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__decrypt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-crypto decrypt commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__encrypt_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__encrypt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-crypto encrypt commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-crypto sign commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__rules_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__rules_commands() {
     local commands; commands=(
@@ -2080,6 +2250,73 @@ _sim-doctor__subcmd__mcp_commands() {
 _sim-doctor__subcmd__modules_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor modules commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto_commands] )) ||
+_sim-doctor__subcmd__ota-crypto_commands() {
+    local commands; commands=(
+'encrypt:Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex' \
+'decrypt:Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex' \
+'sign:Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES)' \
+'check:Recompute the checksum and compare it to --mac in constant time' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor ota-crypto commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__check_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto check commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__decrypt_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__decrypt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto decrypt commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__encrypt_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__encrypt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto encrypt commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__help_commands() {
+    local commands; commands=(
+'encrypt:Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex' \
+'decrypt:Decrypt ciphertext (hex) with CBC, no padding, printing plaintext as hex' \
+'sign:Compute an OTA checksum (AES-CMAC for AES, CBC-MAC for DES/3DES)' \
+'check:Recompute the checksum and compare it to --mac in constant time' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor ota-crypto help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__check_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto help check commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__decrypt_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__decrypt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto help decrypt commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__encrypt_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__encrypt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto help encrypt commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto help sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-crypto__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__ota-crypto__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-crypto sign commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__rules_commands] )) ||
 _sim-doctor__subcmd__rules_commands() {
