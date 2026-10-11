@@ -271,6 +271,62 @@ fn pnn_record(r: &[u8]) -> Value {
     json!({ "full_name": full_name, "short_name": short_name })
 }
 
+/// One EF.MWIS record (TS 31.102 4.2.63): status bits (b1 voicemail, b2 fax, b3 e-mail, b4 other,
+/// b5 videomail) then one count byte each (videomail count optional).
+fn mwis_record(r: &[u8]) -> Value {
+    let status = r.first().copied().unwrap_or(0);
+    let waiting = |bit| (status >> bit) & 1u8 != 0u8;
+    let count = |i| r.get(i).map(|b| json!(b));
+    let mut out = json!({
+        "voicemail": json!({ "waiting": waiting(0), "count": count(1) }),
+        "fax": json!({ "waiting": waiting(1), "count": count(2) }),
+        "email": json!({ "waiting": waiting(2), "count": count(3) }),
+        "other": json!({ "waiting": waiting(3), "count": count(4) }),
+    });
+    if waiting(4) || r.get(5).is_some() {
+        out["videomail"] = json!({ "waiting": waiting(4), "count": count(5) });
+    }
+    out
+}
+
+/// One EF.MBI record (4.2.62): the EF.MBDN record number for each message waiting type, 0 = none.
+fn mbi_record(r: &[u8]) -> Value {
+    let rec = |i| {
+        r.get(i)
+            .and_then(|&b| if b == 0 { None } else { Some(json!(b)) })
+    };
+    let mut out = json!({ "voicemail": rec(0), "fax": rec(1), "email": rec(2), "other": rec(3) });
+    if let Some(b) = r.get(4) {
+        out["videomail"] = if *b == 0 { Value::Null } else { json!(b) };
+    }
+    out
+}
+
+/// One EF.CFIS record (4.2.64): MSP id, CFU status bits, then a dialling number with CCP2/EXT7 tails.
+fn cfis_record(r: &[u8]) -> Value {
+    let d = dialling(r.get(2..).unwrap_or(&[]));
+    json!({
+        "msp": r.first(),
+        "voice_forwarding": r.get(1).map(|b| b & 1 != 0).unwrap_or(false),
+        "fax_forwarding": r.get(1).map(|b| b & 2 != 0).unwrap_or(false),
+        "data_forwarding": r.get(1).map(|b| b & 4 != 0).unwrap_or(false),
+        "sms_forwarding": r.get(1).map(|b| b & 8 != 0).unwrap_or(false),
+        "all_forwarding": r.get(1).map(|b| b & 0x10 != 0).unwrap_or(false),
+        "number": d.get("number"),
+    })
+}
+
+/// One EF.SMSR record (4.2.28): the EF.SMS record id (0 = empty) then the status-report TPDU.
+fn smsr_record(r: &[u8]) -> Value {
+    let sms_record = r
+        .first()
+        .and_then(|&b| if b == 0 { None } else { Some(json!(b)) });
+    json!({
+        "sms_record": sms_record,
+        "tpdu": lower(r.get(1..).unwrap_or(&[])),
+    })
+}
+
 /// Decodes the content of one standard EF. `kind` is the table's decoder name, `name` the file name
 /// and `records` the content (one element for a transparent file). The result is the typed fields;
 /// a file that does not parse comes back as `{"error", "hex"}` and never as an empty success.
@@ -392,6 +448,34 @@ pub fn decode_ef(kind: &str, name: &str, records: &[Vec<u8>]) -> Value {
                 pnn_record(first)
             }
         }
+        "mwis" => {
+            if records.len() > 1 {
+                per_record(records, mwis_record)
+            } else {
+                mwis_record(first)
+            }
+        }
+        "mbi" => {
+            if records.len() > 1 {
+                per_record(records, mbi_record)
+            } else {
+                mbi_record(first)
+            }
+        }
+        "cfis" => {
+            if records.len() > 1 {
+                per_record(records, cfis_record)
+            } else {
+                cfis_record(first)
+            }
+        }
+        "smsr" => {
+            if records.len() > 1 {
+                per_record(records, smsr_record)
+            } else {
+                smsr_record(first)
+            }
+        }
         "uri" => {
             let t = tlv(first, 0);
             json!({ "value": t[0]["value"].as_str().and_then(|h| hex::decode(h).ok()).map(|b| String::from_utf8_lossy(&b).into_owned()), "tlv": t })
@@ -425,6 +509,36 @@ mod tests {
         assert_eq!(alpha(&[0x80, 0x00, 0x48, 0x00, 0x69, 0xFF]), "Hi");
         assert_eq!(alpha(&[0x81, 0x02, 0x08, b'A', 0x81]), "A\u{0401}");
         assert_eq!(alpha(&[0xFF, 0xFF]), "");
+    }
+
+    #[test]
+    fn sms_related_efs_decode_mwis_mbi_cfis_smsr() {
+        // EF.MWIS (TS 31.102 4.2.63): status bits (b1 voicemail, b2 fax, b3 e-mail, b4 other, b5 videomail), then counts.
+        let mwis = decode_ef("mwis", "EF.MWIS", &[vec![0x01, 0x03, 0x00, 0x00, 0x00]]);
+        assert_eq!(mwis["voicemail"]["waiting"], true, "{mwis}");
+        assert_eq!(mwis["voicemail"]["count"], 3, "{mwis}");
+        assert_eq!(mwis["fax"]["waiting"], false, "{mwis}");
+        // EF.MBI (4.2.62): mailbox dialling-number record ids, 0 = none.
+        let mbi = decode_ef("mbi", "EF.MBI", &[vec![0x01, 0x00, 0x00, 0x00]]);
+        assert_eq!(mbi["voicemail"], 1, "{mbi}");
+        assert!(mbi["fax"].is_null(), "{mbi}");
+        // EF.CFIS (4.2.64): MSP, CFU status (b1 voice), BCD length incl. TON/NPI, TON/NPI, 10 BCD octets, CCP2, EXT7.
+        let cfis = decode_ef(
+            "cfis",
+            "EF.CFIS",
+            &[vec![
+                0x01, 0x01, 0x06, 0x91, 0x21, 0x43, 0x65, 0x87, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF,
+            ]],
+        );
+        assert_eq!(cfis["msp"], 1, "{cfis}");
+        assert_eq!(cfis["voice_forwarding"], true, "{cfis}");
+        assert_eq!(cfis["number"], "+1234567890", "{cfis}");
+        // EF.SMSR (4.2.28): the EF.SMS record it belongs to, then the status-report TPDU (kept as hex). 0 = empty.
+        let smsr = decode_ef("smsr", "EF.SMSR", &[vec![0x02, 0x06, 0x01, 0xFF]]);
+        assert_eq!(smsr["sms_record"], 2, "{smsr}");
+        assert_eq!(smsr["tpdu"], "0601ff", "{smsr}");
+        assert!(decode_ef("smsr", "EF.SMSR", &[vec![0x00, 0xFF, 0xFF]])["sms_record"].is_null());
     }
 
     #[test]
@@ -510,6 +624,10 @@ mod tests {
             "impu",
             "pcscf",
             "routing-ind",
+            "mwis",
+            "mbi",
+            "cfis",
+            "smsr",
         ];
         let mut seen = std::collections::HashSet::new();
         for e in names::all() {
