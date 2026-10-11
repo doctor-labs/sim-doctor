@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `card` shell: `dir` (`--fids`, `--names`, `--apps`, `--all`) and `desc`, as in pySim-shell; both work from the shell's state and send nothing (#158, #159).
 - `card`: a pySim-shell style shell over the card (#155). It keeps the equipped card, the logical channel and the
   selected file between commands; interactive, `-c "a; b"`, `--script FILE` and `--json` (one record per command).
   `equip`, `status`, `open_channel`, `close_channel`, `channel`, `quit`. Reads are sent; commands that change the card are
