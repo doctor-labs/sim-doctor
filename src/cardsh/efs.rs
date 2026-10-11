@@ -90,7 +90,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.SMSR",
         0x6F47,
         'L',
-        "hex",
+        "smsr",
         "Short message status reports",
     ),
     (
@@ -298,7 +298,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.SMSR",
         0x6F47,
         'L',
-        "hex",
+        "smsr",
         "Short message status reports",
     ),
     (
@@ -592,7 +592,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.MBI",
         0x6FC9,
         'L',
-        "hex",
+        "mbi",
         "Mailbox identifier",
     ),
     (
@@ -600,7 +600,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.MWIS",
         0x6FCA,
         'L',
-        "hex",
+        "mwis",
         "Message waiting indication status",
     ),
     (
@@ -608,7 +608,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.CFIS",
         0x6FCB,
         'L',
-        "hex",
+        "cfis",
         "Call forwarding indication status",
     ),
     ("ADF.USIM", "EF.EXT7", 0x6FCC, 'L', "hex", "Extension 7"),
@@ -1433,13 +1433,13 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "Mailbox dialling numbers",
     ),
     ("DF.GSM", "EF.EXT6", 0x6FC8, 'L', "hex", "Extension 6"),
-    ("DF.GSM", "EF.MBI", 0x6FC9, 'L', "hex", "Mailbox identifier"),
+    ("DF.GSM", "EF.MBI", 0x6FC9, 'L', "mbi", "Mailbox identifier"),
     (
         "DF.GSM",
         "EF.MWIS",
         0x6FCA,
         'L',
-        "hex",
+        "mwis",
         "Message waiting indication status",
     ),
     (
@@ -1447,7 +1447,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.CFIS",
         0x6FCB,
         'L',
-        "hex",
+        "cfis",
         "Call forwarding indication status",
     ),
     ("DF.GSM", "EF.EXT7", 0x6FCC, 'L', "hex", "Extension 7"),
@@ -1823,7 +1823,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.SMSR",
         0x6F47,
         'L',
-        "hex",
+        "smsr",
         "Short message status reports",
     ),
     (
