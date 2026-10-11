@@ -56,7 +56,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.ARR",
         0x6F06,
         'L',
-        "tlv",
+        "arr",
         "Access rule reference",
     ),
     (
@@ -166,7 +166,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.ARR",
         0x6F06,
         'L',
-        "tlv",
+        "arr",
         "Access rule reference",
     ),
     ("ADF.USIM", "EF.IMSI", 0x6F07, 'T', "imsi", "IMSI"),
@@ -1960,7 +1960,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "alpha-list",
         "Preferred languages",
     ),
-    ("MF", "EF.ARR", 0x2F06, 'L', "tlv", "Access rule reference"),
+    ("MF", "EF.ARR", 0x2F06, 'L', "arr", "Access rule reference"),
     (
         "MF",
         "EF.UMPC",
