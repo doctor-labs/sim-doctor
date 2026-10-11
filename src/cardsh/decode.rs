@@ -252,6 +252,132 @@ fn network_name(v: &[u8]) -> Option<String> {
     }
 }
 
+/// One EF.ARR record: TS 102 221 9.2.4 expanded format. Each rule is an AM_DO (80) access-mode byte
+/// followed by its SC_DO (90/97/A4/A0/AF) condition. Walk TLVs, stop at 0xFF or the end, bounds-check.
+fn arr_record(r: &[u8]) -> Value {
+    let mut rules = Vec::new();
+    let mut pos = 0;
+    while pos + 1 < r.len() && r[pos] != 0xFF {
+        if r[pos] != 0x80 {
+            // Not an AM_DO: not a rule start; skip this octet.
+            pos += 1;
+            continue;
+        }
+        let len = usize::from(r[pos + 1]);
+        let Some(am) = r.get(pos + 2..).and_then(|s| s.first().copied()) else {
+            break;
+        };
+        let operations: Vec<String> = if len != 1 || am & 0x80 != 0 {
+            vec![format!("proprietary:{am:02X}")]
+        } else {
+            let names = [
+                (0x01, "read"),
+                (0x02, "update"),
+                (0x04, "write"),
+                (0x08, "deactivate"),
+                (0x10, "activate"),
+                (0x20, "terminate"),
+                (0x40, "delete"),
+            ];
+            names
+                .iter()
+                .filter_map(|(bit, name)| {
+                    if am & bit != 0 {
+                        Some((*name).to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+        // Condition: the SC_DO that follows the AM_DO, if present.
+        let (cond, advanced) = arr_condition(r, pos + 2 + len);
+        let condition = if advanced {
+            cond
+        } else {
+            "unknown".to_string()
+        };
+        rules.push(json!({ "operations": operations, "condition": condition }));
+        if advanced {
+            pos = arr_advance_past_sc_do(r, pos + 2 + len);
+        } else {
+            pos += 2 + len.max(1);
+        }
+    }
+    json!({ "rules": rules })
+}
+/// Parse one SC_DO (starting at `start`) and return (condition_string, is_sc_do).
+/// `is_sc_do` is false when the byte at `start` is not a recognised SC_DO tag, signalling the caller
+/// to advance only past the AM_DO.
+fn arr_condition(r: &[u8], start: usize) -> (String, bool) {
+    let Some(&tag) = r.get(start) else {
+        return ("unknown".to_string(), false);
+    };
+    let Some(&len) = r.get(start + 1) else {
+        return ("unknown".to_string(), false);
+    };
+    match tag {
+        0x90 => (String::from("always"), true),
+        0x97 => (String::from("never"), true),
+        0xA4 => {
+            // Control reference template: find 83 01 <key ref> inside it.
+            let inner = match r.get(start + 2..start + 2 + usize::from(len)) {
+                Some(v) => v,
+                None => return ("unknown".to_string(), true),
+            };
+            let mut key = None;
+            let mut i = 0;
+            while i + 1 < inner.len() {
+                let t = inner[i];
+                let l = usize::from(inner[i + 1]);
+                if t == 0x83 && l == 1 {
+                    key = inner.get(i + 2).copied();
+                    break;
+                }
+                // Ignore 0x95 usage qualifier and unknown tags: skip them.
+                i += 2 + l;
+            }
+            let name = match key {
+                Some(k) if (0x01..=0x08).contains(&k) => format!("PIN{}", k),
+                Some(k) if (0x0A..=0x0E).contains(&k) => format!("ADM{}", k - 0x09),
+                Some(0x11) => "universal PIN".to_string(),
+                Some(k) if (0x81..=0x88).contains(&k) => format!("second PIN{}", k - 0x80),
+                Some(k) => format!("key {k:02X}"),
+                None => "unknown".to_string(),
+            };
+            (name, true)
+        }
+        0xA0 | 0xAF => {
+            // OR template / AND template: join the 0xA4 conditions inside.
+            let inner = match r.get(start + 2..start + 2 + usize::from(len)) {
+                Some(v) => v,
+                None => return ("unknown".to_string(), true),
+            };
+            let sep = if tag == 0xA0 { " or " } else { " and " };
+            let mut parts = Vec::new();
+            let mut i = 0;
+            while i + 1 < inner.len() {
+                let t = inner[i];
+                let l = usize::from(inner[i + 1]);
+                if t == 0xA4 {
+                    let (c, _) = arr_condition(inner, i);
+                    parts.push(c);
+                }
+                i += 2 + l;
+            }
+            (parts.join(sep), true)
+        }
+        _ => ("unknown".to_string(), false),
+    }
+}
+/// Advance `pos` past an SC_DO at `start` (already positioned at its tag byte).
+fn arr_advance_past_sc_do(r: &[u8], start: usize) -> usize {
+    let Some(&len) = r.get(start + 1) else {
+        return start;
+    };
+    start + 2 + usize::from(len)
+}
+
 /// One EF.PNN record: TLVs (0x43 full name, 0x45 short name) until 0xFF padding or the end.
 fn pnn_record(r: &[u8]) -> Value {
     let (mut full_name, mut short_name) = (None, None);
@@ -441,6 +567,13 @@ pub fn decode_ef(kind: &str, name: &str, records: &[Vec<u8>]) -> Value {
             records,
             |r| json!({ "plmn": r.get(..3).and_then(plmn), "lac_min": r.get(3..5).map(lower), "lac_max": r.get(5..7).map(lower), "pnn_record": r.get(7) }),
         ),
+        "arr" => {
+            if records.len() > 1 {
+                per_record(records, arr_record)
+            } else {
+                arr_record(first)
+            }
+        }
         "pnn" => {
             if records.len() > 1 {
                 per_record(records, pnn_record)
@@ -509,6 +642,47 @@ mod tests {
         assert_eq!(alpha(&[0x80, 0x00, 0x48, 0x00, 0x69, 0xFF]), "Hi");
         assert_eq!(alpha(&[0x81, 0x02, 0x08, b'A', 0x81]), "A\u{0401}");
         assert_eq!(alpha(&[0xFF, 0xFF]), "");
+    }
+
+    #[test]
+    fn arr_truncated_records_never_panic() {
+        let rec = [
+            0x80, 0x01, 0x02, 0xA4, 0x06, 0x83, 0x01, 0x0A, 0x95, 0x01, 0x08, 0xAF, 0x05, 0xA4,
+            0x03, 0x83, 0x01,
+        ];
+        for n in 0..=rec.len() {
+            let _ = decode_ef("arr", "EF.ARR", &[rec[..n].to_vec()]);
+        }
+    }
+
+    #[test]
+    fn arr_records_decode_access_rules() {
+        // TS 102 221 9.2.4 expanded format: 80 AM_DO (ISO 7816-4 access-mode byte for an EF:
+        // b1 read, b2 update, b3 write, b4 deactivate, b5 activate, b6 terminate, b7 delete), followed by its SC_DO:
+        // 90 00 = always, 97 00 = never, A4 = control reference template with 83 01 <key ref> (01-08 PIN1-8, 0A-0E ADM1-5, 11 universal PIN).
+        let rec = vec![
+            0x80, 0x01, 0x01, 0x90, 0x00, // read: always
+            0x80, 0x01, 0x02, 0xA4, 0x06, 0x83, 0x01, 0x0A, 0x95, 0x01, 0x08, // update: ADM1
+            0x80, 0x01, 0x18, 0x97, 0x00, // deactivate + activate: never
+            0xFF, 0xFF,
+        ];
+        let v = decode_ef("arr", "EF.ARR", &[rec]);
+        let rules = v["rules"].as_array().unwrap_or_else(|| panic!("{v}"));
+        assert_eq!(rules.len(), 3, "{v}");
+        assert_eq!(rules[0]["operations"], serde_json::json!(["read"]));
+        assert_eq!(rules[0]["condition"], "always");
+        assert_eq!(rules[1]["operations"], serde_json::json!(["update"]));
+        assert_eq!(rules[1]["condition"], "ADM1");
+        assert_eq!(
+            rules[2]["operations"],
+            serde_json::json!(["deactivate", "activate"])
+        );
+        assert_eq!(rules[2]["condition"], "never");
+        // an unused record has no rules
+        assert_eq!(
+            decode_ef("arr", "EF.ARR", &[vec![0xFF; 6]])["rules"],
+            serde_json::json!([])
+        );
     }
 
     #[test]
@@ -628,6 +802,7 @@ mod tests {
             "mbi",
             "cfis",
             "smsr",
+            "arr",
         ];
         let mut seen = std::collections::HashSet::new();
         for e in names::all() {
