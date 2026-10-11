@@ -32,7 +32,7 @@ mod kit;
 
 use sim_doctor::{
     apdu_fuzz, apdu_scan, cat, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules, scan,
-    session, tar, trace,
+    session, sms, tar, trace,
     transport::{
         pcsc::{Pcsc, PcscSession},
         replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
@@ -229,6 +229,9 @@ enum Command {
     /// 14 envelope tags, 90 information elements, result codes and devices; the fields of the
     /// elements a review reads are decoded and the rest are shown as hex, named.
     Cat(CatArgs),
+    /// `sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT,
+    /// addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing.
+    Sms(SmsArgs),
 
     /// Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt,
     /// CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them.
@@ -1414,6 +1417,28 @@ enum RulesAction {
     },
 }
 
+/// Everything `sim-doctor sms` takes.
+#[derive(Args)]
+struct SmsArgs {
+    #[command(subcommand)]
+    action: SmsAction,
+}
+
+#[derive(Subcommand)]
+enum SmsAction {
+    /// Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin.
+    Decode {
+        /// Hex of a PDU (spaces and `0x` allowed); stdin, one per line, when none is given or for "-".
+        hex: Vec<String>,
+        /// The hex is a bare TPDU, without the leading SMSC address the PDU format carries.
+        #[arg(long)]
+        tpdu: bool,
+        /// Emit one JSON envelope of kind "sms" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Everything `sim-doctor cat` takes.
 #[derive(Args)]
 struct CatArgs {
@@ -1674,6 +1699,9 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             CatAction::Decode { hex, json } => run_cat_decode(&hex, json),
         },
         Command::OtaCrypto(args) => run_otacrypto(args),
+        Command::Sms(args) => match args.action {
+            SmsAction::Decode { hex, tpdu, json } => run_sms_decode(&hex, tpdu, json),
+        },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
         Command::Rules(args) => match args.action {
@@ -2993,6 +3021,86 @@ fn run_trace(args: &TraceArgs) -> contract::ExitCode {
         trace::render(&rows).trim_end().to_owned()
     };
     match emit_stdout(&rendered, "the decoded trace") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
+    }
+}
+
+/// `sim-doctor sms decode`: offline SMS TPDU decoding, text or one `sms` envelope. A bad hex string or a
+/// malformed PDU is a refusal with exit 2 (it could not run), never a finding.
+fn run_sms_decode(args: &[String], tpdu: bool, json: bool) -> contract::ExitCode {
+    use std::io::Read;
+    const KIND: &str = "sms";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the sms error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let mut items: Vec<String> = args.iter().filter(|a| a.as_str() != "-").cloned().collect();
+    if args.is_empty() || args.iter().any(|a| a == "-") {
+        let mut input = Vec::new();
+        if let Err(err) = io::stdin().take(MAX_WHY_FILE_BYTES).read_to_end(&mut input) {
+            return refuse(format!("cannot read stdin: {err}"));
+        }
+        items.extend(
+            String::from_utf8_lossy(&input)
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(str::to_owned),
+        );
+    }
+    if items.is_empty() {
+        return refuse("no SMS PDU given".to_owned());
+    }
+    let mut messages = Vec::new();
+    for item in &items {
+        let bytes = match cat::parse_hex(item) {
+            Ok(b) => b,
+            Err(e) => return refuse(format!("`{item}`: {e}")),
+        };
+        match sms::decode(&bytes, !tpdu) {
+            Ok(m) => messages.push(m),
+            Err(e) => return refuse(format!("`{item}`: {e}")),
+        }
+    }
+    let rendered = if json {
+        let data = serde_json::json!({ "card_touched": false, "count": messages.len(), "messages": messages });
+        match contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            data,
+        )
+        .to_json()
+        {
+            Ok(line) => line,
+            Err(err) => return refuse(err.to_string()),
+        }
+    } else {
+        messages
+            .iter()
+            .map(|m| {
+                m.as_object()
+                    .map(|o| {
+                        o.iter()
+                            .map(|(k, v)| format!("{k} {v}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    match emit_stdout(&rendered, "the decoded SMS") {
         Ok(()) => contract::ExitCode::Success,
         Err(message) => refuse(message),
     }

@@ -588,6 +588,57 @@ esac
     ;;
 esac
 ;;
+(sms)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sim-doctor__subcmd__sms_commands" \
+"*::: :->sms" \
+&& ret=0
+
+    case $state in
+    (sms)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-sms-command-$line[1]:"
+        case $line[1] in
+            (decode)
+_arguments "${_arguments_options[@]}" : \
+'--tpdu[The hex is a bare TPDU, without the leading SMSC address the PDU format carries]' \
+'--json[Emit one JSON envelope of kind "sms" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'*::hex -- Hex of a PDU (spaces and `0x` allowed); stdin, one per line, when none is given or for "-":_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__sms__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-sms-help-command-$line[1]:"
+        case $line[1] in
+            (decode)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (ota-crypto)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
@@ -1259,6 +1310,26 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(sms)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__sms_commands" \
+"*::: :->sms" \
+&& ret=0
+
+    case $state in
+    (sms)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-sms-command-$line[1]:"
+        case $line[1] in
+            (decode)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (ota-crypto)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__ota-crypto_commands" \
@@ -1424,6 +1495,7 @@ _sim-doctor_commands() {
 'gp:Read-only GlobalPlatform queries' \
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
+'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
@@ -1930,6 +2002,7 @@ _sim-doctor__subcmd__help_commands() {
 'gp:Read-only GlobalPlatform queries' \
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
+'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
@@ -2214,6 +2287,18 @@ _sim-doctor__subcmd__help__subcmd__scan_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help scan commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__sms_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__sms_commands() {
+    local commands; commands=(
+'decode:Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin' \
+    )
+    _describe -t commands 'sim-doctor help sms commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__sms__subcmd__decode_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__sms__subcmd__decode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help sms decode commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__trace_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__trace_commands() {
     local commands; commands=()
@@ -2365,6 +2450,37 @@ _sim-doctor__subcmd__rules__subcmd__list_commands() {
 _sim-doctor__subcmd__scan_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor scan commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__sms_commands] )) ||
+_sim-doctor__subcmd__sms_commands() {
+    local commands; commands=(
+'decode:Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor sms commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__sms__subcmd__decode_commands] )) ||
+_sim-doctor__subcmd__sms__subcmd__decode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor sms decode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__sms__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__sms__subcmd__help_commands() {
+    local commands; commands=(
+'decode:Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor sms help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__sms__subcmd__help__subcmd__decode_commands] )) ||
+_sim-doctor__subcmd__sms__subcmd__help__subcmd__decode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor sms help decode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__sms__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__sms__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor sms help help commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__trace_commands] )) ||
 _sim-doctor__subcmd__trace_commands() {

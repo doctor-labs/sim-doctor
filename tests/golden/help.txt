@@ -20,6 +20,7 @@ Commands:
   gp           Read-only GlobalPlatform queries
   trace        Decode a captured APDU trace offline (no card, no reader)
   cat          Decode Card Application Toolkit data offline (no card, no reader)
+  sms          `sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing
   ota-crypto   Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them. No card and no reader: pure crypto over hex given on the command line
   fuzz         APDU discovery and the OTA/SMS fuzz sweep
   euicc        eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
@@ -428,6 +429,31 @@ Arguments:
 
 Options:
       --json  Emit one JSON envelope of kind "cat" on stdout
+  -h, --help  Print help
+
+$ sim-doctor sms -h [exit 0]
+`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing
+
+Usage: sim-doctor sms <COMMAND>
+
+Commands:
+  decode  Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+$ sim-doctor sms decode -h [exit 0]
+Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin
+
+Usage: sim-doctor sms decode [OPTIONS] [HEX]...
+
+Arguments:
+  [HEX]...  Hex of a PDU (spaces and `0x` allowed); stdin, one per line, when none is given or for "-"
+
+Options:
+      --tpdu  The hex is a bare TPDU, without the leading SMSC address the PDU format carries
+      --json  Emit one JSON envelope of kind "sms" on stdout
   -h, --help  Print help
 
 $ sim-doctor ota-crypto -h [exit 0]

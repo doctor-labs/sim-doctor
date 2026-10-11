@@ -139,6 +139,7 @@ pub mod session;
 pub mod sign;
 pub mod signals;
 pub mod skill;
+pub mod sms;
 pub mod tar;
 pub mod tlv;
 pub mod trace;
@@ -353,6 +354,11 @@ pub const MODULES: &[ModuleInfo] = &[
     ModuleInfo {
         name: cat::NAME,
         owns: "The Card Application Toolkit decoder: a proactive command, ENVELOPE, TERMINAL RESPONSE or run of comprehension TLVs named and decoded (44 command types, 14 envelope tags, 90 information elements, result codes, devices); offline, sends nothing.",
+        depends_on: &[],
+    },
+    ModuleInfo {
+        name: sms::NAME,
+        owns: "Offline SMS TPDU decoding (TS 23.040): SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT, addresses, DCS, UDH and concatenation, GSM 7-bit and UCS2 text.",
         depends_on: &[],
     },
     ModuleInfo {
