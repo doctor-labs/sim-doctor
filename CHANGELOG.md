@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `decode`/reads: EF.SST decoded with two bits per service (allocated, activated) and EF.IST services named, from pySim's tables (#171).
 - `card` shell: `decode_hex`, as in pySim-shell: decode hex with the selected file's decoder, offline (#169).
 - `card` shell: `cardinfo` (reader, ATR, profile, class byte, ICCID, channels), as in pySim-shell (#161).
 - `card` shell: `dir` (`--fids`, `--names`, `--apps`, `--all`) and `desc`, as in pySim-shell; both work from the shell's state and send nothing (#158, #159).

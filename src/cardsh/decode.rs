@@ -208,11 +208,14 @@ fn ef_for(kind: &str, name: &str) -> Option<Ef> {
     })
 }
 
-/// How a service-table EF is named: the UST and EST have the names `crate::ef` carries.
+/// How a service-table EF is named: the UST, EST, IST and SST have the names
+/// `crate::ef` carries.
 fn service_table(name: &str) -> Option<ef::Table> {
     match name.to_ascii_uppercase().as_str() {
         "EF.UST" => Some(ef::Table::Ust),
         "EF.EST" => Some(ef::Table::Est),
+        "EF.IST" => Some(ef::Table::Ist),
+        "EF.SST" => Some(ef::Table::Sst),
         _ => None,
     }
 }
@@ -231,15 +234,51 @@ pub fn decode_ef(kind: &str, name: &str, records: &[Vec<u8>]) -> Value {
         };
     }
     match kind {
-        "services" => {
-            let table = service_table(name);
-            let on = bitmap(first);
-            let named: Vec<Value> = on
-                .iter()
-                .map(|n| json!({ "service": n, "name": table.and_then(|t| ef::service_name(t, *n as u16)) }))
-                .collect();
-            json!({ "enabled": on, "services": named })
-        }
+        "services" => match service_table(name) {
+            Some(ef::Table::Sst) => {
+                let (allocated, activated) = ef::decode_sst(first);
+                let services: Vec<Value> = allocated
+                    .iter()
+                    .map(|n| {
+                        let alloc = true;
+                        let act = activated.contains(n);
+                        json!({
+                            "service": n,
+                            "name": ef::sst_service_name(*n),
+                            "allocated": alloc,
+                            "activated": act,
+                        })
+                    })
+                    .collect();
+                let enabled: Vec<u16> = allocated
+                    .iter()
+                    .copied()
+                    .filter(|n| activated.contains(n))
+                    .collect();
+                json!({
+                    "allocated": allocated,
+                    "activated": activated,
+                    "enabled": enabled,
+                    "services": services,
+                })
+            }
+            Some(table) => {
+                let on = bitmap(first);
+                let named: Vec<Value> = on
+                    .iter()
+                    .map(|n| json!({ "service": n, "name": ef::service_name(table, *n as u16) }))
+                    .collect();
+                json!({ "enabled": on, "services": named })
+            }
+            None => {
+                let on = bitmap(first);
+                let named: Vec<Value> = on
+                    .iter()
+                    .map(|n| json!({ "service": n, "name": Value::Null }))
+                    .collect();
+                json!({ "enabled": on, "services": named })
+            }
+        },
         "uint" => json!({ "value": uint(first), "hex": lower(first) }),
         "plmn-list" => {
             json!({ "plmns": first.chunks_exact(3).filter_map(plmn).collect::<Vec<_>>() })
