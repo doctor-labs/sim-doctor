@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `card` shell: `decode_hex`, as in pySim-shell: decode hex with the selected file's decoder, offline (#169).
+- `card` shell: `cardinfo` (reader, ATR, profile, class byte, ICCID, channels), as in pySim-shell (#161).
 - `card` shell: `dir` (`--fids`, `--names`, `--apps`, `--all`) and `desc`, as in pySim-shell; both work from the shell's state and send nothing (#158, #159).
 - `card`: a pySim-shell style shell over the card (#155). It keeps the equipped card, the logical channel and the
   selected file between commands; interactive, `-c "a; b"`, `--script FILE` and `--json` (one record per command).

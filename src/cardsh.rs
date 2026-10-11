@@ -1710,6 +1710,9 @@ pub fn grammar() -> clap::Command {
                 ),
         )
         .subcommand(C::new("status").about("Show the card, the channel and the selected file"))
+        .subcommand(C::new("cardinfo").about(
+            "Show the card: reader, ATR, profile, class byte, ICCID (read from EF.ICCID), channels",
+        ))
         .subcommand(
             C::new("open_channel")
                 .about("MANAGE CHANNEL open: take a supplementary logical channel and use it"),
@@ -1964,6 +1967,7 @@ impl Shell {
             }),
             "equip" => self.cmd_equip(args),
             "status" => self.cmd_status(),
+            "cardinfo" => self.cmd_cardinfo(),
             "apdu" => self.cmd_apdu(args),
             "read_binary" => self.cmd_read_binary(args),
             "read_record" => self.cmd_read_record(args),
@@ -2138,6 +2142,35 @@ impl Shell {
                 "file": file,
                 "send_state_changing": yes,
                 "verified_key_references": card.verified.iter().map(|k| format!("{k:02X}")).collect::<Vec<_>>(),
+            }),
+        ))
+    }
+
+    fn cmd_cardinfo(&mut self) -> CmdResult {
+        let iccid = self.iccid()?;
+        let card = self.equipped()?;
+        let channels: Vec<u8> = card.chans.keys().copied().collect();
+        let class_byte = format!("{:02X}", card.cla());
+        let text = format!(
+            "reader {}\natr {}\nprofile {}\nclass_byte {}\niccid {}\nchannel {}\nopen_channels {:?}",
+            card.reader,
+            card.atr.as_deref().map(hex_upper).as_deref().unwrap_or("null"),
+            card.profile.id(),
+            class_byte,
+            iccid,
+            card.channel,
+            channels,
+        );
+        Ok(Reply::ok(
+            text,
+            json!({
+                "reader": card.reader,
+                "atr": card.atr.as_deref().map(hex_upper),
+                "profile": card.profile.id(),
+                "class_byte": class_byte,
+                "iccid": iccid,
+                "channel": card.channel,
+                "open_channels": channels,
             }),
         ))
     }
