@@ -555,3 +555,29 @@ fn decode_hex_decodes_with_the_selected_files_decoder_and_needs_a_selected_ef() 
     assert_eq!(r[4]["ok"], false, "not hex");
     assert_eq!(out.status.code(), Some(1));
 }
+
+#[test]
+fn cardinfo_reads_the_iccid_and_leaves_the_selection_where_it_was() {
+    let out = card(
+        "cardsh_cardinfo.jsonl",
+        &["--json", "-c", "select 7F20; cardinfo; status"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 3);
+    let info = &r[1]["data"];
+    assert_eq!(info["iccid"], "89010123456789012345");
+    assert_eq!(info["profile"], "uicc");
+    assert_eq!(info["class_byte"], "00");
+    assert_eq!(info["channel"], 0);
+    assert!(info.get("atr").is_some() && info.get("reader").is_some());
+    assert_eq!(
+        r[2]["data"]["path"], "3F00/7F20",
+        "cardinfo restored the selection"
+    );
+}

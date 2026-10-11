@@ -648,6 +648,11 @@ pub const FIXTURES: &[(&str, bool, &str)] = &[
          select EF.IMSI; select_path 6FAD; select 2FE2",
     ),
     (
+        "cardsh_cardinfo.jsonl",
+        false,
+        "select 7F20; cardinfo; status",
+    ),
+    (
         "cardsh_read.jsonl",
         false,
         "select 2FE2; read_binary; read_binary --offset 2 --length 3; read_binary --length 20; select 3F00/7F10/6F3A; \
