@@ -317,8 +317,8 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "adn",
         "Service dialling numbers",
     ),
-    ("ADF.USIM", "EF.EXT2", 0x6F4B, 'L', "hex", "Extension 2"),
-    ("ADF.USIM", "EF.EXT3", 0x6F4C, 'L', "hex", "Extension 3"),
+    ("ADF.USIM", "EF.EXT2", 0x6F4B, 'L', "ext", "Extension 2"),
+    ("ADF.USIM", "EF.EXT3", 0x6F4C, 'L', "ext", "Extension 3"),
     (
         "ADF.USIM",
         "EF.BDN",
@@ -327,7 +327,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "adn",
         "Barred dialling numbers",
     ),
-    ("ADF.USIM", "EF.EXT5", 0x6F4E, 'L', "hex", "Extension 5"),
+    ("ADF.USIM", "EF.EXT5", 0x6F4E, 'L', "ext", "Extension 5"),
     (
         "ADF.USIM",
         "EF.CCP2",
@@ -344,7 +344,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "cbmi",
         "Cell broadcast message identifier range selection",
     ),
-    ("ADF.USIM", "EF.EXT4", 0x6F55, 'L', "hex", "Extension 4"),
+    ("ADF.USIM", "EF.EXT4", 0x6F55, 'L', "ext", "Extension 4"),
     (
         "ADF.USIM",
         "EF.EST",
@@ -586,7 +586,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "adn",
         "Mailbox dialling numbers",
     ),
-    ("ADF.USIM", "EF.EXT6", 0x6FC8, 'L', "hex", "Extension 6"),
+    ("ADF.USIM", "EF.EXT6", 0x6FC8, 'L', "ext", "Extension 6"),
     (
         "ADF.USIM",
         "EF.MBI",
@@ -611,7 +611,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "cfis",
         "Call forwarding indication status",
     ),
-    ("ADF.USIM", "EF.EXT7", 0x6FCC, 'L', "hex", "Extension 7"),
+    ("ADF.USIM", "EF.EXT7", 0x6FCC, 'L', "ext", "Extension 7"),
     (
         "ADF.USIM",
         "EF.SPDI",
@@ -628,7 +628,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "hex",
         "MMS notification",
     ),
-    ("ADF.USIM", "EF.EXT8", 0x6FCF, 'L', "hex", "Extension 8"),
+    ("ADF.USIM", "EF.EXT8", 0x6FCF, 'L', "ext", "Extension 8"),
     (
         "ADF.USIM",
         "EF.MMSICP",
@@ -1432,7 +1432,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "adn",
         "Mailbox dialling numbers",
     ),
-    ("DF.GSM", "EF.EXT6", 0x6FC8, 'L', "hex", "Extension 6"),
+    ("DF.GSM", "EF.EXT6", 0x6FC8, 'L', "ext", "Extension 6"),
     ("DF.GSM", "EF.MBI", 0x6FC9, 'L', "mbi", "Mailbox identifier"),
     (
         "DF.GSM",
@@ -1450,7 +1450,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "cfis",
         "Call forwarding indication status",
     ),
-    ("DF.GSM", "EF.EXT7", 0x6FCC, 'L', "hex", "Extension 7"),
+    ("DF.GSM", "EF.EXT7", 0x6FCC, 'L', "ext", "Extension 7"),
     (
         "DF.GSM",
         "EF.SPDI",
@@ -1460,7 +1460,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "Service provider display information",
     ),
     ("DF.GSM", "EF.MMSN", 0x6FCE, 'L', "hex", "MMS notification"),
-    ("DF.GSM", "EF.EXT8", 0x6FCF, 'L', "hex", "Extension 8"),
+    ("DF.GSM", "EF.EXT8", 0x6FCF, 'L', "ext", "Extension 8"),
     (
         "DF.GSM",
         "EF.MMSICP",
@@ -1699,7 +1699,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.EXT1",
         0x4F4A,
         'L',
-        "hex",
+        "ext",
         "Extension 1 (phone book)",
     ),
     (
@@ -1834,9 +1834,9 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "adn",
         "Service dialling numbers",
     ),
-    ("DF.TELECOM", "EF.EXT1", 0x6F4A, 'L', "hex", "Extension 1"),
-    ("DF.TELECOM", "EF.EXT2", 0x6F4B, 'L', "hex", "Extension 2"),
-    ("DF.TELECOM", "EF.EXT3", 0x6F4C, 'L', "hex", "Extension 3"),
+    ("DF.TELECOM", "EF.EXT1", 0x6F4A, 'L', "ext", "Extension 1"),
+    ("DF.TELECOM", "EF.EXT2", 0x6F4B, 'L', "ext", "Extension 2"),
+    ("DF.TELECOM", "EF.EXT3", 0x6F4C, 'L', "ext", "Extension 3"),
     (
         "DF.TELECOM",
         "EF.BDN",
@@ -1845,7 +1845,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "adn",
         "Barred dialling numbers",
     ),
-    ("DF.TELECOM", "EF.EXT4", 0x6F4E, 'L', "hex", "Extension 4"),
+    ("DF.TELECOM", "EF.EXT4", 0x6F4E, 'L', "ext", "Extension 4"),
     (
         "DF.TELECOM",
         "EF.ECCP",
