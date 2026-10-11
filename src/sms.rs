@@ -93,7 +93,7 @@ fn decode_smsc(bytes: &[u8], pos: usize) -> Result<(Option<String>, usize), Stri
 }
 
 /// Unpack GSM 7-bit septets (LSB-first packing) skipping `skip_septets` leading septets.
-fn unpack_gsm7(ud: &[u8], skip_septets: u32, count: u32) -> String {
+pub(crate) fn unpack_gsm7(ud: &[u8], skip_septets: u32, count: u32) -> String {
     let mut out = String::new();
     let total_bits = (ud.len() as u32) * 8;
     let mut produced = 0u32;

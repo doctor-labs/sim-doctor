@@ -220,6 +220,57 @@ fn service_table(name: &str) -> Option<ef::Table> {
     }
 }
 
+/// Decode a TS 24.008 / TS 31.102 network name value (coding octet + text bytes).
+/// Scheme 0 (coding octet bits 7-5 == 0) is GSM 7-bit default alphabet; scheme 1 is UCS-2 big-endian.
+/// Returns `None` when the coding scheme is unrecognised or the bytes are empty/just padding.
+fn network_name(v: &[u8]) -> Option<String> {
+    if v.is_empty() {
+        return None;
+    }
+    let scheme = (v[0] >> 4) & 0x07;
+    let text = &v[1..];
+    let spare = usize::from(v[0] & 0x07);
+    match scheme {
+        0 => {
+            // GSM 7-bit: septet count = (text_len * 8 - spare) / 7
+            if text.is_empty() {
+                return None;
+            }
+            let text_len = text.len();
+            let count = (text_len as u32 * 8 - spare as u32) / 7;
+            Some(crate::sms::unpack_gsm7(text, 0, count))
+        }
+        1 => {
+            // UCS2 big-endian: decode the whole buffer so surrogate pairs survive
+            let units: Vec<u16> = text
+                .chunks_exact(2)
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .collect();
+            Some(String::from_utf16_lossy(&units))
+        }
+        _ => None,
+    }
+}
+
+/// One EF.PNN record: TLVs (0x43 full name, 0x45 short name) until 0xFF padding or the end.
+fn pnn_record(r: &[u8]) -> Value {
+    let (mut full_name, mut short_name) = (None, None);
+    let mut pos = 0;
+    while pos + 1 < r.len() && r[pos] != 0xFF {
+        let (tag, len) = (r[pos], usize::from(r[pos + 1]));
+        let Some(value) = r.get(pos + 2..pos + 2 + len) else {
+            break;
+        };
+        match tag {
+            0x43 => full_name = network_name(value),
+            0x45 => short_name = network_name(value),
+            _ => {}
+        }
+        pos += 2 + len;
+    }
+    json!({ "full_name": full_name, "short_name": short_name })
+}
+
 /// Decodes the content of one standard EF. `kind` is the table's decoder name, `name` the file name
 /// and `records` the content (one element for a transparent file). The result is the typed fields;
 /// a file that does not parse comes back as `{"error", "hex"}` and never as an empty success.
@@ -334,6 +385,13 @@ pub fn decode_ef(kind: &str, name: &str, records: &[Vec<u8>]) -> Value {
             records,
             |r| json!({ "plmn": r.get(..3).and_then(plmn), "lac_min": r.get(3..5).map(lower), "lac_max": r.get(5..7).map(lower), "pnn_record": r.get(7) }),
         ),
+        "pnn" => {
+            if records.len() > 1 {
+                per_record(records, pnn_record)
+            } else {
+                pnn_record(first)
+            }
+        }
         "uri" => {
             let t = tlv(first, 0);
             json!({ "value": t[0]["value"].as_str().and_then(|h| hex::decode(h).ok()).map(|b| String::from_utf8_lossy(&b).into_owned()), "tlv": t })
@@ -367,6 +425,27 @@ mod tests {
         assert_eq!(alpha(&[0x80, 0x00, 0x48, 0x00, 0x69, 0xFF]), "Hi");
         assert_eq!(alpha(&[0x81, 0x02, 0x08, b'A', 0x81]), "A\u{0401}");
         assert_eq!(alpha(&[0xFF, 0xFF]), "");
+    }
+
+    #[test]
+    fn pnn_network_names_decode_gsm7_and_ucs2() {
+        // TS 24.008 network name: coding octet (ext bit, scheme in bits 7-5, spare bits in the last octet in bits 3-1), then text.
+        // "Jio" packed GSM 7-bit = CA F4 1B with 3 spare bits -> coding 0x83. Full name tag 0x43, short name tag 0x45.
+        let rec = vec![
+            0x43, 0x04, 0x83, 0xCA, 0xF4, 0x1B, 0x45, 0x04, 0x83, 0xCA, 0xF4, 0x1B, 0xFF, 0xFF,
+        ];
+        let v = decode_ef("pnn", "EF.PNN", &[rec]);
+        assert_eq!(v["full_name"], "Jio", "{v}");
+        assert_eq!(v["short_name"], "Jio", "{v}");
+        // UCS2 (scheme 001 -> coding 0x90): "Hi"
+        let ucs2 = vec![0x43, 0x05, 0x90, 0x00, 0x48, 0x00, 0x69, 0xFF];
+        assert_eq!(decode_ef("pnn", "EF.PNN", &[ucs2])["full_name"], "Hi");
+        // an unused record decodes to no names, not an error
+        let empty = decode_ef("pnn", "EF.PNN", &[vec![0xFF; 8]]);
+        assert!(
+            empty.get("error").is_none() && empty["full_name"].is_null(),
+            "{empty}"
+        );
     }
 
     #[test]
@@ -422,6 +501,7 @@ mod tests {
             "acc",
             "ecc",
             "opl",
+            "pnn",
             "suci",
             "iccid",
             "acl",

@@ -567,7 +567,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.PNN",
         0x6FC5,
         'L',
-        "tlv",
+        "pnn",
         "PLMN network name",
     ),
     (
@@ -1422,7 +1422,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "ecc",
         "Emergency call codes",
     ),
-    ("DF.GSM", "EF.PNN", 0x6FC5, 'L', "tlv", "PLMN network name"),
+    ("DF.GSM", "EF.PNN", 0x6FC5, 'L', "pnn", "PLMN network name"),
     ("DF.GSM", "EF.OPL", 0x6FC6, 'L', "opl", "Operator PLMN list"),
     (
         "DF.GSM",
