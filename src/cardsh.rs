@@ -1334,6 +1334,118 @@ impl Shell {
             .unwrap_or(256))
     }
 
+    fn cmd_update_binary(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let data =
+            parse_hex(args.get_one::<String>("data").expect("required")).map_err(CmdErr::new)?;
+        let offset = *args.get_one::<u16>("offset").expect("default");
+        let read_back = args.get_flag("read_back");
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        // Refuse record-structured files, mirroring cmd_read_binary's check.
+        if card.ef()?.structure.is_some_and(|st| st != "transparent") {
+            return Err(CmdErr::new(format!(
+                "the selected file is {}: use update_record / update_records",
+                card.ef()?.structure.unwrap_or("record-structured")
+            )));
+        }
+        let cla = card.cla();
+        let command = update_binary_command(cla, offset, &data);
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {} (UPDATE BINARY changes the card; add --yes to send)",
+                    hex_upper(&wire)
+                ),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let result = if read_back {
+            let readback = card.read_binary(offset, data.len() as u32)?;
+            let verified = readback == data;
+            Reply::ok(
+                format!("UPDATE BINARY done: {}", sw_text(sw)),
+                json!({
+                    "sent": true,
+                    "apdu": hex_upper(&wire),
+                    "sw": sw.map(|s| s.to_string()),
+                    "verified": verified,
+                }),
+            )
+        } else {
+            Reply::ok(
+                format!("UPDATE BINARY done: {}", sw_text(sw)),
+                json!({
+                    "sent": true,
+                    "apdu": hex_upper(&wire),
+                    "sw": sw.map(|s| s.to_string()),
+                }),
+            )
+        };
+        Ok(result)
+    }
+
+    fn cmd_update_record(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let data =
+            parse_hex(args.get_one::<String>("data").expect("required")).map_err(CmdErr::new)?;
+        let record = *args.get_one::<u16>("record").expect("required");
+        if record < 1 {
+            return Err(CmdErr::new("--record is a record number from 1"));
+        }
+        let mode =
+            parse_hex(args.get_one::<String>("mode").expect("default")).map_err(CmdErr::new)?;
+        let mode = mode[0];
+        let read_back = args.get_flag("read_back");
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        // Refuse transparent files, mirroring cmd_read_record's check (inverted).
+        if card.ef()?.structure == Some("transparent") {
+            return Err(CmdErr::new(
+                "the selected file is transparent: use update_binary",
+            ));
+        }
+        let cla = card.cla();
+        let command = update_record_command(cla, record as u8, mode, &data);
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {} (UPDATE RECORD changes the card; add --yes to send)",
+                    hex_upper(&wire)
+                ),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let result = if read_back {
+            let le = u32::from(card.ef()?.record_length.unwrap_or(256));
+            let readback = card.read(0xB2, record as u8, 0x04, le)?;
+            let verified = readback == data;
+            Reply::ok(
+                format!("UPDATE RECORD done: {}", sw_text(sw)),
+                json!({
+                    "sent": true,
+                    "apdu": hex_upper(&wire),
+                    "sw": sw.map(|s| s.to_string()),
+                    "verified": verified,
+                }),
+            )
+        } else {
+            Reply::ok(
+                format!("UPDATE RECORD done: {}", sw_text(sw)),
+                json!({
+                    "sent": true,
+                    "apdu": hex_upper(&wire),
+                    "sw": sw.map(|s| s.to_string()),
+                }),
+            )
+        };
+        Ok(result)
+    }
+
     fn cmd_read_record(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let card = self.equipped()?;
         let ef = card.ef()?;
@@ -1604,6 +1716,23 @@ pub fn hex_upper(bytes: &[u8]) -> String {
     hex::encode_upper(bytes)
 }
 
+/// UPDATE BINARY of `offset` with `data`, on the given channel class.
+/// P1P2 carry the offset as a 16-bit big-endian value; the body is the new
+/// octets. ISO/IEC 7816-4 INS 0xD6.
+pub fn update_binary_command(cla: u8, offset: u16, data: &[u8]) -> apdu::Command {
+    apdu::Command::case3(
+        apdu::Header::new(cla, 0xD6, (offset >> 8) as u8, offset as u8),
+        data.to_vec(),
+    )
+}
+
+/// UPDATE RECORD of `record` with `data`, mode `mode` (0x04 = absolute),
+/// on the given channel class. P1 = record number, P2 = mode; the body is
+/// the new octets. ISO/IEC 7816-4 INS 0xDC.
+pub fn update_record_command(cla: u8, record: u8, mode: u8, data: &[u8]) -> apdu::Command {
+    apdu::Command::case3(apdu::Header::new(cla, 0xDC, record, mode), data.to_vec())
+}
+
 /// Splits a line into words: spaces separate, `'...'` and `"..."` group, a backslash escapes.
 pub fn split_words(line: &str) -> Result<Vec<String>, String> {
     let mut words = Vec::new();
@@ -1794,6 +1923,23 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("length").long("length").value_name("N").value_parser(clap::value_parser!(u16).range(1..=256))),
         )
         .subcommand(
+            C::new("update_binary")
+                .about("UPDATE BINARY of the selected transparent EF (--offset, --data hex); a dry run unless --yes; --read-back verifies")
+                .arg(Arg::new("offset").long("offset").value_name("N").default_value("0").value_parser(clap::value_parser!(u16).range(0..=0x7FFF)))
+                .arg(Arg::new("data").long("data").value_name("HEX").required(true).help("new bytes for the EF"))
+                .arg(Arg::new("read_back").long("read-back").action(clap::ArgAction::SetTrue).help("read the EF back and confirm it matches --data"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("update_record")
+                .about("UPDATE RECORD number N of the selected record EF (--record, --data hex); a dry run unless --yes; --read-back verifies")
+                .arg(Arg::new("record").long("record").value_name("N").required(true).value_parser(clap::value_parser!(u16).range(1..=254)))
+                .arg(Arg::new("mode").long("mode").value_name("HEX").default_value("04").help("P2: 04 is absolute (current) addressing"))
+                .arg(Arg::new("data").long("data").value_name("HEX").required(true).help("new bytes for the record"))
+                .arg(Arg::new("read_back").long("read-back").action(clap::ArgAction::SetTrue).help("read the record back and confirm it matches --data"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("read_records")
                 .about("READ RECORD of every record (or --from .. --to) of the selected record EF")
                 .arg(Arg::new("from").long("from").value_name("N").default_value("1").value_parser(clap::value_parser!(u8).range(1..=254)))
@@ -1971,6 +2117,8 @@ impl Shell {
             "apdu" => self.cmd_apdu(args),
             "read_binary" => self.cmd_read_binary(args),
             "read_record" => self.cmd_read_record(args),
+            "update_binary" => self.cmd_update_binary(args),
+            "update_record" => self.cmd_update_record(args),
             "read_records" => self.cmd_read_records(args),
             "read_binary_decoded" => self.cmd_read_decoded(Which::Binary),
             "read_record_decoded" => self.cmd_read_decoded(Which::Record(
@@ -2513,6 +2661,30 @@ pub(crate) mod testcard;
 mod tests {
     use super::testcard::*;
     use super::*;
+
+    #[test]
+    fn update_binary_and_record_build_the_right_apdu_and_are_gated() {
+        // UPDATE BINARY (INS 0xD6): P1P2 = offset, body = new data.
+        let u = update_binary_command(0, 0x0005, &[0xAA, 0xBB, 0xCC]);
+        assert_eq!(
+            u.encode().unwrap(),
+            vec![0x00, 0xD6, 0x00, 0x05, 0x03, 0xAA, 0xBB, 0xCC]
+        );
+        // on a logical channel the class carries the channel number
+        assert_eq!(
+            update_binary_command(1, 0, &[0x11]).encode().unwrap(),
+            vec![0x01, 0xD6, 0x00, 0x00, 0x01, 0x11]
+        );
+        // UPDATE RECORD (INS 0xDC): P1 = record number, P2 = mode (0x04 = absolute/current).
+        let r = update_record_command(0, 2, 0x04, &[0x01, 0x02]);
+        assert_eq!(
+            r.encode().unwrap(),
+            vec![0x00, 0xDC, 0x02, 0x04, 0x02, 0x01, 0x02]
+        );
+        // both change the card, so they are NOT read-only (the shell gates them behind --yes)
+        assert!(!is_read_only(0xD6));
+        assert!(!is_read_only(0xDC));
+    }
 
     #[test]
     fn words_group_and_escape() {
