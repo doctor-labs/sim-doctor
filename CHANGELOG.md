@@ -46,6 +46,16 @@ All notable changes to this project are documented here. The format follows
   pattern as `verify_chv` (dry run unless `--yes`, values masked, last PUK try needs `--allow-last-attempt`, one attempt).
 - `card`: `run_gsm_algorithm [--rand HEX] [--repeat N]` (#190): the GSM authentication probe, SRES and Kc, USIM GSM context or
   RUN GSM ALGORITHM (`--profile sim`), determinism check with `--repeat`; a dry run unless `--yes`.
+- `card`: `change_chv [--pin-nr N | --universal | --adm-nr N | --key-ref HEX] [--allow-last-attempt] [--yes]` (#192): CHANGE CHV
+  (INS 0x24, ISO/IEC 7816-4 7.5.3, 3GPP TS 31.102 7.1.3.1). The old and new PINs come from the PIN source (`pinN` and `new-pinN`
+  / `upuk` and `new-universal`), are masked in the dry run, the try counter is asked first, and the old value is dropped from the
+  session's verified set afterwards. A wrong value costs a try and can block the key.
+- `card`: `enable_chv [--pin-nr N | --universal | --adm-nr N | --key-ref HEX] [--allow-last-attempt] [--yes]` (#193): ENABLE CHV
+  (INS 0x28, ISO/IEC 7816-4 7.5.5, 3GPP TS 31.102 7.1.3.3). A case 1 command with no data field, dry run unless `--yes`.
+- `card`: `disable_chv [--pin-nr N | --universal | --adm-nr N | --key-ref HEX] [--allow-last-attempt] [--yes]` (#193): DISABLE CHV
+  (INS 0x26, ISO/IEC 7816-4 7.5.5, 3GPP TS 31.102 7.1.3.2). A case 1 command with no data field, dry run unless `--yes`.
+- `card`: the `change_chv`, `enable_chv` and `disable_chv` shell commands join `verify_chv` and `unblock_chv` in warning that a
+  wrong PIN or PUK costs a try and can block the key permanently (#192, #193).
 - `card`: `authenticate [--rand] [--autn | --sqn N [--amf]] [--resync]` (#191): the UMTS AUTHENTICATE probe in the 3G context.
   Success (RES, CK, IK checked against the host's Milenage when `ki`/`opc` are given), synchronisation failure (AUTS opened:
   SQNms, MAC-S) and MAC failure are told apart; `--resync` sends once more with SQNms + 1. `aka` gains `autn` and `open_auts`.
