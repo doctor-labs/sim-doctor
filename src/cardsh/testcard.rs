@@ -119,6 +119,8 @@ impl TestCard {
                 Some(0),
                 vec![vec![0x00, 0x00, 0x00, 0x02]],
             ),
+            // EF.UST: empty service table (1 byte of 0x00 — no services).
+            f(&[mf, ADF, 0x6F38], false, Some(0), vec![vec![0x00]]),
             f(&[mf, 0x7F10], true, None, vec![]),
             f(
                 &[mf, 0x7F10, 0x6F3A],
@@ -152,6 +154,8 @@ impl TestCard {
                 Some(0),
                 vec![vec![0x08, 0x29, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10]],
             ),
+            // EF.SST: empty SIM service table (1 byte of 0x00 — no services).
+            f(&[mf, 0x7F20, 0x6F38], false, Some(0), vec![vec![0x00]]),
         ];
         Self {
             reader: ReaderName::new("test card").unwrap(),
@@ -339,6 +343,35 @@ impl TestCard {
             r
         }
     }
+
+    /// UPDATE BINARY (0xD6) for the selected transparent EF: writes `data` at `offset`.
+    fn write(&mut self, ch: usize, cmd: &[u8]) -> Vec<u8> {
+        let ef = self.cur[ch].1.clone();
+        let Some(path) = ef else {
+            return vec![0x69, 0x86];
+        };
+        let idx = self.files.iter().position(|f| f.path == path);
+        let Some(idx) = idx else {
+            return vec![0x69, 0x86];
+        };
+        let file = &mut self.files[idx];
+        if file.rec_len.is_some_and(|l| l > 0) {
+            return vec![0x69, 0x81];
+        }
+        let off = (usize::from(cmd[2] & 0x7F) << 8) | usize::from(cmd[3]);
+        let data: &[u8] = if cmd.len() > 5 {
+            &cmd[5..5 + usize::from(cmd[4]).min(cmd.len() - 5)]
+        } else {
+            &[]
+        };
+        // Grow the content if the write extends past the end, then splice.
+        let content = &mut file.content[0];
+        if off + data.len() > content.len() {
+            content.resize(off + data.len(), 0);
+        }
+        content[off..off + data.len()].copy_from_slice(data);
+        vec![0x90, 0x00]
+    }
 }
 
 impl CardSession for TestCard {
@@ -400,6 +433,7 @@ impl CardSession for TestCard {
                 None => vec![0x6F, 0x00],
             },
             0xB0 | 0xB2 => self.read(ch, c),
+            0xD6 => self.write(ch, c),
             0x70 => {
                 if c[2] == 0x00 {
                     match (1u8..=3).find(|n| !self.open.contains(n)) {

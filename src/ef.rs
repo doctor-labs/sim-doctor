@@ -848,6 +848,8 @@ pub enum Table {
     Ist,
     /// EF.SST, TS 51.011 clause 10.3.7.
     Sst,
+    /// EF.5G_PROSE_ST, TS 31.102 clause 4.6.5.1.
+    Prose,
 }
 
 /// The services a table marks available (UST) or enabled (EST).
@@ -875,6 +877,40 @@ pub fn decode_services(table: Table, bytes: &[u8]) -> Result<Services, Malformed
         })
         .collect();
     Ok(Services { table, enabled })
+}
+
+/// Set or clear the single service bit for service `n` in a 1-bit table
+/// (UST, EST, IST, PROSE — TS 31.102 clause 4.2.8 / 4.2.47, TS 31.103 clause 4.2.7,
+/// TS 31.102 clause 4.6.5.1): service `n` is bit `(n-1) % 8` of octet `(n-1) / 8`.
+///
+/// The buffer is grown with zero octets so a service past the current end is
+/// accommodated, mirroring pySim's `ust_update`.
+pub fn write_service_bit(bytes: &mut Vec<u8>, service: u16, on: bool) {
+    let i = (service - 1) / 8;
+    let bit = (service - 1) % 8;
+    while bytes.len() <= usize::from(i) {
+        bytes.push(0);
+    }
+    if on {
+        bytes[usize::from(i)] |= 1 << bit;
+    } else {
+        bytes[usize::from(i)] &= !(1 << bit);
+    }
+}
+
+/// Set or clear a two-bit service field in EF.SST (TS 51.011 clause 10.3.7):
+/// service `n` uses bits `2*((n-1)%4)` (allocated) and `2*((n-1)%4)+1` (activated)
+/// of octet `(n-1)/4`.
+pub fn write_sst_service(bytes: &mut Vec<u8>, service: u16, allocated: bool, activated: bool) {
+    let i = (service - 1) / 4;
+    let bit = 2 * ((service - 1) % 4);
+    while bytes.len() <= usize::from(i) {
+        bytes.push(0);
+    }
+    let mask = 0b11 << bit;
+    bytes[usize::from(i)] = (bytes[usize::from(i)] & !mask)
+        | (u8::from(allocated) << bit)
+        | (u8::from(activated) << (bit + 1));
 }
 
 /// ISIM service names (TS 31.103 clause 4.2.7; names verbatim from pySim's `EF_IST_map`).
@@ -1285,6 +1321,7 @@ impl Decoded {
                         Table::Ust => "available",
                         Table::Est => "enabled",
                         Table::Ist | Table::Sst => "enabled",
+                        Table::Prose => "available",
                     },
                     if shown.is_empty() {
                         "none".to_owned()
@@ -1381,7 +1418,7 @@ impl Decoded {
                 "name": s.name,
             }),
             Self::Services(s) => json!({
-                "table": match s.table { Table::Ust => "UST", Table::Est => "EST", Table::Ist => "IST", Table::Sst => "SST" },
+                "table": match s.table { Table::Ust => "UST", Table::Est => "EST", Table::Ist => "IST", Table::Sst => "SST", Table::Prose => "5G_PROSE_ST" },
                 "count": s.enabled.len(),
                 "enabled": s.enabled,
                 "named": s.enabled.iter().filter_map(|n| {
