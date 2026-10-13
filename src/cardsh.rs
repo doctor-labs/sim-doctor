@@ -1474,6 +1474,59 @@ impl Shell {
         Err(CmdErr { message: why, data })
     }
 
+    /// Builds the TERMINATE command for the active channel, sends it once (or
+    /// prints what it would send), and reports the status word.
+    ///
+    /// `ins` is the TERMINATE family instruction (0xE6/0xE8/0xFE); `what` is a
+    /// human label ("DF", "file", "card usage") used in the dry-run text.
+    fn cmd_terminate(&mut self, args: &clap::ArgMatches, ins: u8, what: &str) -> CmdResult {
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let cla = card.cla();
+        let command = match ins {
+            0xE6 => terminate_df_command(cla),
+            0xE8 => terminate_ef_command(cla),
+            0xFE => terminate_card_usage_command(cla),
+            other => unreachable!("only TERMINATE DF/Ef/EF/CARD USAGE are wired here: {other:02X}"),
+        };
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        let apdu = hex_upper(&wire);
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {apdu} (TERMINATE {what} can PERMANENTLY disable the selected {what}; add --yes to send)"
+                ),
+                json!({ "sent": false, "apdu": apdu }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let data = json!({
+            "sent": true,
+            "apdu": apdu,
+            "sw": sw.map(|s| s.to_string()),
+        });
+        if sw.is_some_and(StatusWord::is_success) {
+            return Ok(Reply::ok(format!("TERMINATE {what} done"), data));
+        }
+        Err(CmdErr {
+            message: format!("TERMINATE {what} refused: {}", sw_text(sw)),
+            data,
+        })
+    }
+
+    fn cmd_terminate_df(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        self.cmd_terminate(args, 0xE6, "DF")
+    }
+
+    fn cmd_terminate_ef(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        self.cmd_terminate(args, 0xE8, "file")
+    }
+
+    fn cmd_terminate_card_usage(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        self.cmd_terminate(args, 0xFE, "card usage")
+    }
+
     fn cmd_read_decoded(&mut self, which: Which) -> CmdResult {
         let card = self.equipped()?;
         let ef = card.ef()?;
@@ -2118,6 +2171,29 @@ pub fn deactivate_file_command(channel: u8, file_id: &[u8]) -> FileCommand {
     )))
 }
 
+/// Builds a header-only APDU for the given class/INS, with P1 = P2 = 00 and no
+/// data field (ISO/IEC 7816-4 case 1). The `decode` path is what `cmd_apdu`
+/// uses, and a 4-byte input yields a case-1 command with no Le.
+fn terminate_command(cla: u8, ins: u8) -> apdu::Command {
+    apdu::Command::decode(&[cla, ins, 0x00, 0x00])
+        .expect("four-byte TERMINATE header always decodes")
+}
+
+/// TERMINATE DF (ETSI TS 102 222): INS 0xE6, a 4-byte header-only APDU.
+pub fn terminate_df_command(cla: u8) -> apdu::Command {
+    terminate_command(cla, 0xE6)
+}
+
+/// TERMINATE EF (ETSI TS 102 222): INS 0xE8, a 4-byte header-only APDU.
+pub fn terminate_ef_command(cla: u8) -> apdu::Command {
+    terminate_command(cla, 0xE8)
+}
+
+/// TERMINATE CARD USAGE (ETSI TS 102 222): INS 0xFE, a 4-byte header-only APDU.
+pub fn terminate_card_usage_command(cla: u8) -> apdu::Command {
+    terminate_command(cla, 0xFE)
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -2338,6 +2414,21 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("key_ref").long("key-ref").value_name("HEX").help("a raw key reference, one octet of hex"))
                 .group(clap::ArgGroup::new("which").args(["pin_nr", "universal", "adm_nr", "key_ref"]))
                 .arg(Arg::new("allow_last").long("allow-last-attempt").action(clap::ArgAction::SetTrue).help("send even when only one try is left (a wrong value then blocks the key)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("terminate_df")
+                .about("TERMINATE DF: deactivate the selected DF. DESTRUCTIVE: can permanently disable it; a dry run unless --yes")
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("terminate_ef")
+                .about("TERMINATE EF: deactivate the selected EF. DESTRUCTIVE: can permanently disable it; a dry run unless --yes")
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("terminate_card_usage")
+                .about("TERMINATE CARD USAGE: deactivate the card's usage. DESTRUCTIVE: can permanently disable it; a dry run unless --yes")
                 .arg(yes_arg()),
         )
         .subcommand(
@@ -2671,6 +2762,9 @@ impl Shell {
             "change_chv" => self.cmd_change_chv(args),
             "enable_chv" => self.cmd_enable_chv(args),
             "disable_chv" => self.cmd_disable_chv(args),
+            "terminate_df" => self.cmd_terminate_df(args),
+            "terminate_ef" => self.cmd_terminate_ef(args),
+            "terminate_card_usage" => self.cmd_terminate_card_usage(args),
             "run_gsm_algorithm" => self.cmd_run_gsm(args),
             "authenticate" => self.cmd_authenticate(args),
             "service" => self.cmd_service(args),
@@ -3268,6 +3362,33 @@ mod tests {
         // both change the card, so they are NOT read-only (the shell gates them behind --yes)
         assert!(!is_read_only(0xD6));
         assert!(!is_read_only(0xDC));
+    }
+
+    #[test]
+    fn terminate_commands_build_the_right_apdu_and_are_gated() {
+        // ETSI TS 102 222: TERMINATE DF = E6, TERMINATE EF = E8, TERMINATE CARD USAGE = FE;
+        // P1 = P2 = 00 and no data field (a 4-byte, header-only APDU).
+        assert_eq!(
+            terminate_df_command(0).encode().unwrap(),
+            vec![0x00, 0xE6, 0x00, 0x00]
+        );
+        assert_eq!(
+            terminate_ef_command(0).encode().unwrap(),
+            vec![0x00, 0xE8, 0x00, 0x00]
+        );
+        assert_eq!(
+            terminate_card_usage_command(0).encode().unwrap(),
+            vec![0x00, 0xFE, 0x00, 0x00]
+        );
+        // on a logical channel the class carries the channel number
+        assert_eq!(
+            terminate_ef_command(2).encode().unwrap(),
+            vec![0x02, 0xE8, 0x00, 0x00]
+        );
+        // all three are destructive, so none may be read-only (the shell gates them behind --yes)
+        for ins in [0xE6, 0xE8, 0xFE] {
+            assert!(!is_read_only(ins), "INS {ins:02X} must be gated");
+        }
     }
 
     #[test]
