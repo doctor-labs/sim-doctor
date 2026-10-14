@@ -1210,6 +1210,150 @@ impl Shell {
         })
     }
 
+    /// `change_chv`: replace a CHV with a new value (INS 0x24). Reads the old and new
+    /// PINs from the PIN source, masks them in a dry run, and sends one attempt.
+    fn cmd_change_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let target = key_target(args)?;
+        let n = args.get_one::<u8>("pin_nr").copied().unwrap_or(1);
+        let old_name = format!("pin{n}");
+        let new_name = format!("new-pin{n}");
+        let old = self.secret(&old_name)?;
+        let new = self.secret(&new_name)?;
+        let send = self.may_change_card(args);
+        let key_ref = target.key_ref;
+        let masked = format!(
+            "00 24 00 {key_ref:02X} 10 <{} redacted> <new {} redacted>",
+            target.label, target.label
+        );
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {masked} (a wrong value costs a try; the old value is gone afterwards; add --yes to send)"
+                ),
+                json!({ "sent": false, "key_reference": format!("{key_ref:02X}"), "apdu": masked }),
+            ));
+        }
+        if let Some(done) =
+            self.guard_tries(0x24, 0x00, &target, args.get_flag("allow_last"), false)?
+        {
+            return Ok(done);
+        }
+        // One attempt, never retried.
+        let card = self.equipped()?;
+        let cla = card.cla();
+        let mut data: Vec<u8> = old.to_vec();
+        data.extend_from_slice(&new);
+        let ex = card.send(&Command::case3(
+            apdu::Header::new(cla, 0x24, 0x00, key_ref),
+            data,
+        ))?;
+        let sw = ex.status();
+        // The value changed, so the old verification no longer holds.
+        card.verified.remove(&key_ref);
+        let left = tries_left(sw);
+        if sw.is_some_and(StatusWord::is_success) {
+            return Ok(Reply::ok(
+                format!("{} changed; its try counter is reset", target.label),
+                json!({ "changed": true, "sent": true, "key_reference": format!("{key_ref:02X}"), "sw": "9000" }),
+            ));
+        }
+        let why = match (left, sw) {
+            (Some(n), _) => format!("wrong value for {}: {n} tries left", target.label),
+            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => {
+                format!("{} is now blocked", target.label)
+            }
+            (None, s) => format!("CHANGE {} refused: {}", target.label, sw_text(s)),
+        };
+        Err(CmdErr {
+            message: why,
+            data: json!({ "sent": true, "key_reference": format!("{key_ref:02X}"), "sw": sw.map(|s| s.to_string()), "tries_left": left }),
+        })
+    }
+
+    /// `enable_chv`: enable a CHV (INS 0x28). No data field, nothing to mask.
+    fn cmd_enable_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let target = key_target(args)?;
+        let send = self.may_change_card(args);
+        let key_ref = target.key_ref;
+        let masked = format!("00 28 00 {key_ref:02X}");
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {masked} (changes the card; add --yes to send)"),
+                json!({ "sent": false, "key_reference": format!("{key_ref:02X}"), "apdu": masked }),
+            ));
+        }
+        if let Some(done) =
+            self.guard_tries(0x28, 0x00, &target, args.get_flag("allow_last"), false)?
+        {
+            return Ok(done);
+        }
+        // One attempt, never retried.
+        let card = self.equipped()?;
+        let cla = card.cla();
+        let ex = card.send(&enable_chv_command(cla, key_ref))?;
+        let sw = ex.status();
+        let left = tries_left(sw);
+        if sw.is_some_and(StatusWord::is_success) {
+            return Ok(Reply::ok(
+                format!("{} enabled", target.label),
+                json!({ "enabled": true, "sent": true, "key_reference": format!("{key_ref:02X}"), "sw": "9000" }),
+            ));
+        }
+        let why = match (left, sw) {
+            (Some(n), _) => format!("enable {} failed: {n} tries left", target.label),
+            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => {
+                format!("{} is blocked", target.label)
+            }
+            (None, s) => format!("ENABLE {} refused: {}", target.label, sw_text(s)),
+        };
+        Err(CmdErr {
+            message: why,
+            data: json!({ "sent": true, "key_reference": format!("{key_ref:02X}"), "sw": sw.map(|s| s.to_string()), "tries_left": left }),
+        })
+    }
+
+    /// `disable_chv`: disable a CHV (INS 0x26). No data field, nothing to mask.
+    fn cmd_disable_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let target = key_target(args)?;
+        let send = self.may_change_card(args);
+        let key_ref = target.key_ref;
+        let masked = format!("00 26 00 {key_ref:02X}");
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {masked} (changes the card; add --yes to send)"),
+                json!({ "sent": false, "key_reference": format!("{key_ref:02X}"), "apdu": masked }),
+            ));
+        }
+        if let Some(done) =
+            self.guard_tries(0x26, 0x00, &target, args.get_flag("allow_last"), false)?
+        {
+            return Ok(done);
+        }
+        // One attempt, never retried.
+        let card = self.equipped()?;
+        let cla = card.cla();
+        let ex = card.send(&disable_chv_command(cla, key_ref))?;
+        let sw = ex.status();
+        let left = tries_left(sw);
+        if sw.is_some_and(StatusWord::is_success) {
+            return Ok(Reply::ok(
+                format!("{} disabled", target.label),
+                json!({ "disabled": true, "sent": true, "key_reference": format!("{key_ref:02X}"), "sw": "9000" }),
+            ));
+        }
+        let why = match (left, sw) {
+            (Some(n), _) => format!("disable {} failed: {n} tries left", target.label),
+            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => {
+                format!("{} is blocked", target.label)
+            }
+            (None, s) => format!("DISABLE {} refused: {}", target.label, sw_text(s)),
+        };
+        Err(CmdErr {
+            message: why,
+            data: json!({ "sent": true, "key_reference": format!("{key_ref:02X}"), "sw": sw.map(|s| s.to_string()), "tries_left": left }),
+        })
+    }
+
     fn cmd_verify_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let target = key_target(args)?;
         let value = self.secret(&target.secret)?;
@@ -1808,6 +1952,43 @@ pub fn is_read_only(ins: u8) -> bool {
     READ_ONLY_INS.contains(&ins)
 }
 
+/// CHANGE CHV (ISO/IEC 7816-4:2013, clause 7.5.3; 3GPP TS 31.102 clause 7.1.3.1):
+/// `INS 0x24`, `P1` = key reference (0x01 CHV1, 0x02 CHV2), `P2 = 0x00`,
+/// data = old PIN || new PIN.
+pub fn change_chv_command(
+    cla: u8,
+    key_ref: u8,
+    old: &[u8],
+    new: &[u8],
+) -> Result<apdu::Command, apdu::EncodeError> {
+    if old.is_empty() || new.is_empty() {
+        return Err(apdu::EncodeError::EmptyDataField);
+    }
+    let total = old.len() + new.len();
+    if total > apdu::SHORT_DATA_MAX {
+        return Err(apdu::EncodeError::DataTooLong { len: total });
+    }
+    let mut data = Vec::with_capacity(total);
+    data.extend_from_slice(old);
+    data.extend_from_slice(new);
+    Ok(apdu::Command::case3(
+        apdu::Header::new(cla, 0x24, key_ref, 0x00),
+        data,
+    ))
+}
+
+/// ENABLE CHV (ISO/IEC 7816-4:2013, clause 7.5.5; 3GPP TS 31.102 clause 7.1.3.3):
+/// `INS 0x28`, `P1` = key reference, `P2 = 0x00`, no data field.
+pub fn enable_chv_command(cla: u8, key_ref: u8) -> apdu::Command {
+    apdu::Command::case1(apdu::Header::new(cla, 0x28, key_ref, 0x00))
+}
+
+/// DISABLE CHV (ISO/IEC 7816-4:2013, clause 7.5.5; 3GPP TS 31.102 clause 7.1.3.2):
+/// `INS 0x26`, `P1` = key reference, `P2 = 0x00`, no data field.
+pub fn disable_chv_command(cla: u8, key_ref: u8) -> apdu::Command {
+    apdu::Command::case1(apdu::Header::new(cla, 0x26, key_ref, 0x00))
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -1998,6 +2179,39 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("change_chv")
+                .about("CHANGE a PIN (default PIN1) to the new value from --chv-file / --chv-env; a dry run unless --yes. A wrong value costs a try and can block the PIN, and the old value is gone afterwards")
+                .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
+                .arg(Arg::new("universal").long("universal").action(clap::ArgAction::SetTrue).help("the universal PIN (key reference 11, changed with the UPUK)"))
+                .arg(Arg::new("adm_nr").long("adm-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=5)).help("administrative key N (key reference 0A..0E)"))
+                .arg(Arg::new("key_ref").long("key-ref").value_name("HEX").help("a raw key reference, one octet of hex"))
+                .group(clap::ArgGroup::new("which").args(["pin_nr", "universal", "adm_nr", "key_ref"]))
+                .arg(Arg::new("allow_last").long("allow-last-attempt").action(clap::ArgAction::SetTrue).help("send even when only one try is left (a wrong value then blocks the PIN)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("enable_chv")
+                .about("ENABLE a PIN (default PIN1) on the card; a dry run unless --yes. A wrong value costs a try and can block the key")
+                .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
+                .arg(Arg::new("universal").long("universal").action(clap::ArgAction::SetTrue).help("the universal PIN (key reference 11)"))
+                .arg(Arg::new("adm_nr").long("adm-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=5)).help("administrative key N (key reference 0A..0E)"))
+                .arg(Arg::new("key_ref").long("key-ref").value_name("HEX").help("a raw key reference, one octet of hex"))
+                .group(clap::ArgGroup::new("which").args(["pin_nr", "universal", "adm_nr", "key_ref"]))
+                .arg(Arg::new("allow_last").long("allow-last-attempt").action(clap::ArgAction::SetTrue).help("send even when only one try is left (a wrong value then blocks the key)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("disable_chv")
+                .about("DISABLE a PIN (default PIN1) on the card; a dry run unless --yes. A wrong value costs a try and can block the key")
+                .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
+                .arg(Arg::new("universal").long("universal").action(clap::ArgAction::SetTrue).help("the universal PIN (key reference 11)"))
+                .arg(Arg::new("adm_nr").long("adm-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=5)).help("administrative key N (key reference 0A..0E)"))
+                .arg(Arg::new("key_ref").long("key-ref").value_name("HEX").help("a raw key reference, one octet of hex"))
+                .group(clap::ArgGroup::new("which").args(["pin_nr", "universal", "adm_nr", "key_ref"]))
+                .arg(Arg::new("allow_last").long("allow-last-attempt").action(clap::ArgAction::SetTrue).help("send even when only one try is left (a wrong value then blocks the key)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("run_gsm_algorithm")
                 .visible_alias("run_gsm")
                 .about("GSM authentication probe: send a RAND, read SRES and Kc (USIM: GSM security context; sim profile: RUN GSM ALGORITHM). A dry run unless --yes")
@@ -2134,6 +2348,9 @@ impl Shell {
             "desc" => self.cmd_desc(),
             "verify_chv" => self.cmd_verify_chv(args),
             "unblock_chv" => self.cmd_unblock_chv(args),
+            "change_chv" => self.cmd_change_chv(args),
+            "enable_chv" => self.cmd_enable_chv(args),
+            "disable_chv" => self.cmd_disable_chv(args),
             "run_gsm_algorithm" => self.cmd_run_gsm(args),
             "authenticate" => self.cmd_authenticate(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
@@ -3112,6 +3329,51 @@ mod tests {
             !sh.exec("verify_chv").ok,
             "another card's entry is not used"
         );
+    }
+
+    #[test]
+    fn change_enable_and_disable_chv_build_the_right_apdu_and_are_gated() {
+        // CHANGE CHV (INS 0x24): P1 = key reference, P2 = 0x00, body = old PIN || new PIN.
+        // 0x31..0x38 is "12345678", 0x38..0x31 is "87654321".
+        let c = change_chv_command(0, 0x01, b"12345678", b"87654321").unwrap();
+        assert_eq!(
+            c.encode().unwrap(),
+            vec![
+                0x00, 0x24, 0x01, 0x00, 0x10, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x38,
+                0x37, 0x36, 0x35, 0x34, 0x33, 0x32, 0x31,
+            ]
+        );
+        // CHV2 is key reference 0x02, and the class byte carries the logical channel number.
+        let c2 = change_chv_command(0x03, 0x02, b"1234", b"4321").unwrap();
+        assert_eq!(
+            c2.encode().unwrap(),
+            vec![0x03, 0x24, 0x02, 0x00, 0x08, 0x31, 0x32, 0x33, 0x34, 0x34, 0x33, 0x32, 0x31]
+        );
+        // ENABLE CHV (INS 0x28) and DISABLE CHV (INS 0x26) carry no data and expect no response
+        // data, so they are four octets: there is no Le byte. (Le::Short(0) would mean 256.)
+        assert_eq!(
+            enable_chv_command(0, 0x01).encode().unwrap(),
+            vec![0x00, 0x28, 0x01, 0x00]
+        );
+        assert_eq!(
+            disable_chv_command(0, 0x02).encode().unwrap(),
+            vec![0x00, 0x26, 0x02, 0x00]
+        );
+        // All three write card state, so none of them is read-only (the shell gates them behind --yes).
+        assert!(!is_read_only(0x24));
+        assert!(!is_read_only(0x26));
+        assert!(!is_read_only(0x28));
+    }
+
+    #[test]
+    fn change_chv_refuses_a_missing_or_oversized_value() {
+        // Nothing to change to, or nothing to change from.
+        assert!(change_chv_command(0, 0x01, b"12345678", b"").is_err());
+        assert!(change_chv_command(0, 0x01, b"", b"87654321").is_err());
+        // 128 + 128 does not fit the one-octet Lc.
+        assert!(change_chv_command(0, 0x01, &[b'1'; 128], &[b'2'; 128]).is_err());
+        // 120 + 120 = 240 does fit.
+        assert!(change_chv_command(0, 0x01, &[b'1'; 120], &[b'2'; 120]).is_ok());
     }
 
     #[test]
