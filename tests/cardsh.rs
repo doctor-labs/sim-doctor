@@ -120,7 +120,7 @@ fn apdu_dry_runs_then_sends_with_yes_and_checks_expectations() {
             "--json",
             "-c",
             "apdu 00A4000C022FE2; apdu 00B000000A --expect-response-regex ^9810; apdu 00D6000001AA; \
-             apdu --yes 00D6000001AA --expect-sw 6Dxx",
+             apdu --yes 00D6000001AA --expect-sw 9000",
         ],
     );
     assert_eq!(
@@ -135,7 +135,7 @@ fn apdu_dry_runs_then_sends_with_yes_and_checks_expectations() {
         r[2]["data"]["sent"], false,
         "a write is a dry run without --yes"
     );
-    assert_eq!(r[3]["data"]["sw"], "6D00");
+    assert_eq!(r[3]["data"]["sw"], "9000");
 
     // The same card, a wrong expectation: the command fails, the exit code says so, and the response is kept.
     let out = card(

@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 
 use crate::aka;
 use crate::apdu::{self, Command, StatusWord};
+use crate::ef;
 use crate::fcp::{self, TagSet};
 use crate::fs::{self, FileId};
 use crate::session::{self, PendingFollowUp, Policy};
@@ -1150,6 +1151,81 @@ impl Shell {
         })
     }
 
+    /// `service` — activate / deactivate / allocate / deallocate / check a
+    /// service table (UST, EST, SST, IST, 5G_PROSE_ST) with UPDATE BINARY.
+    ///
+    /// The table is named by `--table` or inferred from the currently selected
+    /// EF (its standard name). `activate`/`deactivate` set or clear a 1-bit
+    /// service. SST additionally has `allocate`/`deallocate` (the two-bit
+    /// "allocated" flag). `check` reads the table and decodes it without
+    /// writing. Dry run unless `--yes`.
+    /// `service` — activate / deactivate / allocate / deallocate / check a
+    /// service table (UST, EST, SST, IST, 5G_PROSE_ST) with UPDATE BINARY.
+    ///
+    /// The table is named by `--table` or inferred from the currently selected
+    /// EF (its standard name). `activate`/`deactivate` set or clear a 1-bit
+    /// service. SST additionally has `allocate`/`deallocate` (the two-bit
+    /// "allocated" flag). `check` reads the table and decodes it without
+    /// writing. Dry run unless `--yes`.
+    fn cmd_service(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let send = self.may_change_card(args);
+        let action: &str = args.get_one::<String>("action").expect("required").as_str();
+        let table = service_table_of_shell(self, args)?;
+        let label = table_label(table);
+
+        // The service number is required for everything but `check`.
+        let service = if action == "check" {
+            None
+        } else {
+            Some(
+                *args
+                    .get_one::<u16>("service")
+                    .expect("required for non-check actions"),
+            )
+        };
+
+        // Read the current bytes of the service-table EF.
+        let bytes = read_service_table(self)?;
+
+        match action {
+            "check" => decode_service_table(table, &bytes),
+            "activate" | "deactivate" | "allocate" | "deallocate" => {
+                let service = service.expect("service required");
+                let mut data = bytes.clone();
+                apply_service_action(table, &mut data, service, action).map_err(CmdErr::new)?;
+                let apdu = format!(
+                    "00 D6 00 00 {len:02X} <service table bytes redacted>",
+                    len = data.len()
+                );
+                if !send {
+                    return Ok(Reply::ok(
+                        format!(
+                            "WARNING: this changes the card's service table (UPDATE BINARY of EF.{label}). Dry run: would send {apdu} (add --yes to send)"
+                        ),
+                        json!({ "sent": false, "table": label, "action": action, "service": service, "apdu": apdu }),
+                    ));
+                }
+                let card = self.equipped()?;
+                let ex = card.send(&Command::case3(
+                    apdu::Header::new(card.cla(), 0xD6, 0x00, 0x00),
+                    data,
+                ))?;
+                let sw = ex.status();
+                if !sw.is_some_and(StatusWord::is_normal_processing) {
+                    return Err(CmdErr {
+                        message: format!("UPDATE BINARY of EF.{label} refused: {}", sw_text(sw)),
+                        data: json!({ "sent": true, "table": label, "action": action, "service": service, "sw": sw.map(|s| s.to_string()) }),
+                    });
+                }
+                Ok(Reply::ok(
+                    format!("service {service} {action}ed in EF.{label}"),
+                    json!({ "sent": true, "table": label, "action": action, "service": service, "sw": "9000" }),
+                ))
+            }
+            _ => Err(CmdErr::new(format!("unknown service action: {action}"))),
+        }
+    }
+
     fn cmd_unblock_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let target = key_target(args)?;
         let (puk_name, new_name, puk_label) = if target.key_ref == 0x11 {
@@ -2232,10 +2308,171 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("service")
+                .about("Service table writes (UST, EST, SST, IST, 5G_PROSE_ST): activate, deactivate, allocate, deallocate or check a service bit. A dry run unless --yes. WARNING: writes change the card's service table")
+                .visible_aliases(["svc"])
+                .arg(Arg::new("table")
+                    .long("table")
+                    .value_name("TABLE")
+                    .value_parser(["UST", "EST", "SST", "IST", "PROSE", "5G_PROSE_ST"])
+                    .help("The service table: UST (default from the selected EF), EST, SST, IST, or PROSE/5G_PROSE_ST"))
+                .arg(Arg::new("action")
+                    .required(true)
+                    .value_parser(["activate", "deactivate", "allocate", "deallocate", "check"])
+                    .help("activate (set), deactivate (clear), allocate (SST only, set allocated bit), deallocate (SST only, clear allocated bit), or check (read and decode without writing)"))
+                .arg(Arg::new("service")
+                    .value_name("N")
+                    .value_parser(clap::value_parser!(u16).range(1..=1024))
+                    .help("The service number (required for activate/deactivate/allocate/deallocate)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("quit")
                 .visible_aliases(["exit", "eof"])
                 .about("Leave the shell"),
         )
+}
+
+/// The display label of a service table (for JSON and text).
+fn table_label(table: ef::Table) -> &'static str {
+    match table {
+        ef::Table::Ust => "UST",
+        ef::Table::Est => "EST",
+        ef::Table::Ist => "IST",
+        ef::Table::Sst => "SST",
+        ef::Table::Prose => "5G_PROSE_ST",
+    }
+}
+
+/// Resolves the `--table` argument, or infers the table from the selected EF's
+/// standard name.
+fn service_table_of_shell(sh: &Shell, args: &clap::ArgMatches) -> Result<ef::Table, CmdErr> {
+    if let Some(t) = args.get_one::<String>("table") {
+        let upper = t.to_ascii_uppercase();
+        let table = match upper.as_str() {
+            "UST" => ef::Table::Ust,
+            "EST" => ef::Table::Est,
+            "SST" => ef::Table::Sst,
+            "IST" => ef::Table::Ist,
+            "PROSE" | "5G_PROSE_ST" => ef::Table::Prose,
+            _ => return Err(CmdErr::new(format!("unknown service table: {t}"))),
+        };
+        return Ok(table);
+    }
+    // Infer from the selected EF.
+    let card = sh
+        .card
+        .as_ref()
+        .ok_or_else(|| CmdErr::new("no card: run `equip` first"))?;
+    let chan = &card.chans[&card.channel];
+    let std = std_ef_of(chan);
+    let name = std
+        .map(|e| e.name)
+        .ok_or_else(|| CmdErr::new("the selected file is not a service table (select EF.UST, EF.EST, EF.SST, EF.IST or EF.5G_PROSE_ST, or pass --table)"))?;
+    decode::service_table(name).ok_or_else(|| {
+        CmdErr::new(format!(
+            "the selected file {name} is not a service table (pass --table UST|EST|SST|IST|PROSE)"
+        ))
+    })
+}
+
+/// Reads the whole selected service-table EF as bytes.
+fn read_service_table(sh: &mut Shell) -> Result<Vec<u8>, CmdErr> {
+    let card = sh.equipped()?;
+    let ef_info = card.ef()?;
+    let len = ef_info.size.unwrap_or(256);
+    let mut data = card.read_binary(0, len)?;
+    if data.is_empty() {
+        data = vec![0u8; 1];
+    }
+    Ok(data)
+}
+
+/// Decodes a service-table byte buffer into a reply.
+fn decode_service_table(table: ef::Table, bytes: &[u8]) -> CmdResult {
+    let label = table_label(table);
+    match table {
+        ef::Table::Sst => {
+            let (allocated, activated) = ef::decode_sst(bytes);
+            let enabled: Vec<u16> = allocated
+                .iter()
+                .copied()
+                .filter(|n| activated.contains(n))
+                .collect();
+            Ok(Reply::ok(
+                format!(
+                    "EF.SST: {} services allocated, {} activated",
+                    allocated.len(),
+                    activated.len()
+                ),
+                json!({
+                    "sent": false,
+                    "table": "SST",
+                    "allocated": allocated,
+                    "activated": activated,
+                    "enabled": enabled,
+                }),
+            ))
+        }
+        _ => {
+            let on = ef::decode_services(table, bytes);
+            match on {
+                Ok(s) => Ok(Reply::ok(
+                    format!(
+                        "EF.{}: {}",
+                        label,
+                        s.enabled
+                            .iter()
+                            .map(|n| format!("{n}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    json!({
+                        "sent": false,
+                        "table": label,
+                        "enabled": s.enabled,
+                    }),
+                )),
+                Err(_) => Err(CmdErr::new("the service table is empty or unreadable")),
+            }
+        }
+    }
+}
+
+/// Applies an activate/deactivate/allocate/deallocate action to the in-memory copy
+/// of the service table bytes.
+fn apply_service_action(
+    table: ef::Table,
+    bytes: &mut Vec<u8>,
+    service: u16,
+    action: &str,
+) -> Result<(), String> {
+    match (table, action) {
+        (ef::Table::Sst, "activate") => {
+            ef::write_sst_service(bytes, service, true, true);
+        }
+        (ef::Table::Sst, "deactivate") => {
+            ef::write_sst_service(bytes, service, true, false);
+        }
+        (ef::Table::Sst, "allocate") => {
+            ef::write_sst_service(bytes, service, true, false);
+        }
+        (ef::Table::Sst, "deallocate") => {
+            ef::write_sst_service(bytes, service, false, false);
+        }
+        (_, "activate") => {
+            ef::write_service_bit(bytes, service, true);
+        }
+        (_, "deactivate") => {
+            ef::write_service_bit(bytes, service, false);
+        }
+        _ => {
+            return Err(format!(
+                "`{action}` is not valid for a {table:?}-table service"
+            ))
+        }
+    }
+    Ok(())
 }
 
 impl Shell {
@@ -2353,6 +2590,7 @@ impl Shell {
             "disable_chv" => self.cmd_disable_chv(args),
             "run_gsm_algorithm" => self.cmd_run_gsm(args),
             "authenticate" => self.cmd_authenticate(args),
+            "service" => self.cmd_service(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
             "select_path" => {
                 self.cmd_select(&path_arg(args.get_one::<String>("path").expect("required")))
@@ -2987,15 +3225,15 @@ mod tests {
         assert!(r.ok && r.data["sent"] == false, "{}", r.text);
         assert!(r.text.contains("00D6000001AA") && r.text.contains("--yes"));
         assert!(log.borrow().is_empty(), "nothing reached the card");
-        let r = sh.exec("apdu --yes 00D6000001AA --expect-sw 6Dxx");
+        let r = sh.exec("apdu --yes 00D6000001AA --expect-sw 69xx");
         assert!(r.ok, "{}", r.text);
-        assert_eq!(r.data["sw"], "6D00");
+        assert_eq!(r.data["sw"], "6986");
         assert_eq!(log.borrow().len(), 1);
         let r = sh.exec("apdu --yes 00D6000001AA --expect-sw 9000");
         assert!(!r.ok);
         assert!(r.text.contains("expected status word 9000"), "{}", r.text);
         assert_eq!(
-            r.data["sw"], "6D00",
+            r.data["sw"], "6986",
             "the response is kept next to the failure"
         );
     }
@@ -3543,5 +3781,142 @@ mod tests {
         assert_eq!(v["command"], "status");
         assert_eq!(v["ok"], true);
         assert_eq!(v["data"]["profile"], "uicc");
+    }
+
+    #[test]
+    fn service_activate_is_a_dry_run_that_prints_the_update_apdu() {
+        let (mut sh, log) = shell_log();
+        sh.exec("select ADF.USIM");
+        sh.exec("select EF.UST");
+        let r = sh.exec("service activate 1");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], false);
+        assert!(
+            r.text.contains("WARNING"),
+            "dry run text must carry a warning: {}",
+            r.text
+        );
+        assert!(
+            r.data["apdu"].as_str().unwrap().starts_with("00 D6"),
+            "an UPDATE BINARY: {}",
+            r.data["apdu"]
+        );
+        assert!(
+            log.borrow().iter().all(|c| c[1] != 0xD6),
+            "UPDATE BINARY never reaches the card in dry run: {:?}",
+            log.borrow()
+        );
+    }
+
+    #[test]
+    fn service_activate_sets_a_bit_and_deactivate_clears_it() {
+        let (mut sh, log) = shell_log();
+        sh.opts.yes = true;
+        // Start with EF.UST = 0x00 0x00 (no services).
+        sh.exec("select ADF.USIM");
+        sh.exec("select EF.UST");
+        // Activate service 1 (bit 0 of octet 0) -> 0x01.
+        let r = sh.exec("service activate 1");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], true);
+        // The UPDATE BINARY must carry the modified octet.
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .find(|c| c[1] == 0xD6)
+            .expect("sent an UPDATE BINARY");
+        assert_eq!(upd[..5], [0x00, 0xD6, 0x00, 0x00, 0x01], "p1p2+lc: {upd:?}");
+        assert_eq!(upd[5], 0x01, "service 1 sets bit 0 of octet 0");
+        // Deactivate service 1 -> back to 0x00.
+        let r = sh.exec("service deactivate 1");
+        assert!(r.ok, "{}", r.text);
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .filter(|c| c[1] == 0xD6)
+            .rfind(|c| c[1] == 0xD6)
+            .expect("sent an UPDATE BINARY");
+        assert_eq!(upd[5], 0x00, "deactivating clears the bit");
+    }
+
+    #[test]
+    fn service_activate_extends_the_table_when_the_service_is_past_the_end() {
+        let (mut sh, log) = shell_log();
+        sh.opts.yes = true;
+        sh.exec("select ADF.USIM");
+        sh.exec("select EF.UST");
+        // Service 9 lives in octet 1 (bytes 0x08). The card's EF.UST is 1 byte;
+        // the command must grow it to 2 bytes to reach the bit.
+        let r = sh.exec("service activate 9");
+        assert!(r.ok, "{}", r.text);
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .filter(|c| c[1] == 0xD6)
+            .rfind(|c| c[1] == 0xD6)
+            .expect("UPDATE BINARY sent");
+        assert_eq!(upd[4], 2, "lc is 2 (extended to octet 1): {upd:?}");
+        assert_eq!(upd[5..7], [0x00, 0x01], "service 9 sets bit 0 of octet 1");
+    }
+
+    #[test]
+    fn service_allocate_and_deallocate_for_sst_two_bits() {
+        let (mut sh, log) = shell_log();
+        sh.opts.yes = true;
+        // SST uses two bits per service: bit 0 allocated, bit 1 activated.
+        // Service 1 -> bits 0 (alloc) and 1 (act) of octet 0.
+        sh.exec("select DF.GSM");
+        sh.exec("select EF.SST");
+        let r = sh.exec("service allocate 1");
+        assert!(r.ok, "{}", r.text);
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .filter(|c| c[1] == 0xD6)
+            .rfind(|c| c[1] == 0xD6)
+            .expect("UPDATE BINARY sent");
+        assert_eq!(upd[5], 0b01, "service 1 allocated sets bit 0 (allocated)");
+        sh.exec("service activate 1");
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .filter(|c| c[1] == 0xD6)
+            .rfind(|c| c[1] == 0xD6)
+            .expect("UPDATE BINARY sent");
+        assert_eq!(
+            upd[5], 0b11,
+            "service 1 activated sets bit 1 (activated) too"
+        );
+        sh.exec("service deactivate 1");
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .filter(|c| c[1] == 0xD6)
+            .rfind(|c| c[1] == 0xD6)
+            .expect("UPDATE BINARY sent");
+        assert_eq!(
+            upd[5], 0b01,
+            "deactivate clears the activated bit but keeps allocated"
+        );
+        sh.exec("service deallocate 1");
+        let sent = log.borrow().clone();
+        let upd = sent
+            .iter()
+            .filter(|c| c[1] == 0xD6)
+            .rfind(|c| c[1] == 0xD6)
+            .expect("UPDATE BINARY sent");
+        assert_eq!(upd[5], 0b00, "deallocate clears both bits");
+    }
+
+    #[test]
+    fn service_check_reads_and_decodes_the_selected_table() {
+        let (mut sh, _log) = shell_log();
+        sh.opts.yes = true;
+        sh.exec("select ADF.USIM");
+        sh.exec("select EF.UST");
+        let r = sh.exec("service check");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["table"], "UST");
+        assert_eq!(r.data["enabled"], json!([]));
     }
 }

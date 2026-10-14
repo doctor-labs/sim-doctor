@@ -210,12 +210,13 @@ fn ef_for(kind: &str, name: &str) -> Option<Ef> {
 
 /// How a service-table EF is named: the UST, EST, IST and SST have the names
 /// `crate::ef` carries.
-fn service_table(name: &str) -> Option<ef::Table> {
+pub fn service_table(name: &str) -> Option<ef::Table> {
     match name.to_ascii_uppercase().as_str() {
         "EF.UST" => Some(ef::Table::Ust),
         "EF.EST" => Some(ef::Table::Est),
         "EF.IST" => Some(ef::Table::Ist),
         "EF.SST" => Some(ef::Table::Sst),
+        "EF.5G_PROSE_ST" => Some(ef::Table::Prose),
         _ => None,
     }
 }
