@@ -66,6 +66,10 @@ All notable changes to this project are documented here. The format follows
 - `cat decode`: an offline Card Application Toolkit decoder (#198). Proactive commands, envelopes, terminal responses and
   bare comprehension TLVs; 44 command types, 14 envelope tags and 90 information elements named from pySim's tables, command
   qualifiers spelled out, about 40 elements decoded to fields, the rest kept as named hex. `--json` prints a `cat` envelope.
+- `card` shell: `activate_file FILE_ID [--yes]` and `deactivate_file FILE_ID [--yes]` (#185): ACTIVATE FILE (`00 44`) and
+  DEACTIVATE FILE (`00 04`) by two-octet file identifier, with the file ID carried in the data field (P1 = 0x00, P2 = 0x00)
+  per TS 31.101 clause 11.1; both are gated behind `--yes` like the other card-changing commands, a dry run prints the exact
+  APDU, and the change to the file's lifecycle state persists until reversed.
 
 ## [0.4.0]
 

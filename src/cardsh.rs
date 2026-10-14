@@ -2065,6 +2065,59 @@ pub fn disable_chv_command(cla: u8, key_ref: u8) -> apdu::Command {
     apdu::Command::case1(apdu::Header::new(cla, 0x26, key_ref, 0x00))
 }
 
+/// The result of building an ACTIVATE FILE or DEACTIVATE FILE command: either a
+/// valid [`Command`] or an error when the file identifier is not exactly two octets.
+pub struct FileCommand(pub Result<Command, String>);
+
+impl FileCommand {
+    /// Encodes the command to its wire bytes.
+    pub fn encode(&self) -> Result<Vec<u8>, apdu::EncodeError> {
+        match &self.0 {
+            Ok(cmd) => cmd.encode(),
+            Err(_) => Err(apdu::EncodeError::EmptyDataField),
+        }
+    }
+
+    /// Whether building the command failed.
+    pub fn is_err(&self) -> bool {
+        self.0.is_err()
+    }
+}
+
+/// ACTIVATE FILE (INS 0x44), by the two-octet file identifier, on `channel`.
+/// P1 = 0x00, P2 = 0x00: the file ID is carried in the data field, per TS 31.101
+/// clause 11.1. Returns an error when `file_id` is not exactly two octets.
+pub fn activate_file_command(channel: u8, file_id: &[u8]) -> FileCommand {
+    if file_id.len() != 2 {
+        return FileCommand(Err(format!(
+            "activate_file: file identifier is {} octets; exactly 2 are required (P2 is 0x00, so the file ID is in the data field)",
+            file_id.len()
+        )));
+    }
+    let cla = apdu::class_on_channel(0x00, channel).unwrap_or(channel & 0x0F);
+    FileCommand(Ok(Command::case3(
+        apdu::Header::new(cla, 0x44, 0x00, 0x00),
+        file_id.to_vec(),
+    )))
+}
+
+/// DEACTIVATE FILE (INS 0x04), by the two-octet file identifier, on `channel`.
+/// P1 = 0x00, P2 = 0x00: the file ID is carried in the data field, per TS 31.101
+/// clause 11.1. Returns an error when `file_id` is not exactly two octets.
+pub fn deactivate_file_command(channel: u8, file_id: &[u8]) -> FileCommand {
+    if file_id.len() != 2 {
+        return FileCommand(Err(format!(
+            "deactivate_file: file identifier is {} octets; exactly 2 are required (P2 is 0x00, so the file ID is in the data field)",
+            file_id.len()
+        )));
+    }
+    let cla = apdu::class_on_channel(0x00, channel).unwrap_or(channel & 0x0F);
+    FileCommand(Ok(Command::case3(
+        apdu::Header::new(cla, 0x04, 0x00, 0x00),
+        file_id.to_vec(),
+    )))
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -2324,6 +2377,36 @@ pub fn grammar() -> clap::Command {
                     .value_name("N")
                     .value_parser(clap::value_parser!(u16).range(1..=1024))
                     .help("The service number (required for activate/deactivate/allocate/deallocate)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("activate_file")
+                .about(
+                    "ACTIVATE FILE (00 44): change a file's lifecycle state to active. \
+                     This changes the card and the change persists until DEACTIVATE FILE reverses it; \
+                     a dry run unless --yes"
+                )
+                .arg(
+                    Arg::new("file_id")
+                        .required(true)
+                        .value_name("HEX")
+                        .help("the two-octet file identifier, e.g. 2f00"),
+                )
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("deactivate_file")
+                .about(
+                    "DEACTIVATE FILE (00 04): change a file's lifecycle state to inactive. \
+                     This changes the card and the change persists until ACTIVATE FILE reverses it; \
+                     a dry run unless --yes"
+                )
+                .arg(
+                    Arg::new("file_id")
+                        .required(true)
+                        .value_name("HEX")
+                        .help("the two-octet file identifier, e.g. 6f07"),
+                )
                 .arg(yes_arg()),
         )
         .subcommand(
@@ -2599,6 +2682,8 @@ impl Shell {
             "open_channel" => self.cmd_open_channel(),
             "close_channel" => self.cmd_close_channel(args),
             "channel" => self.cmd_channel(args),
+            "activate_file" => self.cmd_activate_file(args),
+            "deactivate_file" => self.cmd_deactivate_file(args),
             other => Err(CmdErr::new(format!("`{other}` is not implemented"))),
         }
     }
@@ -2691,6 +2776,50 @@ impl Shell {
             }
         }
         Ok(Reply::ok(text, record))
+    }
+
+    fn cmd_activate_file(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let fid_hex = args.get_one::<String>("file_id").expect("required");
+        let file_id = parse_hex(fid_hex).map_err(CmdErr::new)?;
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let built = activate_file_command(card.channel, &file_id);
+        let command = built.0.map_err(CmdErr::new)?;
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {} (ACTIVATE FILE changes the file's lifecycle state; add --yes to send)", hex_upper(&wire)),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status().map(|s| s.to_string());
+        Ok(Reply::ok(
+            format!("sw {}", sw_text(ex.status())),
+            json!({ "sent": true, "apdu": hex_upper(&wire), "sw": sw }),
+        ))
+    }
+
+    fn cmd_deactivate_file(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let fid_hex = args.get_one::<String>("file_id").expect("required");
+        let file_id = parse_hex(fid_hex).map_err(CmdErr::new)?;
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let built = deactivate_file_command(card.channel, &file_id);
+        let command = built.0.map_err(CmdErr::new)?;
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {} (DEACTIVATE FILE changes the file's lifecycle state; add --yes to send)", hex_upper(&wire)),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status().map(|s| s.to_string());
+        Ok(Reply::ok(
+            format!("sw {}", sw_text(ex.status())),
+            json!({ "sent": true, "apdu": hex_upper(&wire), "sw": sw }),
+        ))
     }
 
     fn cmd_equip(&mut self, args: &clap::ArgMatches) -> CmdResult {
