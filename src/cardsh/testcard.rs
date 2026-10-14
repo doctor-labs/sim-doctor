@@ -32,6 +32,10 @@ pub struct File {
     /// `None` for a DF; `Some(record_length)` for a record file (0 = transparent).
     pub rec_len: Option<usize>,
     pub content: Vec<Vec<u8>>,
+    /// Whether the file descriptor byte marks this EF as BER-TLV (TS 102 221
+    /// structure bits `100`, file-descriptor octet `0x39`). Such EFs are read
+    /// with RETRIEVE DATA / SET DATA rather than READ BINARY / UPDATE BINARY.
+    pub ber_tlv: bool,
 }
 
 pub struct TestCard {
@@ -70,6 +74,18 @@ fn f(path: &[u16], df: bool, rec_len: Option<usize>, content: Vec<Vec<u8>>) -> F
         df,
         rec_len,
         content,
+        ber_tlv: false,
+    }
+}
+
+/// Like [`f`] but the EF has BER-TLV structure (file-descriptor `0x39`).
+fn fbtlv(path: &[u16], content: Vec<u8>) -> File {
+    File {
+        path: path.to_vec(),
+        df: false,
+        rec_len: Some(0),
+        content: vec![content],
+        ber_tlv: true,
     }
 }
 
@@ -156,6 +172,15 @@ impl TestCard {
             ),
             // EF.SST: empty SIM service table (1 byte of 0x00 — no services).
             f(&[mf, 0x7F20, 0x6F38], false, Some(0), vec![vec![0x00]]),
+            // A BER-TLV EF under ADF.USIM: two tags (2F = aa bb cc, 30 = 11 22).
+            // FID 0x6F5A is deliberately unused by the standard table; used only by tests.
+            fbtlv(
+                &[mf, ADF, 0x6F5A],
+                vec![
+                    0x2F, 0x03, 0xAA, 0xBB, 0xCC, // tag 2F, len 3
+                    0x30, 0x02, 0x11, 0x22, // tag 30, len 2
+                ],
+            ),
         ];
         Self {
             reader: ReaderName::new("test card").unwrap(),
@@ -200,6 +225,12 @@ impl TestCard {
         let mut body = Vec::new();
         if file.df {
             body.extend_from_slice(&[0x82, 0x02, 0x38, 0x21]);
+        } else if file.ber_tlv {
+            // BER-TLV EF (TS 102 221 structure `100`): working EF, structure
+            // bits 4 = "unknown" to the 3-bit parser, but this test card routes
+            // SET/RETRIEVE DATA by the `ber_tlv` flag rather than the decoded
+            // structure, so the fd byte only needs to mark it as an EF (not a DF).
+            body.extend_from_slice(&[0x82, 0x02, 0x0C, 0x21]);
         } else if let Some(len) = file.rec_len.filter(|l| *l > 0) {
             let l = len as u16;
             body.extend_from_slice(&[
@@ -567,6 +598,14 @@ impl CardSession for TestCard {
                 (Some(_), Some(_)) => vec![0x67, 0x00],
                 _ => vec![0x6A, 0x88],
             },
+            // SET DATA / DELETE DATA (TS 102 221 11.3.2): INS 0xDB, case 3.
+            // P2 bit 7 set = first block, clear = more blocks. The data is a
+            // BER-TLV fragment; a single tag byte on the first block deletes it.
+            0xDB => self.set_data(ch, c[2], c[3], data),
+            // RETRIEVE DATA (TS 102 221 11.3.1): INS 0xCB, case 4.
+            // P2 bit 7 set = first block. The data is one tag octet (0x5C asks
+            // for the list of tags present).
+            0xCB => self.retrieve_data(ch, c[2], c[3], data),
             _ => vec![0x6D, 0x00],
         })
     }
@@ -574,6 +613,147 @@ impl CardSession for TestCard {
     fn disconnect(&mut self) -> Result<(), TransportError> {
         Ok(())
     }
+}
+
+impl TestCard {
+    /// SET DATA: store/replace a BER-TLV object or delete a tag. The selected
+    /// EF must be BER-TLV; anything else is refused with `6A 80`.
+    fn set_data(&mut self, ch: usize, _p1: u8, p2: u8, data: &[u8]) -> Vec<u8> {
+        let Some(path) = self.cur[ch].1.clone() else {
+            return vec![0x6A, 0x86];
+        };
+        let file = match self.files.iter_mut().find(|f| f.path == path) {
+            Some(f) => f,
+            None => return vec![0x6A, 0x82],
+        };
+        if !file.ber_tlv {
+            return vec![0x6A, 0x80];
+        }
+        let first = p2 & 0x80 != 0;
+        let body = &mut file.content[0];
+        if !first {
+            // Append more-blocks data to the accumulator (not exercised by tests
+            // whose payloads fit in one block, but kept so the card answers).
+            body.extend_from_slice(data);
+            return vec![0x90, 0x00];
+        }
+        // First block: a lone tag octet deletes that tag; otherwise the data is
+        // a complete BER-TLV object (tag + length + value).
+        if data.len() == 1 {
+            remove_tag(body, data[0]);
+        } else if data.len() >= 2 {
+            // Replace an existing object for this tag, or append a new one.
+            remove_tag(body, data[0]);
+            body.extend_from_slice(data);
+        }
+        vec![0x90, 0x00]
+    }
+
+    /// RETRIEVE DATA: return a tag's value, or the list of tags (tag 0x5C).
+    fn retrieve_data(&mut self, ch: usize, _p1: u8, p2: u8, data: &[u8]) -> Vec<u8> {
+        let (_dir, ef) = self.cur[ch].clone();
+        let Some(path) = ef else {
+            return vec![0x6A, 0x86];
+        };
+        let file = match self.files.iter().find(|f| f.path == path) {
+            Some(f) => f,
+            None => return vec![0x6A, 0x82],
+        };
+        if !file.ber_tlv {
+            return vec![0x6A, 0x80];
+        }
+        if p2 & 0x80 == 0 {
+            // Next block: nothing more to send for a single-block answer.
+            return vec![0x62, 0xF1];
+        }
+        let want = data.first().copied().unwrap_or(0);
+        let mut out = Vec::new();
+        if want == 0x5C {
+            // Return all tag octets present, wrapped in a 5C TLV.
+            let tags: Vec<u8> = collect_tags(&file.content[0]);
+            out.push(0x5C);
+            out.push(tags.len() as u8);
+            out.extend(tags);
+        } else if let Some(val) = find_value(&file.content[0], want) {
+            out.push(want);
+            out.extend(crate::tlv::Length::new(u16::try_from(val.len()).unwrap()).encode());
+            out.extend_from_slice(&val);
+        } else {
+            return vec![0x6A, 0x82];
+        }
+        // The shell asked for 256 bytes (Le 00); answer what we have.
+        out.extend_from_slice(&[0x90, 0x00]);
+        out
+    }
+}
+
+/// Removes every BER-TLV object carrying `tag` from `body`, in place.
+fn remove_tag(body: &mut Vec<u8>, tag: u8) {
+    let mut at = 0usize;
+    while at < body.len() {
+        let Some((len, n)) = read_ber_len(&body[at + 1..]) else {
+            break;
+        };
+        if body[at] == tag {
+            body.drain(at..at + 1 + n + len_value(len));
+        } else {
+            at += 1 + n + len_value(len);
+        }
+    }
+}
+
+/// The tag bytes present in a flattened BER-TLV body.
+fn collect_tags(body: &[u8]) -> Vec<u8> {
+    let mut tags = Vec::new();
+    let mut at = 0usize;
+    while at < body.len() {
+        let tag = body[at];
+        let Some((len, n)) = read_ber_len(&body[at + 1..]) else {
+            break;
+        };
+        tags.push(tag);
+        at += 1 + n + len_value(len);
+    }
+    tags
+}
+
+/// The value bytes for `tag` in a flattened BER-TLV body, if present.
+fn find_value(body: &[u8], tag: u8) -> Option<Vec<u8>> {
+    let mut at = 0usize;
+    while at < body.len() {
+        let Some((len, n)) = read_ber_len(&body[at + 1..]) else {
+            break;
+        };
+        if body[at] == tag {
+            let start = at + 1 + n;
+            return Some(body[start..start + len_value(len)].to_vec());
+        }
+        at += 1 + n + len_value(len);
+    }
+    None
+}
+
+/// Reads a BER-TLV length, returning `(value, header_octets)` or `None` if it
+/// cannot be parsed from the available bytes.
+fn read_ber_len(bytes: &[u8]) -> Option<(u16, usize)> {
+    let (&first, rest) = bytes.split_first()?;
+    if first & 0x80 == 0 {
+        return Some((u16::from(first), 1));
+    }
+    let count = (first & 0x7F) as usize;
+    if count == 0 || count > 2 || rest.len() < count {
+        return None;
+    }
+    let mut value: u16 = 0;
+    for &octet in &rest[..count] {
+        value = (value << 8) | u16::from(octet);
+    }
+    Some((value, 1 + count))
+}
+
+/// The number of value octets a decoded length describes.
+fn len_value(len: u16) -> usize {
+    len as usize
 }
 
 /// A shell on a fresh [`TestCard::usim`] (a new one for every `equip`), and the log of every command

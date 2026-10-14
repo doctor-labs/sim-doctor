@@ -64,6 +64,10 @@ All notable changes to this project are documented here. The format follows
   write (UPDATE BINARY) the selected EF.UST/EF.EST/EF.IST/EF.5G_PROSE_ST (1-bit set/clear) or EF.SST (2-bit
   allocated/activated), reading the table first and growing it past the end when needed. `check` reads and
   decodes without writing. A dry run unless `--yes`.
+- `card`: `set_data TAG HEX`, `delete_data TAG` and `delete_all` (#186): BER-TLV write/delete on the selected EF via SET DATA (0xDB) and
+   RETRIEVE DATA (0xCB) per ETSI TS 102 221 11.3.2/11.3.1. `set_data` writes or replaces a single tag; `delete_data` removes one;
+   `delete_all` enumerates tags with the 0x5C tag list then deletes each. All three are gated behind `--yes` and show a dry run
+   with a WARNING first, and are rejected with `6A 80` when no BER-TLV EF is selected.
 - `cat decode`: an offline Card Application Toolkit decoder (#198). Proactive commands, envelopes, terminal responses and
   bare comprehension TLVs; 44 command types, 14 envelope tags and 90 information elements named from pySim's tables, command
   qualifiers spelled out, about 40 elements decoded to fields, the rest kept as named hex. `--json` prints a `cat` envelope.
