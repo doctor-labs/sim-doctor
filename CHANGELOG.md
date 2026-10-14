@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
+- `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - EXT1-EXT8 records decode to additional digits or subaddress and the next-record chain (#175).
 - EF.ARR records decode to access rules: operations and the PIN/ADM condition (#172).
 - EF.MWIS, EF.MBI, EF.CFIS and EF.SMSR decode to their fields instead of hex (#173).
