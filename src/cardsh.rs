@@ -1159,14 +1159,6 @@ impl Shell {
     /// service. SST additionally has `allocate`/`deallocate` (the two-bit
     /// "allocated" flag). `check` reads the table and decodes it without
     /// writing. Dry run unless `--yes`.
-    /// `service` — activate / deactivate / allocate / deallocate / check a
-    /// service table (UST, EST, SST, IST, 5G_PROSE_ST) with UPDATE BINARY.
-    ///
-    /// The table is named by `--table` or inferred from the currently selected
-    /// EF (its standard name). `activate`/`deactivate` set or clear a 1-bit
-    /// service. SST additionally has `allocate`/`deallocate` (the two-bit
-    /// "allocated" flag). `check` reads the table and decodes it without
-    /// writing. Dry run unless `--yes`.
     fn cmd_service(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let send = self.may_change_card(args);
         let action: &str = args.get_one::<String>("action").expect("required").as_str();
@@ -1224,6 +1216,175 @@ impl Shell {
             }
             _ => Err(CmdErr::new(format!("unknown service action: {action}"))),
         }
+    }
+
+    /// SET DATA (TS 102 221 11.3.2): write one BER-TLV object `tag` + `value`
+    /// to the selected EF. The short Lc form is used, so values over 255 octets
+    /// would need first/more-block fragmentation (not yet split here).
+    fn cmd_set_data(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let tag = Self::parse_tag(args.get_one::<String>("tag").expect("required"))?;
+        let value = parse_hex(
+            &args
+                .get_many::<String>("data")
+                .expect("required")
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(""),
+        )
+        .map_err(CmdErr::new)?;
+        let mut tlv = vec![tag];
+        tlv.extend(
+            crate::tlv::Length::new(
+                u16::try_from(value.len())
+                    .map_err(|_| CmdErr::new("value is longer than 65535 octets"))?,
+            )
+            .encode(),
+        );
+        tlv.extend(value);
+        let send = self.may_change_card(args);
+        // The value is user-supplied data, not a secret, so it is safe to show.
+        let head = "80 DB 00 80";
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {head} {:02X} {} (WARNING: this permanently overwrites card data; add --yes to send)", tlv.len(), hex_upper(&tlv)),
+                json!({ "sent": false, "tag": format!("{tag:02X}"), "apdu": format!("{head} {:02X} {}", tlv.len(), hex_upper(&tlv)) }),
+            ));
+        }
+        self.set_data_chunks(tag, &tlv, "permanently overwrites card data")
+    }
+
+    /// DELETE DATA (TS 102 221 11.3.2, SET DATA with a tag and no value): remove
+    /// one BER-TLV object from the selected EF.
+    fn cmd_delete_data(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let tag = Self::parse_tag(args.get_one::<String>("tag").expect("required"))?;
+        let data = vec![tag];
+        let send = self.may_change_card(args);
+        if !send {
+            let apdu = Self::set_data_bytes(0x80, &data);
+            return Ok(Reply::ok(
+                format!("dry run: would send {} (WARNING: this permanently destroys data; add --yes to send)", hex_upper(&apdu)),
+                json!({ "sent": false, "tag": format!("{tag:02X}"), "apdu": hex_upper(&apdu) }),
+            ));
+        }
+        let mut sent = Vec::new();
+        self.set_data_one(0x80, &data, &mut sent)?;
+        sent.last()
+            .map(|_| ())
+            .ok_or_else(|| CmdErr::new("DELETE DATA produced no exchange"))?;
+        Ok(Reply::ok(
+            format!("tag {tag:02X} deleted (SET DATA with no value)"),
+            json!({ "sent": true, "tag": format!("{tag:02X}"), "sw": "9000" }),
+        ))
+    }
+
+    /// DELETE ALL tags of the selected BER-TLV EF: RETRIEVE DATA lists the tags
+    /// (TS 102 221 tag 0x5C), then each is deleted with SET DATA.
+    fn cmd_delete_all(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let _ = card.ef()?;
+        let cla = card.cla();
+        let path = card.chans[&card.channel].path();
+        if !send {
+            let probe = Self::retrieve_data_bytes(0x5C);
+            return Ok(Reply::ok(
+                format!("dry run: would RETRIEVE DATA (0x5C) then SET DATA each tag (WARNING: this permanently destroys all data in {}; add --yes to send)", path),
+                json!({ "sent": false, "path": path, "apdu": hex_upper(&probe) }),
+            ));
+        }
+        // 1) Enumerate tags.
+        let tags = self.retrieve_data_tags(cla)?;
+        let count = tags.len();
+        // 2) Delete each tag.
+        let mut sent = Vec::new();
+        for tag in &tags {
+            self.set_data_one(0x80, std::slice::from_ref(tag), &mut sent)?;
+        }
+        Ok(Reply::ok(
+            format!("deleted {count} tags from {}", path),
+            json!({ "sent": true, "deleted": count, "tags": tags.iter().map(|t| format!("{t:02X}")).collect::<Vec<_>>(), "path": path }),
+        ))
+    }
+
+    /// Sends SET DATA (0xDB), P2 = `p2` (0x80 first block), in short-Lc fragments.
+    /// Returns the last exchange's status; `sent` collects every APDU wire bytes.
+    fn set_data_chunks(&mut self, first_tag: u8, tlv: &[u8], _warn: &str) -> CmdResult {
+        let mut sent = Vec::new();
+        self.set_data_one(0x80, tlv, &mut sent)?;
+        let sw = sent
+            .last()
+            .and_then(|ex| ex.status())
+            .map(|s| s.to_string());
+        let wire = hex_upper(&Self::set_data_bytes(0x80, tlv));
+        Ok(Reply::ok(
+            format!("SET DATA sent (tag {first_tag:02X})"),
+            json!({ "sent": true, "tag": format!("{first_tag:02X}"), "sw": sw, "apdu": wire }),
+        ))
+    }
+
+    /// One SET DATA exchange (no chunking: caller splits); appends its APDU to `sent`.
+    fn set_data_one(
+        &mut self,
+        p2: u8,
+        data: &[u8],
+        sent: &mut Vec<session::Exchange>,
+    ) -> Result<(), CmdErr> {
+        let card = self.equipped()?;
+        let cla = card.cla();
+        let command = Command::case3(apdu::Header::new(cla, 0xDB, 0x00, p2), data.to_vec());
+        let ex = card.send(&command)?;
+        sent.push(ex);
+        Ok(())
+    }
+
+    /// Sends RETRIEVE DATA (0xCB) for one tag (0x5C = the tag list) and returns
+    /// the tag octets present in the selected BER-TLV EF.
+    fn retrieve_data_tags(&mut self, cla: u8) -> Result<Vec<u8>, CmdErr> {
+        let command = Command::case4(
+            apdu::Header::new(cla, 0xCB, 0x00, 0x80),
+            vec![0x5C],
+            apdu::Le::Short(0x00),
+        );
+        let card = self.equipped()?;
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        if !sw.is_some_and(StatusWord::is_normal_processing) {
+            return Err(CmdErr::new(format!(
+                "RETRIEVE DATA (0x5C) refused: {}",
+                sw_text(sw)
+            )));
+        }
+        // Response: 5C {len} {tag bytes...}
+        let body = ex.data();
+        if body.len() < 2 || body[0] != 0x5C {
+            return Err(CmdErr::new(format!(
+                "unexpected RETRIEVE DATA response: {}",
+                hex_upper(body)
+            )));
+        }
+        Ok(body[2..].to_vec())
+    }
+
+    /// Builds the wire bytes of a SET DATA command (for dry-run display). Only
+    /// the short Lc form is used: fragments are kept under 256 bytes.
+    fn set_data_bytes(p2: u8, data: &[u8]) -> Vec<u8> {
+        let mut wire = vec![0x80, 0xDB, 0x00, p2, data.len() as u8];
+        wire.extend_from_slice(data);
+        wire
+    }
+
+    /// Builds the wire bytes of a RETRIEVE DATA command (for dry-run display).
+    fn retrieve_data_bytes(tag: u8) -> Vec<u8> {
+        vec![0x80, 0xCB, 0x00, 0x80, 0x01, tag, 0x00]
+    }
+
+    /// One-octet BER-TLV tag from a hex string like `2F`, `0x2F`.
+    fn parse_tag(text: &str) -> Result<u8, CmdErr> {
+        let b = parse_hex(text).map_err(CmdErr::new)?;
+        let [t] = b.as_slice() else {
+            return Err(CmdErr::new("a BER-TLV tag is one octet of hex"));
+        };
+        Ok(*t)
     }
 
     fn cmd_unblock_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
@@ -2501,6 +2662,24 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("set_data")
+                .about("SET DATA (TS 102 221 11.3.2): write a BER-TLV object of `tag` to the selected BER-TLV EF. The data replaces any existing object for that tag. **WARNING:** this permanently overwrites card data; a dry run unless --yes")
+                .arg(Arg::new("tag").required(true).value_name("TAG").help("BER-TLV tag, one octet of hex (e.g. 2F or 0x2F)"))
+                .arg(Arg::new("data").required(true).num_args(1..).value_name("HEX").help("the value bytes (hex) to write under the tag"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("delete_data")
+                .about("DELETE DATA (TS 102 221 11.3.2, SET DATA with a tag and no value): remove one BER-TLV tag from the selected EF. **WARNING:** this permanently destroys data; a dry run unless --yes")
+                .arg(Arg::new("tag").required(true).value_name("TAG").help("BER-TLV tag, one octet of hex (e.g. 30 or 0x30)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("delete_all")
+                .about("DELETE ALL tags of the selected BER-TLV EF: RETRIEVE DATA (0x5C) lists the tags, then each is deleted with SET DATA. **WARNING:** this permanently destroys all data in the file; a dry run unless --yes")
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("quit")
                 .visible_aliases(["exit", "eof"])
                 .about("Leave the shell"),
@@ -2768,6 +2947,9 @@ impl Shell {
             "run_gsm_algorithm" => self.cmd_run_gsm(args),
             "authenticate" => self.cmd_authenticate(args),
             "service" => self.cmd_service(args),
+            "set_data" => self.cmd_set_data(args),
+            "delete_data" => self.cmd_delete_data(args),
+            "delete_all" => self.cmd_delete_all(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
             "select_path" => {
                 self.cmd_select(&path_arg(args.get_one::<String>("path").expect("required")))
@@ -4020,6 +4202,94 @@ mod tests {
         assert!(!r.ok && r.text.contains("`ki`"), "{}", r.text);
         assert!(!sh.exec("authenticate --autn 00").ok);
         assert!(!sh.exec("authenticate --resync").ok, "--resync needs --sqn");
+    }
+
+    #[test]
+    fn set_data_is_a_dry_run_that_writes_a_ber_tlv_object() {
+        let (mut sh, log) = shell_log();
+        assert!(
+            sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok,
+            "select the BER-TLV EF"
+        );
+        log.borrow_mut().clear();
+        // Dry run: the APDU is printed, nothing reaches the card.
+        let r = sh.exec("set_data 2F AABBCC");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], false);
+        assert!(r.text.contains("80 DB 00 80 05 2F03AABBC"), "{}", r.text);
+        assert!(
+            r.text.contains("add --yes to send") && r.text.contains("permanently overwrite"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty(), "nothing reached the card");
+
+        // --yes: SET DATA (0xDB), case 3, first block (P2 0x80), BER-TLV 2F 03 AA BB CC.
+        let r = sh.exec("set_data 2F AABBCC --yes");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["sw"], "9000");
+        let sent = log.borrow().clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0],
+            [0x00, 0xDB, 0x00, 0x80, 0x05, 0x2F, 0x03, 0xAA, 0xBB, 0xCC],
+            "CLA 00 on basic channel, INS 0xDB, P1 0x00, P2 0x80 first block"
+        );
+    }
+
+    #[test]
+    fn delete_data_sends_a_tag_only_fragment() {
+        let (mut sh, log) = shell_with("pin1=1234", false);
+        assert!(sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok);
+        log.borrow_mut().clear();
+        let r = sh.exec("delete_data 30");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(r.text.contains("permanently destroy"), "{}", r.text);
+        assert!(log.borrow().is_empty(), "nothing sent in dry run");
+        let (mut sh, log) = shell_with("pin1=1234", true);
+        assert!(sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok);
+        log.borrow_mut().clear();
+        let r = sh.exec("delete_data 30 --yes");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sw"], "9000");
+        let sent = log.borrow().clone();
+        assert_eq!(sent.len(), 1, "only the SET DATA delete");
+        assert_eq!(
+            sent[0],
+            [0x00, 0xDB, 0x00, 0x80, 0x01, 0x30],
+            "DELETE DATA: tag-only fragment"
+        );
+    }
+
+    #[test]
+    fn delete_all_enumerates_tags_then_wipes_each() {
+        let (mut sh, log) = shell_log();
+        assert!(sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok);
+        log.borrow_mut().clear();
+        sh.opts.yes = true;
+        // The file starts with tags 2F and 30.
+        let r = sh.exec("delete_all");
+        assert!(r.ok, "{}", r.text);
+        let sent = log.borrow().clone();
+        // 1 RETRIEVE DATA (0xCB) to list tags, then 2 SET DATA deletes (one per tag).
+        assert_eq!(sent.len(), 3, "enumerate + two deletes: {:?}", sent);
+        assert_eq!(sent[0][1], 0xCB, "first exchange is RETRIEVE DATA");
+        assert_eq!(sent[0][3], 0x80, "first block");
+        assert_eq!(sent[0][5], 0x5C, "retrieve the tag list (0x5C)");
+        // The two SET DATA deletes.
+        let deletes: Vec<&[u8]> = sent
+            .iter()
+            .filter(|c| c[1] == 0xDB)
+            .map(Vec::as_slice)
+            .collect();
+        assert_eq!(deletes.len(), 2);
+        assert!(deletes
+            .iter()
+            .any(|c| c == &[0x00, 0xDB, 0x00, 0x80, 0x01, 0x2F]));
+        assert!(deletes
+            .iter()
+            .any(|c| c == &[0x00, 0xDB, 0x00, 0x80, 0x01, 0x30]));
     }
 
     #[test]
