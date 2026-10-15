@@ -551,6 +551,16 @@ pub struct Options {
     /// How the session layer chains, follows up and drains. Defaults to
     /// [`session::Policy::default`], the policy the swSIM fixture exercises.
     pub session: session::Policy,
+
+    /// Whether to probe reserved file identifiers (7FF0-7FFF) inside an
+    /// application. Defaults to false.
+    ///
+    /// ETSI TS 102 221 clause 8.3 defines 7FFF as the special file identifier
+    /// that selects the ADF of the current application. The wider 7FF0-7FFF
+    /// range is treated as aliases of the application, not children. When
+    /// this option is false, those identifiers are skipped without probing.
+    /// When true, they are probed like any other identifier.
+    pub reserved_file_ids: bool,
 }
 
 impl Default for Options {
@@ -561,6 +571,7 @@ impl Default for Options {
             meaning: StatusMeaning::default(),
             limits: Limits::default(),
             session: session::Policy::default(),
+            reserved_file_ids: false,
         }
     }
 }
@@ -1379,11 +1390,16 @@ pub fn walk<S: CardSession + ?Sized>(
         let in_adf = frame.path.adf().is_some();
         let next = if aid.is_none() {
             // Inside an application 7FF0..=7FFF are aliases of it, never
-            // children (see `is_application_alias`): skip them without a probe.
-            frame
-                .remaining
-                .by_ref()
-                .find(|id| !(in_adf && is_application_alias(*id)))
+            // children (see `is_application_alias`): skip them without a probe,
+            // unless reserved_file_ids is set.
+            if options.reserved_file_ids {
+                frame.remaining.by_ref().next()
+            } else {
+                frame
+                    .remaining
+                    .by_ref()
+                    .find(|id| !(in_adf && is_application_alias(*id)))
+            }
         } else {
             None
         };
@@ -3764,6 +3780,61 @@ mod tests {
     }
 
     #[test]
+    fn reserved_file_ids_flag_allows_probing_7ff0_7fff_inside_an_application() {
+        // With reserved_file_ids set, 7FF0-7FFF inside an application are probed
+        // like any other identifier. The default (false) is covered by
+        // `application_aliases_7ff0_to_7fff_are_not_followed_inside_an_application`.
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02, 0xFF, 0xFF];
+        let mut record = tlv(0x61, &tlv(0x4F, &aid));
+        record.resize(0x20, 0xFF);
+        record.extend_from_slice(&[0x90, 0x00]);
+
+        let mut card = FakeCard::default()
+            .with("3F00", fcp(FileId::MASTER_FILE, DIRECTORY_DESCRIPTOR, None))
+            .with(
+                "3F00/2F00",
+                tlv(
+                    0x62,
+                    &[
+                        tlv(0x82, &[0x42, 0x21, 0x00, 0x20, 0x01]),
+                        tlv(0x83, &[0x2F, 0x00]),
+                    ]
+                    .concat(),
+                ),
+            )
+            .with("3F00/7FF0", fcp(id("7FF0"), DIRECTORY_DESCRIPTOR, None))
+            .with(
+                "3F00/7FF0/6F07",
+                fcp(id("6F07"), TRANSPARENT_DESCRIPTOR, Some(9)),
+            )
+            .with(
+                "3F00/7FF0/7FF0",
+                fcp(id("7FF0"), DIRECTORY_DESCRIPTOR, None),
+            )
+            .with(
+                "3F00/7FF0/7FFF",
+                fcp(id("7FFF"), DIRECTORY_DESCRIPTOR, None),
+            )
+            .script(&[0x00, 0xB2, 0x01, 0x04, 0x20], &record);
+        card.adfs.push((aid.to_vec(), path_segments("3F00/7FF0")));
+
+        let options = Options {
+            reserved_file_ids: true,
+            ..options_for(&["2F00", "6F07", "7FF0", "7FFF"])
+        };
+        let tree = walk(&mut card, &dialect(), &options).unwrap();
+
+        let app = "3F00/ADF:A0000000871002FFFF";
+        assert!(tree.contains(&path_of(&format!("{app}/6F07"))));
+        for probed in ["7FF0", "7FFF"] {
+            assert!(
+                tree.contains(&path_of(&format!("{app}/{probed}"))),
+                "{probed} inside an application is probed when reserved_file_ids is set"
+            );
+        }
+    }
+
+    #[test]
     fn the_number_of_exchanges_a_walk_issues_is_bounded_by_directories_times_children() {
         // A card that answers every single probe with a directory. Absent
         // probes spend no node budget (issue #90), so the exchange bound is
@@ -3944,6 +4015,7 @@ mod tests {
         assert_eq!(options.limits.max_nodes, DEFAULT_MAX_NODES);
         assert_eq!(options.limits.max_directories, DEFAULT_MAX_DIRECTORIES);
         assert_eq!(options.session, session::Policy::default());
+        assert!(!options.reserved_file_ids);
         assert_eq!(Options::default().candidates, Candidates::default());
     }
 

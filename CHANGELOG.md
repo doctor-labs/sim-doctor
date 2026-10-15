@@ -41,6 +41,7 @@ All notable changes to this project are documented here. The format follows
 - `sim-doctor gp personalize --aid <HEX> --data <BER-TLV HEX>`: INSTALL [for personalization] then STORE DATA over SCP03; dry run unless --yes, registry pre-read refuses an AID that is not on the card (#236).
 - `sim-doctor scan --sffs` probes only the standard file identifiers (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011) instead of the GSM 11.11 family ranges (#270).
 - `fuzz ota --poke`: the OTA quick "poke" mode (issue #267), probing only the three TARs SIMTester's `-poke` probes (000000, B00001, B00010) with the quick keysets and mechanisms; the `fuzz.ota` report carries `"poke": true`.
+- `scan --reserved-file-ids`: probe reserved file identifiers (7FF0-7FFF) inside an application; by default they are treated as aliases and skipped (#271).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).

@@ -1512,6 +1512,17 @@ struct ScanArgs {
     /// answer the proof of receipt with. The mode is reported as data.tar.por_mode.
     #[arg(long = "sms-deliver-report", alias = "sdr")]
     sms_deliver_report: bool,
+    /// Scan reserved file identifiers 7FF0-7FFF inside an application.
+    ///
+    /// By default, these identifiers are treated as aliases of the current
+    /// application and are not probed. When this flag is set, they are
+    /// probed like any other file identifier during the walk.
+    ///
+    /// Assumed to match SIMTester's `-sfrv` ("user reserved IDs"): assumed 7FF0-7FFF,
+    /// the range this tool otherwise treats as application aliases (ETSI TS 102 221 8.3).
+    /// Not confirmed against SIMTester's source.
+    #[arg(long, visible_alias = "sfrv")]
+    reserved_file_ids: bool,
 
     /// The human report: a doctor-kit face (rich, plain or compact), or the full legacy report.
     ///
