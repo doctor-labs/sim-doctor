@@ -1517,14 +1517,20 @@ impl Shell {
         ))
     }
 
-    /// GET IDENTITY (TS 31.102 4.2.2): INS 0x78, CLA | 0x80, case 2 with Le.
+    /// GET IDENTITY (TS 31.102 7.5): INS 0x78, CLA | 0x80, case 2 with Le.
     /// Returns the SUCI/identity from the selected application. Does not change the card.
-    fn cmd_get_identity(&mut self, _args: &clap::ArgMatches) -> CmdResult {
+    fn cmd_get_identity(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let card = self.equipped()?;
         let cla = card.cla() | 0x80;
-        // Build the GET IDENTITY command: CLA|80 INS 78 P1 00 P2 00 Le=00
+        // TS 31.102 7.5.2: CLA 8X, INS 78, P1 00, P2 = identity context (01 SUCI, 02 SUCI 5G NSWO;
+        // other values reserved), Le 00. The reply is a SUCI TLV (tag A1).
+        let p2 = if args.get_flag("nswo-context") {
+            0x02
+        } else {
+            0x01
+        };
         let command = Command::case2(
-            apdu::Header::new(cla, 0x78, 0x00, 0x00),
+            apdu::Header::new(cla, 0x78, 0x00, p2),
             apdu::Le::Short(0x00),
         );
         let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
@@ -3294,7 +3300,8 @@ pub fn grammar() -> clap::Command {
         )
         .subcommand(
             C::new("get_identity")
-                .about("GET IDENTITY (TS 31.102 4.2.2): returns the SUCI/identity from the selected application. Does not change the card")
+                .about("GET IDENTITY (TS 31.102 7.5): returns the SUCI computed by the USIM (identity context SUCI, or 5G NSWO with --nswo-context). Does not change the card")
+                .arg(Arg::new("nswo-context").long("nswo-context").action(clap::ArgAction::SetTrue).help("use the SUCI 5G NSWO identity context (P2 02) instead of SUCI (P2 01)")),
         )
         .subcommand(
             C::new("quit")
@@ -6199,14 +6206,14 @@ mod file_management_tests {
             r.data["sent"], true,
             "GET IDENTITY should always be sent (read-only, no --yes gate)"
         );
-        // The APDU should be: CLA|80 INS 78 P1 00 P2 00 Le=00
-        // For basic channel (CLA=0x80 after | 0x80 for channel class), INS 0x78
-        // hex_upper produces uppercase hex without spaces
+        // TS 31.102 7.5.2: CLA 80 (basic channel), INS 78, P1 00, P2 01 (SUCI context), Le 00.
         let apdu = r.data["apdu"].as_str().unwrap();
-        assert!(
-            apdu.starts_with("8078000000"),
-            "APDU should start with 8078000000, got: {}",
-            apdu
+        assert_eq!(apdu, "8078000100", "SUCI context");
+        let r = sh.exec("get_identity --nswo-context");
+        assert_eq!(
+            r.data["apdu"].as_str().unwrap(),
+            "8078000200",
+            "5G NSWO context"
         );
         // Verify the command was logged
         let sent = log.borrow().clone();
