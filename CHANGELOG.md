@@ -97,6 +97,7 @@ All notable changes to this project are documented here. The format follows
   `--receipt-key-env` and never appears in any output. Exit 0 only when the
   receipt verifies: an unverified receipt and a card that returned none are
   reported as different verdicts and neither is a pass.
+- `sim-doctor fuzz ota --kic/--kid/--spi1/--spi2 HEX`: pin one header octet of the OTA sweep's Command Packet (KIC, KID, SPI1, SPI2) instead of sweeping it; not key material (#208).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).

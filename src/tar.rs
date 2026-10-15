@@ -515,6 +515,18 @@ pub fn command_packet_with(tar: u32, keyset: u8, spi1: u8, spi2: u8) -> Vec<u8> 
     command_packet_octets(tar, spi1, spi2, key_nibble, key_nibble, 1)
 }
 
+/// The same Command Packet as [`command_packet_with`], with KIC and KID as
+/// whole octets instead of being derived from a keyset.
+///
+/// A keyset only fills the high nibble, so a sweep that wants one of KIC or
+/// KID pinned to an octet it chose (SIMTester's `-kic` / `-kid`) cannot say
+/// it through [`command_packet_with`]. Both octets are written as given; the
+/// caller owns their meaning. [`command_packet_with`] is this function with
+/// `keyset << 4` in both.
+pub fn command_packet_raw(tar: u32, kic: u8, kid: u8, spi1: u8, spi2: u8) -> Vec<u8> {
+    command_packet_octets(tar, spi1, spi2, kic, kid, 1)
+}
+
 /// The Command Packet with KIC, KID and the counter given as raw octets.
 ///
 /// [`command_packet_with`] derives KIC and KID from a keyset and leaves the
@@ -595,7 +607,21 @@ pub fn envelope_data_with(
     spi1: u8,
     spi2: u8,
 ) -> Option<Vec<u8>> {
-    let tpdu = sms_deliver_tpdu(&command_packet_with(tar, keyset, spi1, spi2))?;
+    let key_nibble = keyset << 4;
+    envelope_data_raw(tar, class, key_nibble, key_nibble, spi1, spi2)
+}
+
+/// The same envelope data field as [`envelope_data_with`], with KIC and KID as
+/// whole octets (see [`command_packet_raw`]).
+pub fn envelope_data_raw(
+    tar: u32,
+    class: Class,
+    kic: u8,
+    kid: u8,
+    spi1: u8,
+    spi2: u8,
+) -> Option<Vec<u8>> {
+    let tpdu = sms_deliver_tpdu(&command_packet_raw(tar, kic, kid, spi1, spi2))?;
     let (identities, address) = match class {
         Class::Etsi => (&DEVICE_IDENTITIES_3G[..], &ADDRESS_3G[..]),
         Class::Gsm => (&DEVICE_IDENTITIES_GSM[..], &ADDRESS_GSM[..]),
@@ -636,7 +662,21 @@ pub fn envelope_apdu_with(
     spi1: u8,
     spi2: u8,
 ) -> Option<Vec<u8>> {
-    let data = envelope_data_with(tar, class, keyset, spi1, spi2)?;
+    let key_nibble = keyset << 4;
+    envelope_apdu_raw(tar, class, key_nibble, key_nibble, spi1, spi2)
+}
+
+/// The same APDU as [`envelope_apdu_with`], with KIC and KID as whole octets
+/// (see [`command_packet_raw`]).
+pub fn envelope_apdu_raw(
+    tar: u32,
+    class: Class,
+    kic: u8,
+    kid: u8,
+    spi1: u8,
+    spi2: u8,
+) -> Option<Vec<u8>> {
+    let data = envelope_data_raw(tar, class, kic, kid, spi1, spi2)?;
     let len = u8::try_from(data.len()).ok()?;
     let mut apdu = vec![class.octet(), INS_ENVELOPE, 0x00, 0x00, len];
     apdu.extend_from_slice(&data);
@@ -3967,5 +4007,26 @@ mod tests {
         let sent = send_terminal_profile(&mut card, &Policy::default()).expect("no error");
         assert_eq!(sent.proactive.len(), MAX_PROACTIVE_DRAINED);
         assert!(sent.still_pending);
+    }
+
+    #[test]
+    fn raw_octets_land_at_the_command_header_offsets() {
+        // CP layout `CPH || CPL || CHL || SPI1 SPI2 KIC KID TAR ...` is the
+        // [V] `CommandPacket._formatMessage` order cited on `command_packet`
+        // (3GPP TS 03.48 Command Packet), so SPI1 SPI2 KIC KID sit at CP
+        // offsets 6..10 (CPH 3, CPL 2, CHL 1) and TAR at 10..13.
+        let cp = command_packet_raw(0x00_00_01, 0x21, 0x31, 0x01, 0x09);
+        assert_eq!(&cp[6..10], &[0x01, 0x09, 0x21, 0x31]);
+        assert_eq!(&cp[10..13], &[0x00, 0x00, 0x01]);
+    }
+
+    #[test]
+    fn keyset_builders_are_the_raw_builder_with_the_nibble_in_both_octets() {
+        for keyset in 0..=15u8 {
+            assert_eq!(
+                command_packet_with(0x00_00_01, keyset, 0x01, 0x29),
+                command_packet_raw(0x00_00_01, keyset << 4, keyset << 4, 0x01, 0x29),
+            );
+        }
     }
 }
