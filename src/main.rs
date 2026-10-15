@@ -925,6 +925,32 @@ enum GpAction {
 enum GpCplcKind {
     PrePerso,
     Perso,
+    /// Personalize an application or Security Domain over an SCP03 channel:
+    /// INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with
+    /// the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified
+    /// against the spec text, see the source). CHANGES CARD CONTENT.
+    ///
+    /// WARNING: personalization writes data the application reads on the card. A
+    /// wrong value can break it, and this tool cannot read the stored value back.
+    ///
+    /// Same safeguards as delete: a dry run unless --yes (offline without keys,
+    /// printing the exact APDUs), one authentication attempt, a registry pre-read
+    /// that refuses an AID that is not on the card, every command sent once and in
+    /// order, stopping at the first refusal, and a registry re-read that confirms
+    /// the AID is still present. The data is printed as given, so do not put key
+    /// material in it. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a verified personalization, 1 otherwise.
+    Personalize {
+        /// The application or Security Domain AID, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// The BER-TLV personalization data, as hex; sent as the STORE DATA body.
+        #[arg(long, value_name = "HEX")]
+        data: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2057,6 +2083,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 today,
                 write,
             } => run_gp_cplc_set(kind, &data, today, &write),
+            GpAction::Personalize { aid, data, write } => run_gp_personalize(&aid, &data, &write),
         },
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
@@ -3151,6 +3178,53 @@ fn run_gp_put_key(
         w.trace,
         w.channel.channel,
         |s, t| gp::put_key(s, t, &req, &auth, w.yes),
+    )
+}
+
+/// `sim-doctor gp personalize`: a dry run unless `--yes`, offline without keys.
+/// The AID and the BER-TLV data are checked before a reader is opened.
+fn run_gp_personalize(aid: &str, data: &str, w: &GpWriteFlags) -> contract::ExitCode {
+    let Some(aid) = parse_aid(aid) else {
+        return report_refusal(
+            "gp",
+            "--aid must be 5 to 16 bytes of hex",
+            serde_json::json!({ "error": { "kind": "bad-aid" } }),
+            w.json,
+        );
+    };
+    let Ok(data) = hex::decode(data) else {
+        return report_refusal(
+            "gp",
+            "--data must be hex",
+            serde_json::json!({ "error": { "kind": "bad-request" } }),
+            w.json,
+        );
+    };
+    let req = gp::PersonalizeRequest { aid, data };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::personalize_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp personalize", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp personalize",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::personalize(s, t, &req, &auth, w.yes),
     )
 }
 
