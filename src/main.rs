@@ -940,6 +940,12 @@ enum GpAction {
     /// printed. DES, RSA and ECC DAP keys and tokens are not supported. Not
     /// available over MCP.
     ///
+    /// -F / --no-felix refuses the one field this tool would otherwise choose
+    /// for you: --params becomes required and the run is refused with nothing
+    /// sent. Keys are never guessed and the secure channel protocol parameter
+    /// (tag 81) is never added, so there is nothing else to turn off
+    /// (GlobalPlatformPro -F, issue #253).
+    ///
     /// Exit 0 for a dry run or a verified install, 1 otherwise.
     Install {
         /// The CAP file (a zip of javacard/*.cap components).
@@ -952,10 +958,14 @@ enum GpAction {
         /// The application (instance) AID. Defaults to the module AID.
         #[arg(long, value_name = "HEX")]
         app: Option<String>,
-        /// The Install Parameters field as TLV with the mandatory C9 tag (default
-        /// C900: none).
-        #[arg(long, value_name = "HEX", default_value = "C900")]
-        params: String,
+        /// The Install Parameters field as TLV with the mandatory C9 tag
+        /// (default C900: none; required with --no-felix).
+        #[arg(long, value_name = "HEX")]
+        params: Option<String>,
+        /// Refuse to guess the install parameters: --params becomes required
+        /// (GlobalPlatformPro -F / --no-felix, issue #253).
+        #[arg(short = 'F', long)]
+        no_felix: bool,
         /// Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card
         /// Terminate are refused.
         #[arg(long, value_name = "HEX", default_value = "000000")]
@@ -1323,6 +1333,17 @@ struct GpDeleteKeyFlags {
     /// --keys-env.
     #[arg(long, requires = "delete_key_source")]
     yes: bool,
+}
+
+/// The Install Parameters field of `gp install`: what was asked for, and the
+/// switch that refuses to answer for the caller (GlobalPlatformPro `-F` /
+/// `--no-felix`, issue #253). One struct rather than two arguments because the
+/// second decides what the first means.
+struct GpInstallParams {
+    /// `--params`, when it was given.
+    given: Option<String>,
+    /// `-F`: the field must be given; this tool will not fill in its own `C900`.
+    no_felix: bool,
 }
 
 /// What `gp delete` and `gp install` share.
@@ -2564,6 +2585,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 module,
                 app,
                 params,
+                no_felix,
                 privileges,
                 make_default,
                 block_size,
@@ -2579,7 +2601,10 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     &load,
                     module,
                     app,
-                    &params,
+                    GpInstallParams {
+                        given: params,
+                        no_felix,
+                    },
                     &privileges,
                     usize::from(block_size),
                     &dap,
@@ -3851,7 +3876,7 @@ fn run_gp_install(
     load: &std::path::Path,
     module: Option<String>,
     app: Option<String>,
-    params: &str,
+    params: GpInstallParams,
     privileges: &str,
     block_size: usize,
     dap: &GpDapArgs,
@@ -3860,6 +3885,24 @@ fn run_gp_install(
     let refuse = |kind: &str, message: String| {
         let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
         report_refusal("gp", &message, data, w.json)
+    };
+    // -F is the DWIM switch of GlobalPlatformPro (`GPCommandLineInterfaceNG.java:45`),
+    // where it turns off a default SCP03 key set (`GPToolNG.java:206`) and the secure
+    // channel protocol parameter added to a security domain install (`GPToolNG.java:484`).
+    // This tool does neither, so what it refuses here is the one field it does choose:
+    // the empty C900, filled in by clap until now. Asked for, it is sent unchanged.
+    let GpInstallParams { given, no_felix } = params;
+    let params = match given {
+        Some(text) => text,
+        None if no_felix => {
+            return refuse(
+                "params-required",
+                "--no-felix refuses to send an Install Parameters field this tool chose; \
+                 pass --params (C900 for none)"
+                    .into(),
+            )
+        }
+        None => "C900".to_string(),
     };
     let bytes = match std::fs::read(load) {
         Ok(bytes) => bytes,
@@ -3912,7 +3955,7 @@ fn run_gp_install(
         },
         None => module_aid.clone(),
     };
-    let (Ok(params), Ok(privileges)) = (hex::decode(params), hex::decode(privileges)) else {
+    let (Ok(params), Ok(privileges)) = (hex::decode(&params), hex::decode(privileges)) else {
         return refuse("bad-hex", "--params and --privileges must be hex".into());
     };
     let dap = match load_dap(dap) {
