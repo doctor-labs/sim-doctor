@@ -595,10 +595,28 @@ fn describe(
     }
 }
 
-/// The human table: two lines per exchange.
-pub fn render(rows: &[Decoded]) -> String {
+/// What the human table shows. Display only: [`decode`] and the JSON keep every exchange.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Display {
+    /// Print each exchange's raw command and response hex under its row (`--show-raw-apdu`).
+    pub show_raw_apdu: bool,
+    /// Keep SELECT rows (`--no-suppress-select`). Hidden by default, as in pySim-trace.
+    pub show_select: bool,
+    /// Keep UICC STATUS rows (`--no-suppress-status`). Hidden by default, as in pySim-trace.
+    /// GP GET STATUS (INS F2 under a GP class) is a different command and is never hidden.
+    pub show_status: bool,
+}
+
+/// The human table: two lines per exchange. Row numbers are the trace positions, so a hidden
+/// row leaves a gap rather than renumbering the ones after it.
+pub fn render(rows: &[Decoded], display: Display) -> String {
     let mut out = String::new();
     for (i, r) in rows.iter().enumerate() {
+        if (r.name == "SELECT" && !display.show_select)
+            || (r.name == "STATUS" && !display.show_status)
+        {
+            continue;
+        }
         out.push_str(&format!(
             "{:>3}  {:<22} {}\n     -> {} {}   [{}]\n",
             i + 1,
@@ -608,6 +626,11 @@ pub fn render(rows: &[Decoded]) -> String {
             r.meaning,
             r.selected,
         ));
+        if display.show_raw_apdu {
+            let raw = format!("     raw: {} {}", r.command, r.response);
+            out.push_str(raw.trim_end());
+            out.push('\n');
+        }
     }
     out
 }
@@ -737,5 +760,94 @@ mod tests {
         let rows = run("00A4\n6700\n00A40000023F00\n9000");
         assert_eq!(rows[0].name, "UNKNOWN");
         assert_eq!(rows[1].selected, "3F00");
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    fn row(name: &str, status: Option<&str>) -> Decoded {
+        Decoded {
+            step: None,
+            command: "00A40004023F00".into(),
+            response: "9000".into(),
+            name: name.into(),
+            detail: "by file id 3F00".into(),
+            status: status.map(str::to_owned),
+            meaning: "success".into(),
+            selected: "3F00".into(),
+        }
+    }
+
+    fn rows() -> Vec<Decoded> {
+        vec![
+            row("SELECT", Some("9000")),
+            row("READ BINARY", Some("9000")),
+            row("STATUS", Some("9000")),
+            row("GP GET STATUS", Some("9000")),
+        ]
+    }
+
+    #[test]
+    fn select_and_uicc_status_rows_are_hidden_by_default() {
+        let text = render(&rows(), Display::default());
+        assert!(!text.contains("SELECT"), "{text}");
+        assert!(!text.contains("  STATUS "), "{text}");
+        assert!(text.contains("READ BINARY"), "{text}");
+        assert!(text.contains("GP GET STATUS"), "{text}");
+    }
+
+    #[test]
+    fn no_suppress_select_keeps_select_rows() {
+        let text = render(
+            &rows(),
+            Display {
+                show_select: true,
+                ..Display::default()
+            },
+        );
+        assert!(text.contains("SELECT"), "{text}");
+        assert!(!text.contains("  STATUS "), "{text}");
+    }
+
+    #[test]
+    fn no_suppress_status_keeps_uicc_status_rows_only() {
+        let text = render(
+            &rows(),
+            Display {
+                show_status: true,
+                ..Display::default()
+            },
+        );
+        assert!(text.contains("  STATUS "), "{text}");
+        assert!(!text.contains("SELECT"), "{text}");
+    }
+
+    #[test]
+    fn rows_keep_their_trace_numbers_when_others_are_hidden() {
+        let text = render(&rows(), Display::default());
+        assert!(text.starts_with("  2  READ BINARY"), "{text}");
+    }
+
+    #[test]
+    fn show_raw_apdu_prints_command_and_response_hex() {
+        let text = render(
+            &rows()[..1],
+            Display {
+                show_raw_apdu: true,
+                show_select: true,
+                ..Display::default()
+            },
+        );
+        assert!(text.contains("     raw: 00A40004023F00 9000\n"), "{text}");
+        let plain = render(
+            &rows()[..1],
+            Display {
+                show_select: true,
+                ..Display::default()
+            },
+        );
+        assert!(!plain.contains("raw:"), "{plain}");
     }
 }

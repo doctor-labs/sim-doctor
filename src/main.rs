@@ -1573,6 +1573,15 @@ struct TraceArgs {
     /// Emit one JSON envelope of kind "trace" on stdout.
     #[arg(long)]
     json: bool,
+    /// Also print each exchange's raw command and response hex in the table.
+    #[arg(long)]
+    show_raw_apdu: bool,
+    /// Keep SELECT rows in the table. They are hidden by default, as in pySim-trace.
+    #[arg(long)]
+    no_suppress_select: bool,
+    /// Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace.
+    #[arg(long)]
+    no_suppress_status: bool,
 }
 
 /// Everything `sim-doctor why` takes.
@@ -3030,7 +3039,12 @@ fn run_trace(args: &TraceArgs) -> contract::ExitCode {
             Err(err) => return refuse(err.to_string()),
         }
     } else {
-        trace::render(&rows).trim_end().to_owned()
+        let display = trace::Display {
+            show_raw_apdu: args.show_raw_apdu,
+            show_select: args.no_suppress_select,
+            show_status: args.no_suppress_status,
+        };
+        trace::render(&rows, display).trim_end().to_owned()
     };
     match emit_stdout(&rendered, "the decoded trace") {
         Ok(()) => contract::ExitCode::Success,
