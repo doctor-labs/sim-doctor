@@ -1664,3 +1664,202 @@ fn exclusive_flag_is_accepted_and_documented() {
     let text = String::from_utf8_lossy(&help.stdout);
     assert!(text.contains("-X, --exclusive"), "{text}");
 }
+
+/// A temp replay log so dry-run BIP commands have a "card" that never
+/// responds (they only print the APDU).
+fn empty_replay() -> String {
+    let p = std::env::temp_dir().join(format!(
+        "bip-dr{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&p, "").unwrap();
+    p.to_string_lossy().into_owned()
+}
+
+#[test]
+fn envelope_builds_the_right_apdu() {
+    let replay = empty_replay();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "envelope D3 02 AA BB"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], true);
+    assert_eq!(r[0]["data"]["apdu"], "80C2000004D302AABB");
+    assert_eq!(r[0]["data"]["sent"], false, "dry run without --yes");
+    assert!(
+        r[0]["data"]["apdu"].as_str().unwrap().to_uppercase()
+            == r[0]["data"]["apdu"].as_str().unwrap(),
+        "APDU is upper-case hex"
+    );
+}
+
+#[test]
+fn envelope_sms_wraps_in_tag_d1() {
+    let replay = empty_replay();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "envelope_sms 82 02 82 81"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], true);
+    // D1 04 82 02 82 81 wraps the input in tag D1
+    assert_eq!(r[0]["data"]["apdu"], "80C2000006D10482028281");
+    assert_eq!(r[0]["data"]["sent"], false);
+}
+
+#[test]
+fn bip_data_available_builds_the_d6_envelope() {
+    let replay = empty_replay();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "bip_data_available 1 42"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], true);
+    // APDU: 80 C2 00 00 10 | D6 0E 99 01 09 82 02 82 81 B8 02 81 00 B7 01 2A
+    assert_eq!(
+        r[0]["data"]["apdu"],
+        "80C2000010D60E99010982028281B8028100B7012A"
+    );
+    assert_eq!(r[0]["data"]["sent"], false, "dry run without --yes");
+}
+
+#[test]
+fn bip_data_available_requires_yes_to_send() {
+    let replay = empty_replay();
+    // With --yes, the command is sent to the replay card. The replay has no
+    // recorded response, so the command fails — but the APDU was built and sent.
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "bip_data_available 1 42 --yes"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    // The replay has no record for this command, so the shell reports an error.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], false);
+    // the error mentions the replay running out of recorded exchanges
+    let err = r[0]["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("replay") || err.contains("exhausted"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn bip_local_info_builds_terminal_response() {
+    let replay = empty_replay();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "bip_local_info 2 62F21000010001"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], true);
+    // TERMINAL RESPONSE: 80 14 00 00 16 |
+    //   81 03 02 26 00 (Command details: cmd 2, PROVIDE LOCAL INFO, qualifier 0)
+    //   82 02 82 81 (Device identities: terminal -> UICC)
+    //   83 02 00 00 (Result: performed successfully)
+    //   93 07 62 F2 10 00 01 00 01 (Location information, 7 bytes)
+    assert_eq!(
+        r[0]["data"]["apdu"],
+        "80140000 16 8103022600 82 02 8281 83 02 0000 93 07 62F21000010001"
+            .replace(' ', "")
+            .to_uppercase()
+    );
+    assert_eq!(r[0]["data"]["sent"], false, "dry run without --yes");
+}
+
+#[test]
+fn bip_local_info_without_location_is_minimal() {
+    let replay = empty_replay();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "bip_local_info 1"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], true);
+    // No 93 IE when location is empty:
+    // 80 14 00 00 0D | 81 03 01 26 00 82 02 82 81 83 02 00 00
+    assert_eq!(
+        r[0]["data"]["apdu"],
+        "80140000 0D 8103012600 82 02 8281 83 02 0000"
+            .replace(' ', "")
+            .to_uppercase()
+    );
+}
+
+#[test]
+fn bip_data_available_rejects_channel_out_of_range() {
+    let replay = empty_replay();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(["--json", "-c", "bip_data_available 8 42"])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], false);
+    // clap rejects channel 8 as out of range 1..=7
+    let err = r[0]["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("not in 1..=7") || err.contains("not 1..=7"),
+        "got: {err}"
+    );
+}

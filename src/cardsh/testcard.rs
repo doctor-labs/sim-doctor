@@ -609,6 +609,13 @@ impl CardSession for TestCard {
             // GET IDENTITY (TS 31.102 4.2.2): INS 0x78, case 2 with Le.
             // Returns the SUCI/identity from the selected application.
             0x78 => self.get_identity(ch),
+            // ENVELOPE (INS 0xC2): the terminal pushes an envelope to the card,
+            // e.g. an Event Download (D6) or SMS-PP download (D1). The test card
+            // just records it (via self.sent in transmit) and answers 90 00.
+            0xC2 => vec![0x90, 0x00],
+            // TERMINAL RESPONSE (INS 0x14): answers a proactive command.
+            // The test card answers 90 00.
+            0x14 => vec![0x90, 0x00],
             _ => vec![0x6D, 0x00],
         })
     }

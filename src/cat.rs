@@ -8,7 +8,10 @@
 //! item, URL, bearer description, channel data, location information, IMEI, event list ...).
 //!
 //! **Does not own.** Executing any of it: nothing here answers a card. A `TERMINAL RESPONSE` is decoded the
-//! same way as a command and never built.
+//! same way as a command and never built — except for the BIP channel handler
+//! (issue #203), which builds the TERMINAL RESPONSE and ENVELOPE payloads a
+//! terminal sends back to a card for OPEN/SEND/RECEIVE/CLOSE CHANNEL and
+//! Data Available events.
 //!
 //! The tables (`tables.rs`) follow pySim's `cat.py` (osmocom/pysim, GPL: tags read, code written here); the field
 //! layouts follow ETSI TS 102 223 clause 8. An element without a field decoder is shown as its hex, named,
@@ -660,6 +663,200 @@ pub fn parse_hex(text: &str) -> Result<Vec<u8>, String> {
         .map(|w| w.trim_start_matches("0x"))
         .collect();
     hex::decode(&t).map_err(|_| "the input is not hex".to_owned())
+}
+
+// ---------------------------------------------------------------------------
+// BIP channel handler (issue #203)
+// ---------------------------------------------------------------------------
+
+/// One TLV object: a comprehension-required or plain BER-TLV tag and its value.
+/// Short-form length only — the values here never exceed 127 octets.
+fn tlv(tag: u8, value: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(2 + value.len());
+    out.push(tag);
+    out.push(value.len() as u8);
+    out.extend_from_slice(value);
+    out
+}
+
+/// The Channel status information element value (TS 102 223 8.56 / TS 31.111).
+///
+/// Byte 0 low three bits = channel id, bit 7 = link established.
+/// Byte 1 = `00` (no further info). For a default/network TCP bearer:
+/// `0x80 | (chan & 0x07)` when established, `chan & 0x07` when not.
+pub fn bip_channel_status(chan: u8, established: bool) -> Vec<u8> {
+    let b0 = if established {
+        0x80 | (chan & 0x07)
+    } else {
+        chan & 0x07
+    };
+    vec![b0, 0x00]
+}
+
+/// The Device identities IE value: terminal → UICC (TS 102 223 8.7).
+/// `0x82` terminal, `0x81` UICC.
+pub fn bip_device_id_terminal_to_uicc() -> Vec<u8> {
+    vec![0x82, 0x81]
+}
+
+/// The Command details IE value for a BIP proactive command:
+/// `[command_number, type_of_command, command_qualifier]`.
+/// `type_of_command` is the BIP command type (OPEN CHANNEL 0x40, etc.).
+pub fn bip_command_details(number: u8, type_of_command: u8, qualifier: u8) -> Vec<u8> {
+    vec![number, type_of_command, qualifier]
+}
+
+/// The Result IE value for a TERMINAL RESPONSE: general result byte,
+/// then additional information (empty here).
+pub fn bip_result(general_result: u8) -> Vec<u8> {
+    vec![general_result, 0x00]
+}
+
+/// Build a TERMINAL RESPONSE to a BIP proactive command.
+///
+/// The card issues e.g. OPEN CHANNEL as a proactive command; the terminal
+/// answers with TERMINAL RESPONSE (INS 0x14). `type_of_command` is one of
+/// the BIP command types from [`tables::COMMANDS`] (0x40 OPEN CHANNEL,
+/// 0x41 CLOSE CHANNEL, 0x42 RECEIVE DATA, 0x43 SEND DATA, 0x44 GET CHANNEL
+/// STATUS). `result` is a general result byte.
+///
+/// The IEs are: Command details (81), Device identities (82, terminal→UICC),
+/// Result (83), then any extra IEs the caller appends (channel status,
+/// bearer description, buffer size, channel data, channel data length ...).
+pub fn bip_terminal_response(
+    command_number: u8,
+    type_of_command: u8,
+    qualifier: u8,
+    result: u8,
+    extra: &[Vec<u8>],
+) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(tlv(
+        0x81,
+        &bip_command_details(command_number, type_of_command, qualifier),
+    ));
+    body.extend(tlv(0x82, &bip_device_id_terminal_to_uicc()));
+    body.extend(tlv(0x83, &bip_result(result)));
+    for ie in extra {
+        body.extend(ie);
+    }
+    body
+}
+
+/// The TERMINAL RESPONSE header bytes to wrap in an ENVELOPE (CLA 80, INS 14).
+///
+/// TERMINAL RESPONSE is sent as its own APDU (INS 0x14, CLA `card.cla() | 0x80`),
+/// not inside an ENVELOPE. The card shell reuses [`crate::cardsh::envelope_command`]
+/// for ENVELOPE-wrapped events and this header for direct TERMINAL RESPONSE.
+pub const TERMINAL_RESPONSE_HEADER: [u8; 4] = [0x80, 0x14, 0x00, 0x00];
+
+/// Build a TERMINAL RESPONSE APDU body for PROVIDE LOCAL INFORMATION (0x26)
+/// reporting location information (qualifier 0x00).
+///
+/// TS 102 223 6.8.7: the qualifier 0x00 asks for location information, and
+/// the TERMINAL RESPONSE must carry a Location information IE (tag 0x93)
+/// with the current location. `location` is the opaque bytes of that IE's value
+/// (TS 31.111 8.19.1: PLMN, LAC, cell id, typically 7 octets for GERAN).
+pub fn bip_local_info_response(command_number: u8, location: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    // Command details: number, PROVIDE LOCAL INFO=0x26, qualifier=0x00
+    body.extend(tlv(0x81, &bip_command_details(command_number, 0x26, 0x00)));
+    // Device identities: terminal -> UICC
+    body.extend(tlv(0x82, &bip_device_id_terminal_to_uicc()));
+    // Result: performed successfully (0x00)
+    body.extend(tlv(0x83, &bip_result(0x00)));
+    // Location information (0x93) if given
+    if !location.is_empty() {
+        body.extend(tlv(0x93, location));
+    }
+    body
+}
+
+/// Build the data field of an ENVELOPE EVENT DOWNLOAD reporting Data Available
+/// on a BIP channel (TS 102 223 7.5.10.2, tag D6).
+///
+/// The envelope wraps: Event list (99, `[0x09]` = data_available),
+/// Device identities (82, terminal→UICC), Channel status (B8), and
+/// Channel data length (B7 = bytes available, clamped to 0xFF).
+///
+/// `chan` is 1..=7. `bytes_available` is clamped to 0xFF (the IE holds one
+/// octet; 0xFF means "more than 255").
+pub fn bip_data_available_envelope(chan: u8, bytes_available: u8) -> Vec<u8> {
+    let mut body = Vec::new();
+    // Event list: data_available = 0x09
+    body.extend(tlv(0x99, &[0x09]));
+    // Device identities: terminal -> UICC
+    body.extend(tlv(0x82, &bip_device_id_terminal_to_uicc()));
+    // Channel status: established
+    body.extend(tlv(0xB8, &bip_channel_status(chan, true)));
+    // Channel data length: bytes available (already 0..=255 by the arg type)
+    body.extend(tlv(0xB7, &[bytes_available]));
+    // Wrap in D6 (Event Download envelope)
+    let inner = body;
+    let mut out = vec![0xD6, inner.len() as u8];
+    out.extend(inner);
+    out
+}
+
+/// The event-list byte for "data available" (TS 102 223 / 31.111 8.15: 0x09).
+pub const EVENT_DATA_AVAILABLE: u8 = 0x09;
+/// The event-list byte for "access technology change" (0x0B).
+pub const EVENT_ACCESS_TECH_CHANGE: u8 = 0x0B;
+/// The event-list byte for "channel status" (0x0A).
+pub const EVENT_CHANNEL_STATUS: u8 = 0x0A;
+
+/// BIP command type: OPEN CHANNEL (TS 102 223 6.6.27).
+pub const BIP_CMD_OPEN_CHANNEL: u8 = 0x40;
+/// BIP command type: CLOSE CHANNEL (TS 102 223 6.6.28).
+pub const BIP_CMD_CLOSE_CHANNEL: u8 = 0x41;
+/// BIP command type: RECEIVE DATA (TS 102 223 6.6.29).
+pub const BIP_CMD_RECEIVE_DATA: u8 = 0x42;
+/// BIP command type: SEND DATA (TS 102 223 6.6.30).
+pub const BIP_CMD_SEND_DATA: u8 = 0x43;
+/// BIP command type: GET CHANNEL STATUS (TS 102 223 6.6.31).
+pub const BIP_CMD_GET_CHANNEL_STATUS: u8 = 0x44;
+/// Proactive command: PROVIDE LOCAL INFORMATION (TS 102 223 6.6.18).
+pub const CMD_PROVIDE_LOCAL_INFO: u8 = 0x26;
+
+/// General result: performed successfully (TS 102 223 8.12).
+pub const RESULT_SUCCESS: u8 = 0x00;
+/// General result: bearer independent protocol error (TS 102 223 8.12.11).
+pub const RESULT_BIP_ERROR: u8 = 0x3A;
+/// General result: command beyond terminal's capabilities.
+pub const RESULT_BEYOND_CAPABILITIES: u8 = 0x30;
+
+/// Decode-only: extract the channel number from a Channel status IE value
+/// (TS 102 223 8.56). Returns `None` when the value is not 2 octets.
+///
+/// Low 3 bits of byte 0 are the channel id; bit 7 means "link established".
+pub fn decode_channel_status(value: &[u8]) -> Option<(u8, bool)> {
+    match value {
+        [b0, _] => Some((b0 & 0x07, b0 & 0x80 != 0)),
+        _ => None,
+    }
+}
+
+/// Decode-only: extract the channel id from Device identities (TS 102 223 8.7).
+///
+/// A channel identity is `0x21`..=`0x27` for channels 1..7; this returns
+/// the channel number, or `None` if the destination is not a channel.
+pub fn decode_channel_from_device_id(value: &[u8]) -> Option<u8> {
+    match value {
+        [_, dest] if *dest >= 0x21 && *dest <= 0x27 => Some(dest & 0x0F),
+        _ => None,
+    }
+}
+
+/// Decode-only: the event-list byte (TS 102 223 8.13 / TS 31.111) into a name.
+pub fn decode_event_name(byte: u8) -> Option<&'static str> {
+    Some(match byte {
+        0x09 => "data available",
+        0x0A => "channel status",
+        0x0B => "access technology change",
+        0x0C => "display parameters changed",
+        0x13 => "HCI connectivity event",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
