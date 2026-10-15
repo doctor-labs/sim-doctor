@@ -139,6 +139,286 @@ impl Access {
     }
 }
 
+/// A readable name for a security condition, for the per-file `desc` text.
+///
+/// pySim (and this crate's `pin_names`) names the keys a condition may wait
+/// on; this keeps that same naming so the `desc` output reads like pySim, e.g.
+/// `READ: PIN1, UPDATE: ADM1`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyCond {
+    /// No verification: the `90` always condition.
+    Always,
+    /// Never: the `97` never condition.
+    Never,
+    /// A key (PIN/ADM/etc.) the condition waits on, named from table 9.3.
+    Key(u8),
+    /// Something must hold that is not a named key (a secure channel, a
+    /// proprietary SC_DO, an unread rule).
+    Restricted,
+}
+
+impl KeyCond {
+    /// The readable spelling pySim uses: `ALW`, `NEV`, the key name, or
+    /// `restricted`.
+    fn text(self) -> String {
+        match self {
+            Self::Always => "ALW".to_owned(),
+            Self::Never => "NEV".to_owned(),
+            Self::Key(key) => pin_key_name(key)
+                .map(|n| n.to_owned())
+                .unwrap_or_else(|| format!("restricted (key ref {key:02X})")),
+            Self::Restricted => "restricted".to_owned(),
+        }
+    }
+
+    /// Folds two alternative conditions (an OR): ALW wins, all NEV is NEV,
+    /// otherwise restricted; a key is kept only when both sides name it.
+    fn or(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Always, _) | (_, Self::Always) => Self::Always,
+            (Self::Never, Self::Never) => Self::Never,
+            (Self::Key(k), Self::Key(j)) if k == j => Self::Key(k),
+            _ => Self::Restricted,
+        }
+    }
+
+    /// Folds two conditions that must both hold (an AND): NEV wins, both ALW
+    /// is ALW, a key is kept only when both sides name the same one.
+    fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Never, _) | (_, Self::Never) => Self::Never,
+            (Self::Always, Self::Always) => Self::Always,
+            (Self::Key(k), Self::Key(j)) if k == j => Self::Key(k),
+            _ => Self::Restricted,
+        }
+    }
+}
+
+/// The readable name of a key reference, matching pySim's `pin_names`
+/// (TS 102 221 table 9.3): PIN1-PIN8, ADM1-ADM10, the universal PIN, and
+/// 2PIN1-2PIN8. `None` for a reference this crate does not name.
+pub fn pin_key_name(key_reference: u8) -> Option<&'static str> {
+    Some(match key_reference {
+        0x01 => "PIN1",
+        0x02 => "PIN2",
+        0x03 => "PIN3",
+        0x04 => "PIN4",
+        0x05 => "PIN5",
+        0x06 => "PIN6",
+        0x07 => "PIN7",
+        0x08 => "PIN8",
+        0x0A => "ADM1",
+        0x0B => "ADM2",
+        0x0C => "ADM3",
+        0x0D => "ADM4",
+        0x0E => "ADM5",
+        0x11 => "UNIVERSAL_PIN",
+        0x81 => "2PIN1",
+        0x82 => "2PIN2",
+        0x83 => "2PIN3",
+        0x84 => "2PIN4",
+        0x85 => "2PIN5",
+        0x86 => "2PIN6",
+        0x87 => "2PIN7",
+        0x88 => "2PIN8",
+        0x8A => "ADM6",
+        0x8B => "ADM7",
+        0x8C => "ADM8",
+        0x8D => "ADM9",
+        0x8E => "ADM10",
+        _ => return None,
+    })
+}
+
+/// The access-condition text a file's FCP carries, decoded from whatever
+/// security attributes the SELECT response contained: the compact form (`8C`),
+/// the expanded form (`AB`), or the referenced form (`8B`). The referenced
+/// form only names the EF.ARR and record it points at, because reading those
+/// records is a card exchange this offline decoder does not perform; a caller
+/// that wants the full rule resolves the reference with [`resolve`] first.
+///
+/// Returns `None` when the FCP states no security attributes this module can
+/// decode, i.e. the access is not known from the SELECT response alone.
+pub fn fcp_access_text(body: &[u8], dialect: &crate::fcp::TagSet) -> Option<String> {
+    let template = crate::fcp::Template::parse(body, dialect).ok()?;
+    // `8B` (referenced): a pointer to EF.ARR records.
+    if let Some(reference) = template.security_reference() {
+        if let Some(arr) = parse_arr_ref(reference) {
+            let file = format!("{:04X}", u16::from_be_bytes(arr.file));
+            let records = arr
+                .records
+                .iter()
+                .map(u8::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            return Some(format!(
+                "READ/UPDATE: referenced to EF.ARR {file} record(s) {records}"
+            ));
+        }
+        return Some("READ/UPDATE: restricted (EF.ARR reference undecoded)".to_owned());
+    }
+    // `AB` (expanded): the rule is inline, so it decodes fully.
+    if let Some(expanded) = template.security_expanded() {
+        return Some(expanded_access_text(expanded));
+    }
+    // `8C` (compact): the rule is inline.
+    if let Ok(Some(conditions)) = template.access_conditions() {
+        return Some(compact_access_text(conditions.octets()));
+    }
+    None
+}
+
+/// Renders the expanded (`AB` / EF.ARR-record) form to text like
+/// `READ: PIN1, UPDATE: ADM1`.
+fn expanded_access_text(bytes: &[u8]) -> String {
+    let access = parse_expanded_rule(bytes).unwrap_or((KeyCond::Restricted, KeyCond::Restricted));
+    format!("READ: {}, UPDATE: {}", access.0.text(), access.1.text())
+}
+
+/// Decodes one expanded access rule (clause 9.2.6, E.3) into named conditions.
+/// Trailing `FF` padding is ignored. Returns (read, update).
+fn parse_expanded_rule(bytes: &[u8]) -> Option<(KeyCond, KeyCond)> {
+    let end = bytes.iter().rposition(|b| *b != 0xFF)? + 1;
+    let atoms = Stream::new(&bytes[..end]).collect_atoms().ok()?;
+    Some(rule_conditions(&atoms))
+}
+
+/// Walks AM_DO/SC_DO atoms in wire order, AND-ing the SC_DOs within each
+/// command set and OR-ing across command sets (clause E.3.2). A command
+/// description AM_DO (tag `81`-`8F`) that is not a recognized AM byte makes the
+/// result "restricted", never NEV.
+fn rule_conditions(atoms: &[Tlv<'_>]) -> (KeyCond, KeyCond) {
+    let mut reads = Vec::new();
+    let mut updates = Vec::new();
+    let mut current_am: Option<u8> = None;
+    let mut current_conds: Vec<KeyCond> = Vec::new();
+    let mut unread = false;
+    for atom in atoms {
+        let tag = atom.tag().octet();
+        if (0x80..=0x8F).contains(&tag) {
+            // Flush the previous command set.
+            if let Some(am) = current_am {
+                let cond = fold_conditions(&current_conds);
+                if am & AM_READ != 0 {
+                    reads.push(cond);
+                }
+                if am & AM_UPDATE != 0 {
+                    updates.push(cond);
+                }
+            }
+            let am = match (tag, atom.value()) {
+                (0x80, [b]) if b & 0x80 == 0 => Some(*b),
+                _ => None,
+            };
+            if am.is_none() {
+                unread = true;
+            }
+            current_am = am;
+            current_conds = Vec::new();
+        } else {
+            current_conds.push(condition_key_of(atom, 0));
+        }
+    }
+    // Flush the last command set.
+    if let Some(am) = current_am {
+        let cond = fold_conditions(&current_conds);
+        if am & AM_READ != 0 {
+            reads.push(cond);
+        }
+        if am & AM_UPDATE != 0 {
+            updates.push(cond);
+        }
+    }
+    let settle = |c: KeyCond| {
+        if unread && c == KeyCond::Never {
+            KeyCond::Restricted
+        } else {
+            c
+        }
+    };
+    (settle(fold_keys(&reads)), settle(fold_keys(&updates)))
+}
+
+/// AND-folds a list of conditions within one command set.
+fn fold_conditions(conds: &[KeyCond]) -> KeyCond {
+    conds
+        .iter()
+        .copied()
+        .reduce(KeyCond::and)
+        .unwrap_or(KeyCond::Restricted)
+}
+
+/// OR-folds the conditions that apply to one operation across command sets.
+fn fold_keys(conds: &[KeyCond]) -> KeyCond {
+    conds
+        .iter()
+        .copied()
+        .reduce(KeyCond::or)
+        .unwrap_or(KeyCond::Never)
+}
+
+/// Maps one SC_DO to a [`KeyCond`], extracting the key reference from an `A4`
+/// control-reference template.
+fn condition_key_of(sc: &Tlv<'_>, depth: usize) -> KeyCond {
+    match (sc.tag().octet(), sc.value()) {
+        (0x90, []) => KeyCond::Always,
+        (0x97, []) => KeyCond::Never,
+        (0xA4, value) => key_ref_of(value).map_or(KeyCond::Restricted, KeyCond::Key),
+        (0xA0 | 0xAF, inner) if depth < MAX_TEMPLATE_DEPTH => {
+            let children = Stream::new(inner).collect_atoms().ok();
+            match children {
+                Some(children) if children.is_empty() => KeyCond::Restricted,
+                Some(children) => {
+                    let folded = fold_conditions(
+                        &children
+                            .iter()
+                            .map(|c| condition_key_of(c, depth + 1))
+                            .collect::<Vec<_>>(),
+                    );
+                    folded
+                }
+                None => KeyCond::Restricted,
+            }
+        }
+        // Anything else (e.g. a `9D` secure-messaging byte, a `0x83` key-ref do
+        // outside a CRT) is not a condition this crate names.
+        _ => KeyCond::Restricted,
+    }
+}
+
+/// The key reference byte carried by a `90 ... 83 01 <ref>` control-reference
+/// template, when the template is shaped like one. `None` otherwise.
+fn key_ref_of(value: &[u8]) -> Option<u8> {
+    let atoms = Stream::new(value).collect_atoms().ok()?;
+    for atom in atoms {
+        if atom.tag().octet() == 0x83 && atom.value().len() == 1 {
+            return Some(atom.value()[0]);
+        }
+    }
+    None
+}
+
+/// Renders the compact (`8C`) form to text. The compact form (clause 9.2.5,
+/// E.2) is an AM byte followed by one SC byte per set bit, in b7..b1 order;
+/// several AM+SC groups are an OR. It carries no key reference, so a
+/// restricted condition stays unnamed, matching pySim's `ALW`/`NEV`/`restricted`.
+fn compact_access_text(bytes: &[u8]) -> String {
+    let access = parse_compact(bytes).unwrap_or(Access {
+        read: Condition::Restricted,
+        update: Condition::Restricted,
+    });
+    let cond = |c: Condition| match c {
+        Condition::Always => "ALW".to_owned(),
+        Condition::Never => "NEV".to_owned(),
+        Condition::Restricted => "restricted".to_owned(),
+    };
+    format!(
+        "READ: {}, UPDATE: {}",
+        cond(access.read),
+        cond(access.update)
+    )
+}
+
 /// Where a `8B` points: an EF.ARR and the record numbers in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArrRef {
@@ -464,6 +744,7 @@ fn read_records<S: CardSession + ?Sized>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fcp::TagSet;
 
     #[test]
     fn expanded_rule_read_always_update_adm() {
@@ -540,6 +821,100 @@ mod tests {
         let off = parse_pin_status(&[0x90, 0x01, 0x00, 0x83, 0x01, 0x01]).unwrap();
         assert_eq!(pin1_disabled(&off), Some(true));
         assert_eq!(parse_pin_status(&[0x83, 0x01, 0x01]), None);
+    }
+
+    /// Wraps atoms in a `62` FCP template body, as a SELECT response would.
+    fn fcp_wrap(atoms: &[Vec<u8>]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.push(0x62);
+        let len = atoms.concat().len();
+        body.push(u8::try_from(len).unwrap());
+        body.extend(atoms.concat());
+        body
+    }
+
+    /// One BER-TLV atom: `tag len body`.
+    fn atom(tag: u8, body: &[u8]) -> Vec<u8> {
+        let mut out = vec![tag, u8::try_from(body.len()).unwrap()];
+        out.extend_from_slice(body);
+        out
+    }
+
+    #[test]
+    fn fcp_access_text_decodes_the_compact_8c_form() {
+        // 8C 03: AM 03 (READ+UPDATE) SC 00 00 -> ALW for both (clause E.2.3).
+        let fcp = fcp_wrap(&[atom(0x8C, &[0x03, 0x00, 0x00])]);
+        assert_eq!(
+            fcp_access_text(&fcp, &TagSet::ts_102_221()),
+            Some("READ: ALW, UPDATE: ALW".to_owned())
+        );
+        // 8C 03: AM 03 SC 10 00 -> READ ALW, UPDATE restricted.
+        let fcp = fcp_wrap(&[atom(0x8C, &[0x03, 0x10, 0x00])]);
+        assert_eq!(
+            fcp_access_text(&fcp, &TagSet::ts_102_221()),
+            Some("READ: ALW, UPDATE: restricted".to_owned())
+        );
+    }
+
+    #[test]
+    fn fcp_access_text_decodes_the_expanded_ab_form_to_named_keys() {
+        // AB: READ PIN1 (AM_READ, A4 83 01 01), UPDATE ADM1 (AM_UPDATE, A4 83 01 0A).
+        let rule = [
+            0x80, 0x01, 0x01, 0xA4, 0x06, 0x83, 0x01, 0x01, 0x95, 0x01, 0x08, 0x80, 0x01, 0x02,
+            0xA4, 0x06, 0x83, 0x01, 0x0A, 0x95, 0x01, 0x08,
+        ];
+        let fcp = fcp_wrap(&[atom(0xAB, &rule)]);
+        assert_eq!(
+            fcp_access_text(&fcp, &TagSet::ts_102_221()),
+            Some("READ: PIN1, UPDATE: ADM1".to_owned())
+        );
+        // AB: READ ALW, UPDATE ALW.
+        let rule = [0x80, 0x01, 0x03, 0x90, 0x00];
+        let fcp = fcp_wrap(&[atom(0xAB, &rule)]);
+        assert_eq!(
+            fcp_access_text(&fcp, &TagSet::ts_102_221()),
+            Some("READ: ALW, UPDATE: ALW".to_owned())
+        );
+        // AB: READ ALW, UPDATE NEV.
+        let rule = [0x80, 0x01, 0x01, 0x90, 0x00, 0x80, 0x01, 0x02, 0x97, 0x00];
+        let fcp = fcp_wrap(&[atom(0xAB, &rule)]);
+        assert_eq!(
+            fcp_access_text(&fcp, &TagSet::ts_102_221()),
+            Some("READ: ALW, UPDATE: NEV".to_owned())
+        );
+    }
+
+    #[test]
+    fn fcp_access_text_referenced_8b_names_the_ef_arr_target() {
+        // 8B -> EF.ARR 6F06, record 2.
+        let fcp = fcp_wrap(&[atom(0x8B, &[0x6F, 0x06, 0x02])]);
+        let text = fcp_access_text(&fcp, &TagSet::ts_102_221());
+        assert_eq!(
+            text,
+            Some("READ/UPDATE: referenced to EF.ARR 6F06 record(s) 2".to_owned())
+        );
+    }
+
+    #[test]
+    fn fcp_access_text_none_when_no_security_attributes() {
+        // A file descriptor with no access-condition atoms.
+        let fcp = fcp_wrap(&[atom(0x80, &[0x02, 0x00, 0x09])]);
+        assert_eq!(fcp_access_text(&fcp, &TagSet::ts_102_221()), None);
+    }
+
+    #[test]
+    fn pin_key_names_match_py_sim_table_9_3() {
+        // Verifiably mapped key references.
+        assert_eq!(pin_key_name(0x01), Some("PIN1"));
+        assert_eq!(pin_key_name(0x02), Some("PIN2"));
+        assert_eq!(pin_key_name(0x0A), Some("ADM1"));
+        assert_eq!(pin_key_name(0x0E), Some("ADM5"));
+        assert_eq!(pin_key_name(0x11), Some("UNIVERSAL_PIN"));
+        assert_eq!(pin_key_name(0x81), Some("2PIN1"));
+        assert_eq!(pin_key_name(0x8E), Some("ADM10"));
+        // Outside the assigned table: unnamed.
+        assert_eq!(pin_key_name(0x00), None);
+        assert_eq!(pin_key_name(0x9F), None);
     }
 
     #[test]

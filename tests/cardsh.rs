@@ -1210,3 +1210,34 @@ fn run_script_command_exists_in_help() {
         "run_script missing from help:\n{text}"
     );
 }
+
+#[test]
+fn desc_reports_access_conditions_field() {
+    // EF.IMSI (6F07) in the select fixture carries no security-attribute
+    // atoms, so its `access_conditions` decodes to null — but the field is now
+    // always present on `desc` output (text + JSON).
+    let out = card(
+        "cardsh_select.jsonl",
+        &[
+            "--json",
+            "-c",
+            "select 3F00; select 7F20; select 6F07; desc",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    // The desc reply is the last line.
+    let desc = &r[r.len() - 1];
+    assert_eq!(desc["ok"], true);
+    assert!(
+        desc["data"].get("access_conditions").is_some(),
+        "desc now reports an access_conditions field: {}",
+        desc
+    );
+    assert_eq!(desc["data"]["access_conditions"], serde_json::Value::Null);
+}
