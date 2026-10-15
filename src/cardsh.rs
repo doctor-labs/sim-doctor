@@ -980,7 +980,7 @@ impl Shell {
 
     /// The secret `name` from the provider (`--chv-file` / `--chv-env`).
     fn secret(&mut self, name: &str) -> Result<[u8; 8], CmdErr> {
-        let v = self.secret_bytes(name)?;
+        let (v, _) = self.secret_entry(name)?;
         <[u8; 8]>::try_from(v.as_slice()).map_err(|_| {
             CmdErr::new(format!(
                 "`{name}` is {} octets; a PIN, PUK or ADM key is 8",
@@ -991,6 +991,11 @@ impl Shell {
 
     /// The secret `name` as stored (any length the source gave).
     fn secret_bytes(&mut self, name: &str) -> Result<Vec<u8>, CmdErr> {
+        Ok(self.secret_entry(name)?.0)
+    }
+
+    /// The secret `name` as stored, and whether it was written as `hex:`.
+    fn secret_entry(&mut self, name: &str) -> Result<(Vec<u8>, bool), CmdErr> {
         let Some(sec) = self.opts.secrets.clone() else {
             return Err(CmdErr::new(
                 "no PIN source: start `card` with --chv-file PATH or --chv-env VAR",
@@ -1001,7 +1006,9 @@ impl Shell {
         } else {
             None
         };
+        let hex = sec.is_hex(name, iccid.as_deref());
         sec.get(name, iccid.as_deref())
+            .zip(hex)
             .ok_or_else(|| CmdErr::new(format!("the PIN source has no `{name}` entry")))
     }
 
@@ -1842,6 +1849,55 @@ impl Shell {
     fn cmd_verify_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let target = key_target(args)?;
         let value = self.secret(&target.secret)?;
+        self.verify_target(args, &target, value)
+    }
+
+    /// `verify_adm [--adm-type ADM1..ADM5] [--pin-is-hex]`: VERIFY an administrative key (pySim's
+    /// `verify_adm`, default ADM1). `--pin-is-hex` asserts the source holds the key as `hex:`; decimal
+    /// digits without it. A mismatch is refused before anything is sent.
+    fn cmd_verify_adm(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let n = args.get_one::<String>("adm_type").map_or(1, |t| {
+            t[3..]
+                .parse::<u8>()
+                .expect("the parser allows ADM1 to ADM5")
+        });
+        let target = KeyTarget {
+            key_ref: 0x0A + n - 1,
+            label: format!("ADM{n}"),
+            secret: format!("adm{n}"),
+        };
+        let (raw, hex) = self.secret_entry(&target.secret)?;
+        let asked = args.get_flag("pin_is_hex");
+        if hex != asked {
+            return Err(CmdErr::new(format!(
+                "{} is written as {} in the PIN source; {}",
+                target.label,
+                if hex { "hex:" } else { "decimal digits" },
+                if asked {
+                    "drop --pin-is-hex"
+                } else {
+                    "add --pin-is-hex"
+                }
+            )));
+        }
+        let value = <[u8; 8]>::try_from(raw.as_slice()).map_err(|_| {
+            CmdErr::new(format!(
+                "`{}` is {} octets; a PIN, PUK or ADM key is 8",
+                target.secret,
+                raw.len()
+            ))
+        })?;
+        self.verify_target(args, &target, value)
+    }
+
+    /// The send path shared by `verify_chv` and `verify_adm`: a dry run unless `--yes`, the tries
+    /// asked first, one attempt.
+    fn verify_target(
+        &mut self,
+        args: &clap::ArgMatches,
+        target: &KeyTarget,
+        value: [u8; 8],
+    ) -> CmdResult {
         let send = self.may_change_card(args);
         let allow_last = args.get_flag("allow_last");
         let key_ref = target.key_ref;
@@ -1854,7 +1910,7 @@ impl Shell {
                 json!({ "sent": false, "key_reference": format!("{key_ref:02X}"), "apdu": masked }),
             ));
         }
-        if let Some(done) = self.guard_tries(0x20, 0x00, &target, allow_last, true)? {
+        if let Some(done) = self.guard_tries(0x20, 0x00, target, allow_last, true)? {
             return Ok(done);
         }
         // One attempt, never retried.
@@ -3007,6 +3063,20 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("verify_adm")
+                .about("VERIFY an administrative key (default ADM1) with the value from --chv-file / --chv-env; a dry run unless --yes")
+                .arg(
+                    Arg::new("adm_type")
+                        .long("adm-type")
+                        .value_name("ADMn")
+                        .value_parser(["ADM1", "ADM2", "ADM3", "ADM4", "ADM5"])
+                        .help("the administrative key: ADM1 to ADM5 (key reference 0A..0E); default ADM1, the usual one on a SIM"),
+                )
+                .arg(Arg::new("pin_is_hex").long("pin-is-hex").action(clap::ArgAction::SetTrue).help("the source holds the ADM key as hex: (refused when it is written as decimal digits)"))
+                .arg(Arg::new("allow_last").long("allow-last-attempt").action(clap::ArgAction::SetTrue).help("send even when only one try is left (a wrong value then blocks the key)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("unblock_chv")
                 .about("UNBLOCK PIN with the PUK and the new PIN from --chv-file / --chv-env; a dry run unless --yes")
                 .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
@@ -3495,6 +3565,7 @@ impl Shell {
             "desc" => self.cmd_desc(),
             "tree" => self.cmd_tree(args),
             "verify_chv" => self.cmd_verify_chv(args),
+            "verify_adm" => self.cmd_verify_adm(args),
             "unblock_chv" => self.cmd_unblock_chv(args),
             "change_chv" => self.cmd_change_chv(args),
             "enable_chv" => self.cmd_enable_chv(args),
@@ -5265,6 +5336,38 @@ mod tests {
         assert!(change_chv_command(0, 0x01, &[b'1'; 128], &[b'2'; 128]).is_err());
         // 120 + 120 = 240 does fit.
         assert!(change_chv_command(0, 0x01, &[b'1'; 120], &[b'2'; 120]).is_ok());
+    }
+
+    #[test]
+    fn verify_adm_checks_the_hex_form_then_sends_verify_to_the_adm_key_reference() {
+        let (mut sh, log) = shell_with("adm1=77777777; adm2=hex:3737373737373737", true);
+        // Written as decimal digits: --pin-is-hex is refused, and nothing is sent.
+        let r = sh.exec("verify_adm --pin-is-hex");
+        assert!(!r.ok, "{}", r.text);
+        assert!(
+            r.text.contains("ADM1 is written as decimal digits"),
+            "{}",
+            r.text
+        );
+        assert!(r.text.contains("drop --pin-is-hex"), "{}", r.text);
+        assert!(log.borrow().is_empty(), "nothing sent on a mismatch");
+        // The default is ADM1, key reference 0A, the same VERIFY `verify_chv --adm-nr 1` sends.
+        let r = sh.exec("verify_adm");
+        assert!(r.ok, "{}", r.text);
+        let sent = log.borrow().clone();
+        assert_eq!(sent.last().unwrap()[..5], [0x00, 0x20, 0x00, 0x0A, 0x08]);
+        assert!(!shown(&r).contains("77777777"));
+        // ADM2 is written as hex: and is asked for as such. A dry run shows key reference 0B, sends nothing.
+        let (mut sh, log) = shell_with("adm2=hex:3737373737373737", false);
+        let r = sh.exec("verify_adm --adm-type ADM2 --pin-is-hex");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(r.data["apdu"]
+            .as_str()
+            .unwrap()
+            .starts_with("00 20 00 0B 08"));
+        assert!(log.borrow().is_empty());
+        let r = sh.exec("verify_adm --adm-type ADM2");
+        assert!(!r.ok && r.text.contains("add --pin-is-hex"), "{}", r.text);
     }
 
     #[test]
