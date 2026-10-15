@@ -1645,3 +1645,22 @@ fn dump_redacts_the_pin_of_verify_unless_dump_secrets_is_given() {
     );
     assert!(String::from_utf8_lossy(&refused.stderr).contains("--dump"));
 }
+
+#[test]
+fn exclusive_flag_is_accepted_and_documented() {
+    // -X only changes the PC/SC share mode, which the replay seam never opens; so this
+    // checks the flag parses, the session still runs over the recording, and help names it.
+    let out = card("cardsh_channels.jsonl", &["-X", "-c", "status"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let help = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .args(["card", "--help"])
+        .output()
+        .expect("the binary runs");
+    let text = String::from_utf8_lossy(&help.stdout);
+    assert!(text.contains("-X, --exclusive"), "{text}");
+}
