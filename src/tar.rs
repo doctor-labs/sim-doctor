@@ -2120,7 +2120,8 @@ pub struct TerminalProfile {
 }
 
 impl TerminalProfile {
-    fn to_json(&self) -> Value {
+    /// The `terminal_profile` block of a report (`data.tar` and `data.fuzz.ota`).
+    pub fn to_json(&self) -> Value {
         json!({
             "sent": true,
             "command": octets(&[&TERMINAL_PROFILE_HEADER[..], &[1], &TERMINAL_PROFILE_DATA].concat()),

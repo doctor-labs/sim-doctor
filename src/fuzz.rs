@@ -175,6 +175,10 @@ pub struct Audit {
     pub exhausted: bool,
     /// Why the sweep stopped early, when it did.
     pub stopped: Option<String>,
+    /// The TERMINAL PROFILE the sweep sent itself, when calibration hit a
+    /// generic error (issue #211). `None` when the baseline was established
+    /// without one.
+    pub terminal_profile: Option<tar::TerminalProfile>,
 }
 
 impl Audit {
@@ -199,6 +203,7 @@ impl Audit {
             "complete": self.is_complete(),
             "stopped": self.stopped,
             "baseline_established": self.baseline.is_established(),
+            "terminal_profile": self.terminal_profile.as_ref().map(tar::TerminalProfile::to_json),
             "accepted": self.accepted().map(Probe::to_json).collect::<Vec<_>>(),
             "probes": self.probes.iter().map(Probe::to_json).collect::<Vec<_>>(),
         })
@@ -254,19 +259,20 @@ pub fn audit<S: CardSession + ?Sized>(
     // first mechanism, which is enough to tell "this card answers everything
     // alike" apart from "this card has an opinion" before the sweep spends
     // its budget finding out triple by triple.
-    let mut calibration: Vec<Option<Signature>> = Vec::with_capacity(tar::CALIBRATION_PROBES);
-    for &tar_value in &tar::CALIBRATION_TARS {
-        if interrupt() {
-            break;
-        }
-        match probe_triple(session, tar_value, 0, mechanisms[0], sweep.class, policy) {
-            Ok(Ok((signature, _))) => calibration.push(Some(signature)),
-            Ok(Err(_)) => break,
-            Err(tar::Error::Transport(_)) => break,
-            Err(other) => return Err(other),
-        }
+    let mut calibration = calibrate(session, sweep.class, mechanisms[0], policy, interrupt)?;
+    let mut baseline = Baseline::of(&calibration);
+
+    // 1b. Issue #211: a generic error (`6F 00` and kin) is a blind spot, the
+    // card has not processed the envelopes because no TERMINAL PROFILE was
+    // sent yet. So the sweep sends one itself, once, and calibrates again.
+    // Only on that blind spot: a card that already judges envelopes is swept
+    // exactly as before, with no CAT state change.
+    let mut terminal_profile = None;
+    if baseline.generic_error().is_some() {
+        terminal_profile = Some(tar::send_terminal_profile(session, policy)?);
+        calibration = calibrate(session, sweep.class, mechanisms[0], policy, interrupt)?;
+        baseline = Baseline::of(&calibration);
     }
-    let baseline = Baseline::of(&calibration);
 
     // 2. The sweep itself, TAR outer, keyset middle, mechanism inner, capped
     // and halted on the first sign the card is not answering coherently -
@@ -324,7 +330,32 @@ pub fn audit<S: CardSession + ?Sized>(
         baseline,
         exhausted,
         stopped,
+        terminal_profile,
     })
+}
+
+/// The calibration pass: [`tar::CALIBRATION_TARS`] at one keyset and mechanism.
+/// Stops quietly on a card that stops answering, like the sweep does.
+fn calibrate<S: CardSession + ?Sized>(
+    session: &mut S,
+    class: Class,
+    mechanism: (u8, u8),
+    policy: &Policy,
+    interrupt: &mut dyn FnMut() -> bool,
+) -> Result<Vec<Option<Signature>>, tar::Error> {
+    let mut calibration: Vec<Option<Signature>> = Vec::with_capacity(tar::CALIBRATION_PROBES);
+    for &tar_value in &tar::CALIBRATION_TARS {
+        if interrupt() {
+            break;
+        }
+        match probe_triple(session, tar_value, 0, mechanism, class, policy) {
+            Ok(Ok((signature, _))) => calibration.push(Some(signature)),
+            Ok(Err(_)) => break,
+            Err(tar::Error::Transport(_)) => break,
+            Err(other) => return Err(other),
+        }
+    }
+    Ok(calibration)
 }
 
 /// A namespaced rule ID: `fuzz/ota-mechanism-accepted`.
@@ -526,6 +557,84 @@ mod tests {
         )
         .unwrap();
         assert!(audit.probes.len() <= MAX_PROBES);
+    }
+
+    /// A card that answers every envelope `6F 00` until a TERMINAL PROFILE
+    /// has been sent, then `94 04` for everything (no TAR is refused or
+    /// accepted differently, so the baseline is established and nothing is
+    /// accepted).
+    struct GatedCard {
+        reader: ReaderName,
+        profiled: bool,
+        sent: Vec<Vec<u8>>,
+    }
+
+    impl CardSession for GatedCard {
+        fn reader(&self) -> &ReaderName {
+            &self.reader
+        }
+
+        fn transmit(&mut self, command: &[u8]) -> Result<Vec<u8>, TransportError> {
+            self.sent.push(command.to_vec());
+            Ok(match command.get(1) {
+                Some(0x10) => {
+                    self.profiled = true;
+                    vec![0x90, 0x00]
+                }
+                _ if self.profiled => vec![0x94, 0x04],
+                _ => vec![0x6F, 0x00],
+            })
+        }
+
+        fn disconnect(&mut self) -> Result<(), TransportError> {
+            Ok(())
+        }
+    }
+
+    /// Issue #211: a generic-error calibration is a blind spot, so the sweep
+    /// sends the TERMINAL PROFILE itself, once, and calibrates again.
+    #[test]
+    fn a_generic_error_calibration_sends_the_profile_before_the_sweep() {
+        let mut card = GatedCard {
+            reader: ReaderName::new("loopback").expect("a reader name"),
+            profiled: false,
+            sent: Vec::new(),
+        };
+        let sweep = Sweep {
+            quick: true,
+            ..Sweep::default()
+        };
+        let audit =
+            audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
+
+        // Calibrate (blind spot), then the profile, then calibrate again.
+        let calibrations = tar::CALIBRATION_PROBES;
+        assert_eq!(
+            card.sent[calibrations],
+            vec![0x80, 0x10, 0x00, 0x00, 0x01, 0x13]
+        );
+        assert!(card.sent[..calibrations].iter().all(|c| c[1] != 0x10));
+        assert_eq!(card.sent.iter().filter(|c| c[1] == 0x10).count(), 1);
+        assert!(audit.terminal_profile.is_some());
+        assert!(audit.baseline.is_established());
+        assert_eq!(audit.to_json()["terminal_profile"]["profile"], "13");
+    }
+
+    /// The sequence is conditional: a card with an established baseline is
+    /// swept exactly as before, with no profile sent.
+    #[test]
+    fn an_established_calibration_sends_no_profile() {
+        let mut card = Scripted::cycling(&[&[0x94, 0x04]]);
+        let sweep = Sweep {
+            quick: true,
+            ..Sweep::default()
+        };
+        let audit =
+            audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
+
+        assert!(card.sent.borrow().iter().all(|c| c[1] != 0x10));
+        assert!(audit.terminal_profile.is_none());
+        assert_eq!(audit.to_json()["terminal_profile"], Value::Null);
     }
 
     #[test]
