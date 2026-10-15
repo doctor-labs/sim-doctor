@@ -298,6 +298,7 @@ finished. Full reasoning in [CONTEXT.md](CONTEXT.md) section 3.
 | `--fail-on <level>` | implemented | gate threshold, default `critical`; see Exit codes |
 | `--severity <level>` | implemented | remove findings below a minimum severity |
 | `--tar <selection>` | implemented | which TARs to probe for MSL 0: `off`, `focused`, `full`, `range:FIRST-LAST`, `regex:PATTERN`; capped at 4096 probes |
+| `--tar-filter <regex>` | implemented | SIMTester's `-stre`: a sweep probe whose response (uppercase hex, data then status word) matches is `filtered`, not accepted and not raised; the calibration pass is never filtered; ignored under `--tar off` |
 | `--terminal-profile` | implemented | with `--tar` other than `off` (else exit 2): send TERMINAL PROFILE `80 10 00 00 01 13` before the TAR audit; see [TERMINAL PROFILE and a generic-error baseline](#terminal-profile-and-a-generic-error-baseline) |
 | `--baseline <file>` | implemented | compare this run against a previous `scan --json` envelope; new findings at or above `--fail-on` exit 3 |
 | `--sarif <file>` | implemented | also write SARIF 2.1.0 (`doctorFinding/v1` fingerprints, `properties.score`) |

@@ -1576,6 +1576,15 @@ struct ScanArgs {
     #[arg(long, value_name = "SELECTION", default_value_t = tar::Selection::default())]
     tar: tar::Selection,
 
+    /// SIMTester's `-stre`: skip TAR probes whose response matches this regex.
+    ///
+    /// The response is spelled as uppercase hex, data first and the status word last
+    /// (`6D00`, `9000`). A matching sweep probe is neither accepted nor raised, and
+    /// shows as `filtered` under data.tar.probes. The calibration pass is never
+    /// filtered, since the baseline is measured from it. Ignored under `--tar off`.
+    #[arg(long, value_name = "REGEX")]
+    tar_filter: Option<tar::ResponseFilter>,
+
     /// Send a TERMINAL PROFILE to the card before the TAR audit.
     ///
     /// Only meaningful with --tar other than `off`; without it the command
