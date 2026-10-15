@@ -27,6 +27,15 @@
 //!
 //! **Card safety.** A card that is not an eUICC refuses the ISD-R SELECT; that
 //! is reported as [`Failure`] `not-an-euicc` and no STORE DATA is sent.
+//!
+//! **SGP.32, issue #229: two reads for an IoT eUICC.** [`Query::GetCerts`]
+//! (SGP.32 section 5.9.10, clause [U]) and [`Query::GetEimConfigurationData`]
+//! (section 5.9.18, [U]); the tags and values are [V] osmocom/pysim
+//! `pySim/euicc.py`, cited in [`crate::es10`]. Each is one ES10b STORE DATA
+//! request on the same logical channel as the three above, one attempt, no
+//! write, no network, and neither is a tool over MCP: the read-tool list is
+//! pinned by a test in [`crate::mcp`] and adding to it is a decision for the
+//! owner, not a side effect of a new subcommand.
 
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "euicc";
@@ -65,6 +74,12 @@ pub enum Query {
     /// GetEUICCChallenge, the 16 random bytes an SM-DP+ signs over (SGP.22 v2.5
     /// §5.7.7; pySim `get_euicc_challenge`). Reads nothing from the profiles.
     Challenge,
+    /// GetCerts, the EUM and eUICC CI certificates of an IoT eUICC
+    /// (SGP.32 section 5.9.10, clause [U]).
+    GetCerts,
+    /// GetEimConfigurationData, what an IoT eUICC says about its EIM
+    /// (SGP.32 section 5.9.18, clause [U]).
+    GetEimConfigurationData,
 }
 
 impl Query {
@@ -75,6 +90,8 @@ impl Query {
             Self::Profiles => "profiles",
             Self::Notifications => "notifications",
             Self::Challenge => "challenge",
+            Self::GetCerts => "get-certs",
+            Self::GetEimConfigurationData => "get-eim-configuration-data",
         }
     }
 }
@@ -287,6 +304,85 @@ fn read_notifications(ask: &mut Ask<'_>) -> Result<Vec<es10::NotificationMetadat
     }
 }
 
+/// GetCerts (SGP.32 section 5.9.10, clause [U]): the two certificates as
+/// their length and their bytes. The error TLV is terminal, so it is
+/// reported as the failure it is and never as two empty certificates.
+fn read_certs(ask: &mut Ask<'_>) -> Result<Value, Failure> {
+    match es10::decode_get_certs(&ask("GetCerts", es10::get_certs_request())?)
+        .map_err(|e| bad("GetCerts", e))?
+    {
+        es10::GetCertsResponse::Ok(certs) => Ok(json!({
+            "eum": certificate_json(&certs.eum),
+            "euicc": certificate_json(&certs.euicc),
+        })),
+        es10::GetCertsResponse::Error(code) => Err(Failure::new(
+            "es10-refused",
+            format!("GetCerts returned error code {}", code.code()),
+            json!({ "function": "GetCerts", "code": code.code() }),
+        )),
+    }
+}
+
+/// GetEimConfigurationData (SGP.32 section 5.9.18, clause [U]): the EIM id,
+/// FQDN, id type, counter value, association token and every supported
+/// protocol, decoded from inside the `A0` sequence.
+fn read_eim_configuration_data(ask: &mut Ask<'_>) -> Result<Value, Failure> {
+    let decoded = es10::decode_get_eim_configuration_data(&ask(
+        "GetEimConfigurationData",
+        es10::get_eim_configuration_data_request(),
+    )?)
+    .map_err(|e| bad("GetEimConfigurationData", e))?;
+    Ok(eim_json(&decoded))
+}
+
+/// One certificate as `null` (absent) or its length and its hex. The bytes
+/// are not parsed as X.509 here: this is a BER-TLV carrying an opaque
+/// certificate, and the certificate paths of this crate start elsewhere.
+fn certificate_json(cert: &Option<Vec<u8>>) -> Value {
+    cert.as_ref().map_or(Value::Null, |bytes| {
+        json!({
+            "length": bytes.len(),
+            "hex": hex::encode_upper(bytes),
+        })
+    })
+}
+
+fn eim_id_type_json(t: &es10::EimIdType) -> Value {
+    json!(match t {
+        es10::EimIdType::Oid => "oid",
+        es10::EimIdType::Fqdn => "fqdn",
+        es10::EimIdType::Proprietary => "proprietary",
+        es10::EimIdType::Unknown(n) => return json!(format!("unknown({n})")),
+    })
+}
+
+fn eim_protocol_json(p: &es10::EimSupportedProtocol) -> Value {
+    json!(match p {
+        es10::EimSupportedProtocol::RetrieveHttps => "retrieve_https",
+        es10::EimSupportedProtocol::RetrieveCoaps => "retrieve_coaps",
+        es10::EimSupportedProtocol::InjectHttps => "inject_https",
+        es10::EimSupportedProtocol::InjectCoaps => "inject_coaps",
+        es10::EimSupportedProtocol::Proprietary => "proprietary",
+        es10::EimSupportedProtocol::Unknown(n) => return json!(format!("unknown({n})")),
+    })
+}
+
+fn eim_json(eim: &es10::EimConfigurationData) -> Value {
+    json!({
+        "shape": eim.shape.as_str(),
+        "eim_id": eim.eim_id,
+        "eim_fqdn": eim.eim_fqdn,
+        "eim_id_type": eim_id_type_json(&eim.eim_id_type),
+        "counter_value": eim.counter_value,
+        "association_token": eim.association_token,
+        "supported_protocols": eim
+            .supported_protocols
+            .iter()
+            .map(eim_protocol_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn read_query(ask: &mut Ask<'_>, query: Query) -> Result<Value, Failure> {
     let mut data = json!({});
     match query {
@@ -327,6 +423,12 @@ fn read_query(ask: &mut Ask<'_>, query: Query) -> Result<Value, Failure> {
             )?)
             .map_err(|e| bad("GetEUICCChallenge", e))?;
             data["challenge"] = json!(hex::encode_upper(challenge.challenge));
+        }
+        Query::GetCerts => {
+            data["certificates"] = read_certs(ask)?;
+        }
+        Query::GetEimConfigurationData => {
+            data["eim_configuration_data"] = read_eim_configuration_data(ask)?;
         }
     }
     Ok(data)
@@ -1355,6 +1457,42 @@ pub fn to_human(query: Query, data: &Value) -> String {
                     text(&p["name"]),
                 );
             }
+        }
+        Query::GetCerts => {
+            // The length is the whole of the useful terminal line: a
+            // certificate is hundreds of bytes and `--json` carries them all.
+            out += "CERTIFICATE\tLENGTH\tHEX\n";
+            for (label, key) in [("EUM (A5)", "eum"), ("eUICC CI (A6)", "euicc")] {
+                let cert = &data["certificates"][key];
+                if cert.is_null() {
+                    out += &format!("{label}\t(not returned)\t-\n");
+                    continue;
+                }
+                let hex = text(&cert["hex"]);
+                let shown = if hex.len() > 64 {
+                    format!("{}...", hex.chars().take(64).collect::<String>())
+                } else {
+                    hex
+                };
+                out += &format!("{label}\t{}\t{shown}\n", text(&cert["length"]));
+            }
+        }
+        Query::GetEimConfigurationData => {
+            let eim = &data["eim_configuration_data"];
+            out += &format!(
+                "EIM SHAPE: {}\nEIM ID: {}\nEIM FQDN: {}\nEIM ID TYPE: {}\nCOUNTER VALUE: {}\n\
+                 ASSOCIATION TOKEN: {}\nSUPPORTED PROTOCOLS: {}\n",
+                text(&eim["shape"]),
+                text(&eim["eim_id"]),
+                text(&eim["eim_fqdn"]),
+                text(&eim["eim_id_type"]),
+                text(&eim["counter_value"]),
+                text(&eim["association_token"]),
+                eim["supported_protocols"]
+                    .as_array()
+                    .map(|a| a.iter().map(&text).collect::<Vec<_>>().join(", "))
+                    .unwrap_or_default(),
+            );
         }
         Query::Notifications => {
             out += "SEQ\tOPERATION\tICCID\tADDRESS\n";
@@ -3624,5 +3762,224 @@ mod tests {
         );
         assert!(DefaultDp::new(&"a".repeat(128), true).is_ok());
         assert!(DefaultDp::new("dp.example.com", true).is_ok());
+    }
+
+    // -- SGP.32, issue #229: GetCerts and GetEimConfigurationData --------
+    //
+    // `script` keys every exchange on the exact STORE DATA command the
+    // request bytes produce, so `card.remaining() == 0` below is also the
+    // assertion that BF 56 00 and BF 55 00 are what went on the wire. The
+    // response vectors are the ones of the es10 tests, built by hand from
+    // osmocom/pysim `pySim/euicc.py`; there is no IoT eUICC here to capture.
+
+    #[test]
+    fn get_certs_sends_bf56_and_reports_both_certificates() {
+        let mut card = script(
+            "9000",
+            &[(
+                es10::get_certs_request(),
+                ok("BF5610 A508 AABBCCDDEEFF0011 A604 01020304"),
+            )],
+        );
+        let data = run(&mut card, &ISDR_AID, Query::GetCerts).unwrap();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(data["certificates"]["eum"]["length"], 8);
+        assert_eq!(data["certificates"]["eum"]["hex"], "AABBCCDDEEFF0011");
+        assert_eq!(data["certificates"]["euicc"]["length"], 4);
+        assert_eq!(data["certificates"]["euicc"]["hex"], "01020304");
+        assert_eq!(data["aid"], "A0000005591010FFFFFFFF8900000100");
+        assert_eq!(data["channel"], json!({ "number": 1, "closed": true }));
+        let human = to_human(Query::GetCerts, &data);
+        assert!(human.starts_with("CERTIFICATE\tLENGTH\tHEX\n"));
+        assert!(human.contains("EUM (A5)\t8\tAABBCCDDEEFF0011\n"));
+        assert!(human.contains("eUICC CI (A6)\t4\t01020304\n"));
+    }
+
+    #[test]
+    fn get_certs_may_carry_one_certificate_only() {
+        let mut card = script(
+            "9000",
+            &[(es10::get_certs_request(), ok("BF5607 A505 AABBCCDDEE"))],
+        );
+        let data = run(&mut card, &ISDR_AID, Query::GetCerts).unwrap();
+        assert_eq!(data["certificates"]["eum"]["hex"], "AABBCCDDEE");
+        assert!(data["certificates"]["euicc"].is_null());
+        assert!(
+            to_human(Query::GetCerts, &data).contains("eUICC CI (A6)\t(not returned)\t-"),
+            "an absent certificate is said to be absent, not printed as empty"
+        );
+    }
+
+    #[test]
+    fn get_certs_certificate_longer_than_127_octets() {
+        // A5 81 C8 <200 bytes> inside BF 56 81 CB: the long BER length form.
+        let mut body = vec![0xA5, 0x81, 0xC8];
+        body.extend_from_slice(&[0x5A; 200]);
+        let mut response = vec![0xBF, 0x56, 0x81, 0xCB];
+        response.extend_from_slice(&body);
+        let mut card = script(
+            "9000",
+            &[(es10::get_certs_request(), ok(&hex::encode_upper(&response)))],
+        );
+        let data = run(&mut card, &ISDR_AID, Query::GetCerts).unwrap();
+        assert_eq!(data["certificates"]["eum"]["length"], 200);
+        assert!(data["certificates"]["euicc"].is_null());
+    }
+
+    #[test]
+    fn get_certs_error_is_reported_and_the_channel_is_still_closed() {
+        let mut card = script(
+            "9000",
+            &[(es10::get_certs_request(), ok("BF5603 81 01 7F"))],
+        );
+        let f = run(&mut card, &ISDR_AID, Query::GetCerts).unwrap_err();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(f.kind, "es10-refused");
+        assert_eq!(f.data["function"], "GetCerts");
+        assert_eq!(f.data["code"], 127);
+        assert!(f.message.contains("127"), "{}", f.message);
+    }
+
+    #[test]
+    fn get_eim_configuration_data_sends_bf55_and_decodes_the_der_integers() {
+        // BF 55 41 A0 3F 80 <eimId> 81 <fqdn> 82 01 03 83 04 02 02 00 80
+        // 84 04 02 02 00 FF 87 01 00 87 01 01 87 01 04 87 01 09: counter
+        // 128 and token 255 as DER INTEGERs, four protocols of which the
+        // last is a value the specification does not name.
+        let mut card = script(
+            "9000",
+            &[(
+                es10::get_eim_configuration_data_request(),
+                ok(concat!(
+                    "BF5541 A03F",
+                    "8011 312E332E362E312E342E312E3431343837",
+                    "810F 65696D2E6578616D706C652E6F7267",
+                    "8201 03",
+                    "8304 02020080",
+                    "8404 020200FF",
+                    "8701 00",
+                    "8701 01",
+                    "8701 04",
+                    "8701 09",
+                )),
+            )],
+        );
+        let data = run(&mut card, &ISDR_AID, Query::GetEimConfigurationData).unwrap();
+        assert_eq!(card.remaining(), 0);
+        let eim = &data["eim_configuration_data"];
+        assert_eq!(eim["shape"], "direct");
+        assert_eq!(eim["eim_id"], "1.3.6.1.4.1.41487");
+        assert_eq!(eim["eim_fqdn"], "eim.example.org");
+        assert_eq!(eim["eim_id_type"], "proprietary");
+        assert_eq!(eim["counter_value"], 128);
+        assert_eq!(eim["association_token"], 255);
+        assert_eq!(
+            eim["supported_protocols"],
+            json!([
+                "retrieve_https",
+                "retrieve_coaps",
+                "proprietary",
+                "unknown(9)"
+            ])
+        );
+        assert_eq!(data["channel"], json!({ "number": 1, "closed": true }));
+        let human = to_human(Query::GetEimConfigurationData, &data);
+        assert!(human.contains("EIM SHAPE: direct\n"), "{human}");
+        assert!(human.contains("EIM ID: 1.3.6.1.4.1.41487\n"), "{human}");
+        assert!(human.contains("EIM ID TYPE: proprietary\n"), "{human}");
+        assert!(
+            human.contains("COUNTER VALUE: 128\nASSOCIATION TOKEN: 255\n"),
+            "{human}"
+        );
+        assert!(
+            human.contains(
+                "SUPPORTED PROTOCOLS: retrieve_https, retrieve_coaps, proprietary, unknown(9)\n"
+            ),
+            "{human}"
+        );
+    }
+
+    #[test]
+    fn get_eim_configuration_data_reads_the_pysim_wrapper_shape() {
+        // The same answer one level deeper: pySim's `EimConfigurationData`
+        // is itself tagged `80` inside the `A0`, so the fields sit under a
+        // wrapper that shares its tag with `eimId`.
+        // BF 55 3D A0 3B 80 39 <fields>: id, fqdn, id type 3, counter 128
+        // and token 255 as DER INTEGERs, protocols 0 and 3.
+        let mut card = script(
+            "9000",
+            &[(
+                es10::get_eim_configuration_data_request(),
+                ok(concat!(
+                    "BF553D A03B 8039",
+                    "8011 312E332E362E312E342E312E3431343837",
+                    "810F 65696D2E6578616D706C652E6F7267",
+                    "8201 03",
+                    "8304 02020080",
+                    "8404 020200FF",
+                    "8701 00",
+                    "8701 03",
+                )),
+            )],
+        );
+        let data = run(&mut card, &ISDR_AID, Query::GetEimConfigurationData).unwrap();
+        assert_eq!(card.remaining(), 0);
+        let eim = &data["eim_configuration_data"];
+        assert_eq!(
+            eim["shape"],
+            "wrapper-80 (pySim EimConfigurationData inside EimConfigurationDataSeq)"
+        );
+        assert_eq!(eim["eim_id"], "1.3.6.1.4.1.41487");
+        assert_eq!(eim["eim_fqdn"], "eim.example.org");
+        assert_eq!(eim["eim_id_type"], "proprietary");
+        assert_eq!(eim["counter_value"], 128);
+        assert_eq!(eim["association_token"], 255);
+        assert_eq!(
+            eim["supported_protocols"],
+            json!(["retrieve_https", "inject_coaps"])
+        );
+        assert_eq!(data["channel"], json!({ "number": 1, "closed": true }));
+        let human = to_human(Query::GetEimConfigurationData, &data);
+        assert!(
+            human.contains(concat!(
+                "EIM SHAPE: wrapper-80 (pySim EimConfigurationData inside ",
+                "EimConfigurationDataSeq)\nEIM ID: 1.3.6.1.4.1.41487\n"
+            )),
+            "{human}"
+        );
+    }
+
+    #[test]
+    fn get_eim_configuration_data_with_a_counter_that_is_not_der_is_decode_failed() {
+        // `83 02 01 07`: one raw octet where a DER INTEGER belongs. It is
+        // refused, never read as 7.
+        let mut card = script(
+            "9000",
+            &[(
+                es10::get_eim_configuration_data_request(),
+                ok(concat!(
+                    "BF5526 A024",
+                    "8011 312E332E362E312E342E312E3431343837",
+                    "8101 41",
+                    "8201 01",
+                    "8302 0107",
+                    "8403 020100",
+                )),
+            )],
+        );
+        let f = run(&mut card, &ISDR_AID, Query::GetEimConfigurationData).unwrap_err();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(f.kind, "decode-failed");
+        assert_eq!(f.data["function"], "GetEimConfigurationData");
+    }
+
+    #[test]
+    fn a_card_that_is_not_an_euicc_is_refused_before_either_request() {
+        for query in [Query::GetCerts, Query::GetEimConfigurationData] {
+            let mut card = script("6A82", &[]);
+            let f = run(&mut card, &ISDR_AID, query).unwrap_err();
+            assert_eq!(f.kind, "not-an-euicc", "{query:?}");
+            assert_eq!(card.remaining(), 0);
+        }
     }
 }

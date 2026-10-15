@@ -2219,9 +2219,16 @@ mod fuzz_safety {
 
 #[test]
 fn euicc_commands_without_a_reader_exit_1_with_one_lpa_envelope() {
-    // Issues #116/#132. A reader name that cannot exist, so no card is touched
-    // whatever hardware is attached; the lpac envelope carries the cause.
-    for sub in ["info", "profiles", "notifications"] {
+    // Issues #116/#132, and #229 for the two SGP.32 reads. A reader name
+    // that cannot exist, so no card is touched whatever hardware is attached;
+    // the lpac envelope carries the cause.
+    for sub in [
+        "info",
+        "profiles",
+        "notifications",
+        "get-certs",
+        "get-eim-configuration-data",
+    ] {
         let run = run_piped(&["euicc", sub, "--json", "--reader", NO_SUCH_READER]);
         assert_eq!(run.code(), 1, "euicc {sub}: {}", run.stderr);
         let envelope = assert_exactly_one_envelope(&run.stdout, contract::ExitCode::Findings);
