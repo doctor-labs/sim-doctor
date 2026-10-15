@@ -1324,3 +1324,20 @@ fn file_management_instructions_are_gated_not_read_only() {
         assert!(!is_read_only(ins), "INS {ins:02X} changes the card");
     }
 }
+
+#[test]
+fn update_imsi_plmn_is_listed_and_refuses_a_bad_plmn_before_touching_the_card() {
+    let out = card("cardsh_channels.jsonl", &["-c", "help"]);
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("update_imsi_plmn"),
+        "help lists the command"
+    );
+    let out = card("cardsh_channels.jsonl", &["-c", "update_imsi_plmn 2341"]);
+    assert_eq!(out.status.code(), Some(1));
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("5 or 6"), "{text}");
+}
