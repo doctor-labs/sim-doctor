@@ -764,3 +764,45 @@ fn tree_from_a_df_scope_lists_only_that_directory() {
     // DF.TELECOM should not appear (it's under MF, not DF.GSM).
     assert!(!children.iter().any(|c| c["name"] == "DF.TELECOM"));
 }
+
+#[test]
+fn echo_prints_its_string_arguments() {
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--json", "-c", "echo hello world"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["data"]["text"], "hello world");
+    assert!(r[0]["data"]["sent"] == false);
+}
+
+#[test]
+fn version_reports_the_tool_version() {
+    let out = card("cardsh_channels.jsonl", &["--json", "-c", "version"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    let ver = env!("CARGO_PKG_VERSION");
+    assert_eq!(r[0]["data"]["tool"], "sim-doctor");
+    assert_eq!(r[0]["data"]["version"], ver);
+}
+
+#[test]
+fn reset_and_equip_are_listed_by_help() {
+    let out = card("cardsh_channels.jsonl", &["-c", "help"]);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    for name in ["echo", "version", "reset", "equip"] {
+        assert!(text.contains(name), "{name} missing:\n{text}");
+    }
+}

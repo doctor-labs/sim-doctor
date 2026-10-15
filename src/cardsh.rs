@@ -735,6 +735,14 @@ fn decoded_reply(std: Option<names::StdEf>, records: &[Vec<u8>], extra: Value) -
     )
 }
 
+/// `version`: print the tool name and version (no card interaction).
+fn cmd_version() -> Reply {
+    let tool = env!("CARGO_PKG_NAME");
+    let version = env!("CARGO_PKG_VERSION");
+    let text = format!("{tool} {version}");
+    Reply::ok(text, json!({ "tool": tool, "version": version }))
+}
+
 /// `decode NAME HEX...`: offline.
 fn cmd_decode(args: &clap::ArgMatches) -> CmdResult {
     let name = args.get_one::<String>("name").expect("required");
@@ -2524,6 +2532,9 @@ pub fn grammar() -> clap::Command {
         .subcommand_required(true)
         .arg_required_else_help(false)
         .help_template("{subcommands}")
+        .subcommand(C::new("echo").about("Print one or more strings (no card interaction).").arg(Arg::new("string").required(true).num_args(1..).value_name("STRING")))
+        .subcommand(C::new("version").about("Print the tool name and version (no card interaction)."))
+        .subcommand(C::new("reset").about("Warm-reset the card: re-open the session on the same reader and profile (no card contents change; no --yes needed)."))
         .subcommand(
             C::new("equip")
                 .about("(Re)open the card, optionally on another reader or command set")
@@ -3072,6 +3083,9 @@ impl Shell {
                 quit: true,
                 ..Reply::ok("", Value::Null)
             }),
+            "echo" => self.cmd_echo(args),
+            "version" => Ok(cmd_version()),
+            "reset" => self.cmd_reset(),
             "equip" => self.cmd_equip(args),
             "status" => self.cmd_status(),
             "cardinfo" => self.cmd_cardinfo(),
@@ -3253,6 +3267,33 @@ impl Shell {
         Ok(Reply::ok(
             format!("sw {}", sw_text(ex.status())),
             json!({ "sent": true, "apdu": hex_upper(&wire), "sw": sw }),
+        ))
+    }
+
+    fn cmd_echo(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let text: String = args
+            .get_many::<String>("string")
+            .expect("required")
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(Reply::ok(&text, json!({ "sent": false, "text": text })))
+    }
+
+    fn cmd_reset(&mut self) -> CmdResult {
+        // A warm reset re-opens the session on the same reader and profile. No
+        // card contents change, so `--yes` is not required.
+        let (reader, profile) = match self.card.as_ref() {
+            Some(card) => (Some(card.reader.as_str().to_owned()), card.profile),
+            None => (None, Profile::Uicc),
+        };
+        self.equip(reader.as_deref(), profile)
+            .map_err(CmdErr::new)?;
+        let card = self.equipped()?;
+        let atr = card.atr.as_deref().map(hex_upper);
+        Ok(Reply::ok(
+            format!("card reset on {} ({} profile)", card.reader, profile.id()),
+            json!({ "reader": card.reader, "atr": atr, "profile": profile.id(), "sent": false }),
         ))
     }
 
@@ -4640,5 +4681,38 @@ mod tests {
         assert!(r.ok, "{}", r.text);
         assert_eq!(r.data["table"], "UST");
         assert_eq!(r.data["enabled"], json!([]));
+    }
+
+    #[test]
+    fn echo_prints_its_string_arguments() {
+        let (mut sh, _log) = shell_log();
+        let r = sh.exec("echo hello world");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["text"], "hello world");
+        assert_eq!(r.data["sent"], false);
+    }
+
+    #[test]
+    fn version_reports_the_tool_name_and_version() {
+        let (mut sh, _log) = shell_log();
+        let r = sh.exec("version");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["tool"], "sim-doctor");
+        assert_eq!(r.data["version"], env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn reset_reopens_the_card_without_changing_contents() {
+        let (mut sh, _log) = shell_log();
+        // Select a file to establish some state, then reset.
+        sh.exec("select MF/DF.GSM");
+        assert_eq!(sh.pwd(), "3F00/7F20");
+        let r = sh.exec("reset");
+        assert!(r.ok, "{}", r.text);
+        // Reset re-opens the session: channel back to 0, selection back to MF.
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["profile"], "uicc");
+        assert_eq!(sh.channel(), Some(0));
+        assert_eq!(sh.pwd(), "3F00");
     }
 }

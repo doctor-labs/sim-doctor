@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - `sms decode` reads the SCTS timestamp as swapped semi-octets with a signed quarter-hour zone; it printed raw byte values before.
 
 ### Added
+- `card` shell: `echo STRING...` (print a string, no card interaction), `version` (print tool name and version, no card interaction), and `reset` (warm-reset the card by re-opening the session on the same reader and profile; no `--yes` needed) (#165).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - EXT1-EXT8 records decode to additional digits or subaddress and the next-record chain (#175).
