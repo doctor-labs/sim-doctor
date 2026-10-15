@@ -1817,6 +1817,9 @@ pub enum BuildError {
     /// The supplied authentication keys have no DEK to encrypt the new keys with.
     #[error("PUT KEY encrypts the new keys under the current DEK, and the supplied keys have none: give ENC MAC DEK (or one key for all three)")]
     DekMissing,
+    /// A CPLC block that is not eight bytes, or a `--today` date outside 2020 to 2029.
+    #[error("{0}")]
+    Cplc(&'static str),
 }
 
 /// Default LOAD block size: pySim's, the old GlobalPlatformPro default, leaves
@@ -3219,6 +3222,200 @@ pub fn put_key<S: CardSession + ?Sized>(
         });
     }
     finish(data, steps)
+}
+
+// CPLC pre-personalization and personalization (issue #242). The DGIs 9F67 and
+// 9F66 are the ones GlobalPlatformPro's `GPCommands.setPrePerso` and `setPerso`
+// write with STORE DATA (INS E2); the eight data bytes are the block's
+// personalizer (2), date (2) and equipment ID (4), as `CPLC_FIELDS` names them.
+
+use chrono::{Datelike, NaiveDate};
+
+/// Which CPLC block `gp cplc-set` writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CplcSet {
+    /// DGI 9F67: IC pre-personalizer, pre-personalization equipment date and ID.
+    PrePerso,
+    /// DGI 9F66: IC personalizer, personalization equipment date and ID.
+    Perso,
+}
+
+impl CplcSet {
+    /// The DGI, which is the tag of the TLV the STORE DATA carries.
+    pub fn dgi(self) -> u16 {
+        match self {
+            Self::PrePerso => 0x9F67,
+            Self::Perso => 0x9F66,
+        }
+    }
+
+    /// The name the command and its output use.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::PrePerso => "pre-perso",
+            Self::Perso => "perso",
+        }
+    }
+
+    /// The `CPLC_FIELDS` names the eight data bytes fill, in order.
+    fn fields(self) -> [&'static str; 3] {
+        match self {
+            Self::PrePerso => [
+                "ic_prepersonalizer",
+                "ic_prepersonalization_date",
+                "ic_prepersonalization_equipment_id",
+            ],
+            Self::Perso => [
+                "ic_personalizer",
+                "ic_personalization_date",
+                "ic_personalization_equipment_id",
+            ],
+        }
+    }
+}
+
+/// What every `gp cplc-set` says: the write is to the card's identification data.
+pub const CPLC_WARNING: &str = "WARNING: this writes card-identifying CPLC data (the pre-personalization or personalization block the card reports about its own manufacture and personalization). The change can be permanent on a card that locks its CPLC, and the card does not check the values against its history.";
+
+/// A checked CPLC block: the DGI's eight data bytes, with `--today` applied.
+#[derive(Debug)]
+pub struct CplcRequest {
+    /// The block being written.
+    pub set: CplcSet,
+    /// The eight data bytes, with the date replaced when `today` is set.
+    pub payload: Vec<u8>,
+    /// Whether `--today` replaced the date bytes.
+    pub today: bool,
+}
+
+/// The CPLC date: two bytes packed as BCD, `YDDD`, the year since 2020 in one
+/// digit then the day of the year in three. Built as GlobalPlatformPro's
+/// `CPLC.dateToBytes` builds it, so it only holds the years 2020 to 2029.
+///
+/// # Errors
+///
+/// [`BuildError::Cplc`] for a year outside 2020 to 2029.
+pub fn cplc_date(date: NaiveDate) -> Result<[u8; 2], BuildError> {
+    let year = date.year() - 2020;
+    if !(0..=9).contains(&year) {
+        return Err(BuildError::Cplc(
+            "--today: the CPLC date holds the years 2020 to 2029 only",
+        ));
+    }
+    let doy = date.ordinal();
+    Ok([
+        ((year as u8) << 4) | (doy / 100) as u8,
+        ((((doy / 10) % 10) as u8) << 4) | (doy % 10) as u8,
+    ])
+}
+
+/// Checks the eight data bytes and, with `today`, writes that date into bytes 2
+/// and 3 (the personalization date), as GlobalPlatformPro's `--today` does.
+///
+/// # Errors
+///
+/// [`BuildError::Cplc`] when the data is not eight bytes or the date is out of range.
+pub fn cplc_request(
+    set: CplcSet,
+    data: &[u8],
+    today: Option<NaiveDate>,
+) -> Result<CplcRequest, BuildError> {
+    if data.len() != 8 {
+        return Err(BuildError::Cplc(
+            "the CPLC block is 8 bytes: 2 (the personalizer) + 2 (the date) + 4 (the equipment ID)",
+        ));
+    }
+    let mut payload = data.to_vec();
+    if let Some(date) = today {
+        payload[2..4].copy_from_slice(&cplc_date(date)?);
+    }
+    Ok(CplcRequest {
+        set,
+        payload,
+        today: today.is_some(),
+    })
+}
+
+/// STORE DATA (INS E2, P1 80: the DGI is in the last block, P2 00) carrying the
+/// block as a TLV whose tag is the DGI, the framing GlobalPlatformPro's
+/// `storeDGI` sends. Built, not sent.
+///
+/// # Errors
+///
+/// Only a block that is not eight bytes, which [`cplc_request`] already refuses.
+pub fn cplc_command(req: &CplcRequest) -> Result<Command, BuildError> {
+    if req.payload.len() != 8 {
+        return Err(BuildError::Cplc("the CPLC block is 8 bytes"));
+    }
+    let mut data = req.set.dgi().to_be_bytes().to_vec();
+    data.extend(ber_len(req.payload.len()));
+    data.extend(&req.payload);
+    Ok(Command::case3(Header::new(0x80, 0xE2, 0x80, 0x00), data))
+}
+
+fn cplc_plan_steps(req: &CplcRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: "store_data",
+        command: cplc_command(req)?,
+    }])
+}
+
+fn cplc_target(req: &CplcRequest) -> Value {
+    json!({
+        "set": req.set.name(),
+        "dgi": format!("{:04X}", req.set.dgi()),
+        "cplc_fields": req.set.fields(),
+        "payload": hex::encode_upper(&req.payload),
+        "today_applied": req.today,
+    })
+}
+
+/// `gp cplc-set` without keys: the offline dry run. Shows the STORE DATA APDU
+/// and the warning; sends nothing and does not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError`] when the block cannot be built.
+pub fn cplc_set_dry_run(req: &CplcRequest) -> Result<Value, BuildError> {
+    let plan = cplc_plan_steps(req)?;
+    let mut data = offline_dry_run(
+        "cplc-set",
+        cplc_target(req),
+        &plan,
+        "no keys were given, so the card was not contacted and nothing was sent; add --keys-file or --keys-env to check the registry, and --yes to send",
+    );
+    data["warning"] = json!(CPLC_WARNING);
+    Ok(data)
+}
+
+/// `gp cplc-set` over SCP03: authenticate once, read the registry, stop at a dry
+/// run unless `yes`; otherwise send STORE DATA MAC'd, stopping at a refusal
+/// (`step` `store_data`), with no retry. A dry run and a sent write both carry
+/// [`CPLC_WARNING`].
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn cplc_set<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &CplcRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let mut report = write(
+        session,
+        trace,
+        auth,
+        yes,
+        "cplc-set",
+        cplc_target(req),
+        |_| cplc_plan_steps(req),
+        |registry| Ok(json!({ "registry_entries": registry.len() })),
+        |_| true,
+    )?;
+    report.data["warning"] = json!(CPLC_WARNING);
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -5493,5 +5690,81 @@ mod tests {
         let out = format!("{d}\n{}", render_text(&d)).to_lowercase();
         assert!(!out.contains(&DAP_KEY_HEX.to_lowercase()));
         assert!(out.contains(&DAP_LFDBH.to_lowercase()));
+    }
+
+    const CPLC_DATA: &str = "0102030405060708";
+
+    #[test]
+    fn cplc_date_is_yddd_packed_as_globalplatformpro_writes_it() {
+        let d = |y, m, day| chrono::NaiveDate::from_ymd_opt(y, m, day).unwrap();
+        assert_eq!(cplc_date(d(2026, 10, 15)).unwrap(), [0x62, 0x88]);
+        assert_eq!(cplc_date(d(2020, 1, 1)).unwrap(), [0x00, 0x01]);
+        assert_eq!(cplc_date(d(2029, 12, 31)).unwrap(), [0x93, 0x65]);
+        assert!(cplc_date(d(2030, 1, 1)).is_err());
+    }
+
+    #[test]
+    fn cplc_today_replaces_the_date_bytes_and_bad_lengths_are_refused() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 15);
+        let data = hex::decode(CPLC_DATA).unwrap();
+        let r = cplc_request(CplcSet::Perso, &data, today).unwrap();
+        assert_eq!(hex::encode(&r.payload), "0102628805060708");
+        let plain = cplc_request(CplcSet::Perso, &data, None).unwrap();
+        assert_eq!(hex::encode(&plain.payload), CPLC_DATA);
+        assert!(cplc_request(CplcSet::Perso, &[1; 7], None).is_err());
+        assert!(cplc_request(CplcSet::PrePerso, &[1; 9], None).is_err());
+    }
+
+    #[test]
+    fn cplc_set_is_store_data_with_the_dgi_as_a_tlv() {
+        let data = hex::decode(CPLC_DATA).unwrap();
+        let pre = cplc_request(CplcSet::PrePerso, &data, None).unwrap();
+        let wire = cplc_command(&pre).unwrap().encode().unwrap();
+        assert_eq!(hex::encode_upper(&wire), "80E280000B9F67080102030405060708");
+        let perso = cplc_request(CplcSet::Perso, &data, None).unwrap();
+        let wire = cplc_command(&perso).unwrap().encode().unwrap();
+        assert_eq!(hex::encode_upper(&wire), "80E280000B9F66080102030405060708");
+    }
+
+    #[test]
+    fn cplc_dry_run_sends_nothing_and_shows_the_apdu() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let data = hex::decode(CPLC_DATA).unwrap();
+        let req = cplc_request(CplcSet::Perso, &data, None).unwrap();
+        let r = cplc_set(&mut card, true, &req, &auth(&keys), false).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["dry_run"], true);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["target"]["set"], "perso");
+        assert_eq!(
+            r.data["plan"]["apdus"][0]["apdu"],
+            "80E280000B9F66080102030405060708"
+        );
+        assert!(r.data["warning"]
+            .as_str()
+            .unwrap()
+            .contains("card-identifying"));
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn cplc_yes_sends_store_data_mac_d_and_stops_at_a_refusal() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let data = hex::decode(CPLC_DATA).unwrap();
+        let req = cplc_request(CplcSet::PrePerso, &data, None).unwrap();
+        let r = cplc_set(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert_eq!(sent_ins(&card, "E2"), 1);
+        let sent = wire(&card);
+        assert!(
+            sent.iter()
+                .any(|c| c.starts_with("84E2800013") && c.contains("9F67080102030405060708")),
+            "{sent:?}"
+        );
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["error"]["step"], "store_data");
+        assert_no_key_material(&everything(&r, &keys));
     }
 }
