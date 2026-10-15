@@ -1935,6 +1935,11 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "  card. A selection larger than the cap stops at it; data.tar.stopped says\n",
     "  so, and any finding it carries is marked partial rather than read as an\n",
     "  exhaustive audit of the card's TAR accept-list.\n",
+    "  --tar-uncapped raises that bound to a ceiling of 1 000 000 probes (issue #266),\n",
+    "  not the full 16 777 216-value space: every probe is held in memory and emitted\n",
+    "  to JSON, so the full space needs a streaming follow-up. A sweep stopped at the\n",
+    "  ceiling is reported as not exhausted, with a WARNING. Each probe is one ENVELOPE\n",
+    "  sent to the card: hours of traffic, and each may act on the card.\n",
     "  A TAR is reported as ACCEPTED when the card answers it DIFFERENTLY from\n",
     "  the way it answers TARs it has no opinion about. That is a measurement,\n",
     "  not a status word this tool guesses at: no 3GPP TS 31.111 text has been\n",
@@ -2392,6 +2397,18 @@ struct ScanArgs {
     /// Not confirmed against SIMTester's source.
     #[arg(long, visible_alias = "sfrv")]
     reserved_file_ids: bool,
+
+    /// Raise the 4096-probe bound on the TAR audit to a ceiling of 1 000 000 probes (issue #266).
+    ///
+    /// It does NOT lift the bound to the full 16 777 216-value TAR space: every probe is held in
+    /// memory and emitted to JSON, so the full space needs a streaming follow-up. A sweep that
+    /// reaches the ceiling stops, is reported as not exhausted, and prints a WARNING.
+    ///
+    /// WARNING: this sends one ENVELOPE per TAR, up to a million, which is hours of card traffic,
+    /// and each one is an SMS-PP download the card may act on. Use it only on a card you are
+    /// allowed to exercise. Only meaningful with --tar other than `off` (else exit 2).
+    #[arg(long)]
+    tar_uncapped: bool,
 
     /// The human report: a doctor-kit face (rich, plain or compact), or the full legacy report.
     ///
