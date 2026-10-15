@@ -2,6 +2,7 @@
 //! generated from the shell's own test card and checked for drift by a unit test in src/cardsh).
 //! The replay seam (`SIM_DOCTOR_TEST_REPLAY`) is compiled in test builds only.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::process::{Command, Output};
 
 fn card(fixture: &str, args: &[&str]) -> Output {
@@ -107,6 +108,7 @@ fn help_lists_the_commands() {
         "quit",
         "fsdump",
         "export",
+        "query_card_key",
     ] {
         assert!(text.contains(name), "{name} missing:\n{text}");
     }
@@ -957,4 +959,175 @@ fn export_json_includes_atr_and_name() {
     assert_eq!(data["name"], "sim-doctor");
     // ATR is null when replaying (no contact ATR in the test card fixture).
     assert_eq!(data["atr"], serde_json::Value::Null);
+}
+
+static CARD_KEY_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// `query_card_key` reads a pySim CardKeyProvider CSV by --key/--value and prints the requested FIELDS.
+/// It reads a local file only, never sends APDUs, and never prints secrets unless asked.
+fn card_key(csv: &str, args: &[&str]) -> std::process::Output {
+    // Each test gets its own files so the parallel test runner never clashes on /tmp.
+    let n = CARD_KEY_SEQ.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("sim-doctor-card-key-{n}.csv"));
+    std::fs::write(&dir, csv).unwrap();
+    let replay = std::env::temp_dir().join(format!("cardsh-kf-{n}.jsonl"));
+    std::fs::write(&replay, "").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .args(["card", "--key-file", dir.to_str().unwrap()])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .args(args)
+        .output()
+        .expect("the binary runs");
+    std::fs::remove_file(&dir).ok();
+    std::fs::remove_file(&replay).ok();
+    out
+}
+
+#[test]
+fn query_card_key_prints_requested_fields_from_csv_by_iccid() {
+    // pySim's CardKeyProvider CSV: a column per field, a row per card, keyed by ICCID.
+    let csv = "ICCID,IMSIno,ADM1,OPC,SPN\n\
+89010123456789012345,99999,hex:3737373737373737,hex:ABCD,Kate\n\
+89010123456789012346,88888,hex:3838383838383838,hex:1234,Moe\n";
+    let out = card_key(
+        csv,
+        &[
+            "--json",
+            "-c",
+            "query_card_key --key ICCID --value 89010123456789012345 --fields ADM1,SPN",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 1, "{}", String::from_utf8_lossy(&out.stderr));
+    let data = &r[0]["data"];
+    assert_eq!(data["key"], serde_json::json!("ICCID"));
+    assert_eq!(data["value"], "89010123456789012345");
+    assert_eq!(data["found"], true);
+    let fields = data["fields"].as_object().unwrap();
+    assert_eq!(fields["ADM1"], "hex:3737373737373737");
+    assert_eq!(fields["SPN"], "Kate");
+    assert!(!fields.contains_key("OPC"));
+}
+
+#[test]
+fn query_card_key_reports_a_miss_and_is_exit_zero() {
+    let csv = "ICCID,ADM1,SPN\n89010123456789012345,hex:3737373737373737,Kate\n";
+    let out = card_key(
+        csv,
+        &[
+            "--json",
+            "-c",
+            "query_card_key --key ICCID --value 99999999999999999999 --fields ADM1",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    let data = &r[0]["data"];
+    assert_eq!(data["found"], false);
+    assert!(data["fields"].is_null() || data["fields"].as_object().unwrap().is_empty());
+}
+
+#[test]
+fn query_card_key_without_a_key_file_errors_before_any_reader_is_opened() {
+    // No --key-file at all: the command refuses. It reads no card data (an empty replay log
+    // suffices to equip), so this is a shell-level command error (exit 1), not a read failure.
+    let n = CARD_KEY_SEQ.fetch_add(1, Ordering::Relaxed);
+    let replay = std::env::temp_dir().join(format!("cardsh-kf-{n}.jsonl"));
+    std::fs::write(&replay, "").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .args([
+            "card",
+            "--json",
+            "-c",
+            "query_card_key --key ICCID --value 89010123456789012345 --fields ADM1",
+        ])
+        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+        .output()
+        .unwrap();
+    std::fs::remove_file(&replay).ok();
+    assert_eq!(out.status.code(), Some(1));
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], false);
+    assert!(r[0]["error"].as_str().unwrap().contains("no card key file"));
+}
+
+#[test]
+fn query_card_key_never_prints_secret_fields_when_not_requested() {
+    let csv = "ICCID,ADM1,OPC,SPN\n89010123456789012345,hex:3737373737373737,hex:ABCD,Kate\n";
+    let out = card_key(
+        csv,
+        &[
+            "--json",
+            "-c",
+            "query_card_key --key ICCID --value 89010123456789012345 --fields SPN",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // ADM1 and OPC never appear when SPN alone was requested.
+    for secret in ["3737373737373737", "ABCD", "OPC"] {
+        assert!(!all.contains(secret), "{secret} leaked:\n{all}");
+    }
+    let r = lines(&out);
+    assert_eq!(r[0]["data"]["fields"]["SPN"], "Kate");
+}
+
+#[test]
+fn query_card_key_matches_by_a_non_iccid_key_and_is_case_insensitive() {
+    let csv = "ICCID,ADM1,SPN\n89010123456789012345,hex:3737373737373737,Kate\n";
+    let out = card_key(
+        csv,
+        &[
+            "--json",
+            "-c",
+            "query_card_key --key spn --value Kate --fields ADM1",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["data"]["found"], true);
+    assert_eq!(r[0]["data"]["value"], "Kate");
+    assert_eq!(r[0]["data"]["fields"]["ADM1"], "hex:3737373737373737");
+}
+
+#[test]
+fn query_card_key_a_missing_field_column_is_an_error() {
+    let csv = "ICCID,ADM1\n89010123456789012345,hex:3737373737373737\n";
+    let out = card_key(
+        csv,
+        &[
+            "--json",
+            "-c",
+            "query_card_key --key ICCID --value 89010123456789012345 --fields SPN",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let r = lines(&out);
+    assert_eq!(r[0]["ok"], false);
+    assert!(r[0]["error"].as_str().unwrap().contains("SPN"));
 }
