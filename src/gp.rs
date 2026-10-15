@@ -84,6 +84,9 @@
 //! deliberately NOT followed (no FETCH), and a refusal is recorded once, never
 //! retried.
 
+/// The named card profiles of `--profile` (issue #238).
+pub mod profile;
+
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "gp";
 
@@ -783,8 +786,11 @@ const STATUS_SCOPES: [(u8, &str); 4] = [
     (0x80, "isd"),
     (0x40, "applications"),
     (0x20, "load_files"),
-    (0x10, "load_files_and_modules"),
+    (0x10, MODULE_SCOPE),
 ];
+
+/// The name of the one scope in [`STATUS_SCOPES`] a profile can switch off.
+const MODULE_SCOPE: &str = "load_files_and_modules";
 
 /// Pages of `63 10` ("more data") followed per scope before saying so.
 const STATUS_MAX_PAGES: usize = 16;
@@ -1538,18 +1544,33 @@ pub fn registry_findings(data: &Value) -> Vec<Value> {
     out
 }
 
-/// GET STATUS for the four scopes of [`STATUS_SCOPES`], over `channel` when it
+/// GET STATUS for the scopes of [`STATUS_SCOPES`], over `channel` when it
 /// is `Some` (MAC'd, in send order) and plain otherwise; `63 10` is followed
 /// up to [`STATUS_MAX_PAGES`] pages. A refusal is data in the scope's object.
+///
+/// `profile` chooses the P2 coding (TLV, or the legacy non-tagged one) and
+/// whether the load-files-and-modules scope is asked for at all
+/// ([`profile::CardProfile`], issue #238). With [`profile::DEFAULT`] every
+/// scope is read with P2 `02`, which is what this function did before the
+/// flag existed.
 fn read_registry<S: CardSession + ?Sized>(
     session: &mut S,
     steps: &mut Vec<Value>,
     mut channel: Option<&mut scp03::Channel>,
+    profile: &profile::CardProfile,
 ) -> Result<Vec<Value>, session::Error> {
+    let (p2_first, p2_next) = profile.status_p2();
     let mut scopes = Vec::new();
     for (p1, name) in STATUS_SCOPES {
+        // A card whose profile does not report modules has no executable
+        // modules to list, so the P1 10 scope is not asked for at all: the
+        // reference does exactly this ([V] GPSession.java:1105-1112), and the
+        // scope is absent from the registry rather than refused.
+        if name == MODULE_SCOPE && !profile.reads_module_scope() {
+            continue;
+        }
         let mut collected = Vec::new();
-        let mut p2 = 0x02;
+        let mut p2 = p2_first;
         let mut pages = 0;
         let (last, truncated) = loop {
             let build = |le| Command::case4(Header::new(0x80, 0xF2, p1, p2), vec![0x4F, 0x00], le);
@@ -1579,7 +1600,7 @@ fn read_registry<S: CardSession + ?Sized>(
             if pages == STATUS_MAX_PAGES {
                 break (sw, true);
             }
-            p2 = 0x03;
+            p2 = p2_next;
         };
         let mut item = json!({
             "scope": name,
@@ -1611,8 +1632,9 @@ fn read_registry<S: CardSession + ?Sized>(
 pub fn status<S: CardSession + ?Sized>(
     session: &mut S,
     trace: bool,
+    profile: &profile::CardProfile,
 ) -> Result<Report, session::Error> {
-    status_with(session, trace, None)
+    status_with(session, trace, profile, None)
 }
 
 /// `gp status` over a secure channel opened with `auth`; see [`status_with`].
@@ -1624,9 +1646,10 @@ pub fn status<S: CardSession + ?Sized>(
 pub fn status_authenticated<S: CardSession + ?Sized>(
     session: &mut S,
     trace: bool,
+    profile: &profile::CardProfile,
     auth: &Auth<'_>,
 ) -> Result<Report, session::Error> {
-    status_with(session, trace, Some(auth))
+    status_with(session, trace, profile, Some(auth))
 }
 
 /// `gp select --aid`: SELECT an arbitrary GlobalPlatform application (or any
@@ -1677,9 +1700,13 @@ pub fn select<S: CardSession + ?Sized>(
 /// channel; a failed authentication returns early with `data.error` set and no
 /// registry. `63 10` is followed with GET STATUS "next" up to
 /// [`STATUS_MAX_PAGES`] pages.
+///
+/// `profile` is the `--profile` selection (issue #238) and decides the GET
+/// STATUS P2 coding and whether the module scope is read.
 fn status_with<S: CardSession + ?Sized>(
     session: &mut S,
     trace: bool,
+    profile: &profile::CardProfile,
     auth: Option<&Auth<'_>>,
 ) -> Result<Report, session::Error> {
     let mut steps = Vec::new();
@@ -1752,7 +1779,7 @@ fn status_with<S: CardSession + ?Sized>(
                 }
             }
         }
-        let scopes = read_registry(session, &mut steps, channel.as_mut())?;
+        let scopes = read_registry(session, &mut steps, channel.as_mut(), profile)?;
         data["registry"] = Value::Array(scopes);
         data["registry_findings"] = Value::Array(registry_findings(&data));
     }
@@ -1771,6 +1798,9 @@ fn status_with<S: CardSession + ?Sized>(
 pub fn render_text(data: &Value) -> String {
     let s = |v: &Value| crate::contract::sanitize(v.as_str().unwrap_or("-"));
     let mut out = Vec::new();
+    if let Some(p) = data.get("profile") {
+        out.push(profile::render_text(p));
+    }
     if let Some(sel) = data.get("selected") {
         out.push(format!(
             "SELECT {}: status {}",
@@ -4427,7 +4457,7 @@ fn prepare_write<S: CardSession + ?Sized>(
             return stopped(data, steps, true);
         }
     };
-    let registry = read_registry(session, &mut steps, Some(&mut channel))?;
+    let registry = read_registry(session, &mut steps, Some(&mut channel), &profile::DEFAULT)?;
     Ok(Ok(Prepared {
         channel,
         isd: isd.to_vec(),
@@ -4536,7 +4566,7 @@ where
     }
     data["result"] = json!({ "steps": results });
     if data.get("error").is_none() {
-        let after = read_registry(session, &mut steps, Some(&mut channel))?;
+        let after = read_registry(session, &mut steps, Some(&mut channel), &profile::DEFAULT)?;
         let ok = registry_complete(&after) && verify(&after);
         data["result"]["verified"] = json!(ok);
         if !ok {
@@ -7987,7 +8017,7 @@ mod tests {
         ];
         let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
         let mut card = Card::new(&rows);
-        let r = status(&mut card, false).unwrap();
+        let r = status(&mut card, false, &profile::DEFAULT).unwrap();
         assert!(r.isd_found);
         assert_eq!(r.data["card_recognition"]["weak_scp"], json!([2]));
         let reg = &r.data["registry"];
@@ -8012,6 +8042,58 @@ mod tests {
         }
     }
 
+    /// Issue #238: the two switches the registry read consumes are visible on
+    /// the wire. `default` sends P2 `02` and asks for all four scopes; `old`
+    /// sends P2 `00` and never asks for the P1 `10` scope at all ([V]
+    /// GPSession.java:1044, :1086, :1105-1112).
+    #[test]
+    fn the_profile_chooses_the_get_status_coding_and_the_module_scope() {
+        let scopes_of = |r: &Report| -> Vec<String> {
+            r.data["registry"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["scope"].as_str().unwrap().to_owned())
+                .collect()
+        };
+
+        let mut card = Card::new(&[(SEL1, "9000")]);
+        let r = status(&mut card, false, &profile::DEFAULT).unwrap();
+        assert!(
+            card.sent.iter().any(|a| a.starts_with("80F21002")),
+            "P1 10 with P2 02: {:?}",
+            card.sent
+        );
+        assert!(
+            card.sent.iter().any(|a| a.starts_with("80F28002")),
+            "P1 80 with P2 02: {:?}",
+            card.sent
+        );
+        assert_eq!(
+            scopes_of(&r),
+            [
+                "isd",
+                "applications",
+                "load_files",
+                "load_files_and_modules"
+            ]
+        );
+
+        let mut card = Card::new(&[(SEL1, "9000")]);
+        let r = status(&mut card, false, &profile::PROFILES[1]).unwrap();
+        assert!(
+            card.sent.iter().any(|a| a.starts_with("80F28000")),
+            "P1 80 with P2 00: {:?}",
+            card.sent
+        );
+        assert!(
+            !card.sent.iter().any(|a| a.starts_with("80F210")),
+            "the P1 10 scope must not be sent at all: {:?}",
+            card.sent
+        );
+        assert_eq!(scopes_of(&r), ["isd", "applications", "load_files"]);
+    }
+
     #[test]
     fn registry_list_and_info_are_read_only_views_of_the_status_data() {
         let isd = tlv(
@@ -8032,7 +8114,7 @@ mod tests {
         ];
         let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
         let mut card = Card::new(&rows);
-        let r = status(&mut card, false).unwrap();
+        let r = status(&mut card, false, &profile::DEFAULT).unwrap();
         let list = render_registry(&r.data, false);
         assert!(list.starts_with("isd: status 9000"), "{list}");
         assert!(
@@ -8064,22 +8146,22 @@ mod tests {
         render_registry(&r.data, true);
         assert_eq!(card.sent.len(), sent);
         let mut empty = Card::new(&[(SEL1, "6A82"), (SEL2, "6A82")]);
-        let none = status(&mut empty, false).unwrap();
+        let none = status(&mut empty, false, &profile::DEFAULT).unwrap();
         assert_eq!(render_registry(&none.data, false), "");
     }
 
     #[test]
     fn status_without_an_isd_sends_nothing_more_and_bad_tlv_is_data() {
         let mut card = Card::new(&[(SEL1, "6A82"), (SEL2, "6A82")]);
-        let r = status(&mut card, false).unwrap();
+        let r = status(&mut card, false, &profile::DEFAULT).unwrap();
         assert!(!r.isd_found);
         assert_eq!(card.sent.len(), 2);
 
         let mut card = Card::new(&[(SEL1, "9000")]);
-        let r = status(&mut card, false).unwrap();
+        let r = status(&mut card, false, &profile::DEFAULT).unwrap();
         assert_eq!(r.data["registry"][0]["status"], "6D00");
         let mut card = Card::new(&[(SEL1, "9000"), (&status_get("80", "02"), "E3054F9000")]);
-        let r = status(&mut card, false).unwrap();
+        let r = status(&mut card, false, &profile::DEFAULT).unwrap();
         assert!(r.data["registry"][0]["decode_error"].is_string());
         assert!(decode_registry("isd", &[0xE3, 0x02, 0x9F, 0x70]).is_err());
         assert!(decode_registry("isd", &[0x4F, 0x00]).is_err());
@@ -8215,7 +8297,7 @@ mod tests {
     fn authenticated_status_lists_the_registry_over_the_channel() {
         let keys = keys();
         let mut card = secure_card("9000");
-        let r = status_authenticated(&mut card, true, &auth(&keys)).unwrap();
+        let r = status_authenticated(&mut card, true, &profile::DEFAULT, &auth(&keys)).unwrap();
         assert!(r.isd_found);
         assert!(r.data.get("error").is_none());
         // Exactly one attempt: one INITIALIZE UPDATE, one EXTERNAL AUTHENTICATE.
@@ -8274,7 +8356,7 @@ mod tests {
         // Same card, but the host holds a different MAC key.
         let wrong = Keys::parse(&format!("{ENC_HEX} {}", "FF".repeat(16))).unwrap();
         let mut card = secure_card("9000");
-        let r = status_authenticated(&mut card, true, &auth(&wrong)).unwrap();
+        let r = status_authenticated(&mut card, true, &profile::DEFAULT, &auth(&wrong)).unwrap();
         assert_eq!(r.data["error"]["kind"], "keys-do-not-match");
         assert!(r.data["error"]["message"]
             .as_str()
@@ -8297,7 +8379,7 @@ mod tests {
     fn a_refused_external_authenticate_is_never_retried() {
         let keys = keys();
         let mut card = secure_card("6300");
-        let r = status_authenticated(&mut card, false, &auth(&keys)).unwrap();
+        let r = status_authenticated(&mut card, false, &profile::DEFAULT, &auth(&keys)).unwrap();
         assert_eq!(r.data["error"]["kind"], "external-authenticate-refused");
         assert!(r.data["error"]["message"]
             .as_str()
@@ -8320,7 +8402,8 @@ mod tests {
             ),
         ] {
             let mut card = Card::new(&[(SEL1, "9000"), (INIT_UPDATE, &answer)]);
-            let r = status_authenticated(&mut card, false, &auth(&keys)).unwrap();
+            let r =
+                status_authenticated(&mut card, false, &profile::DEFAULT, &auth(&keys)).unwrap();
             assert_eq!(r.data["error"]["kind"], kind);
             assert_eq!(sent_ins(&card, "82"), 0);
             assert_eq!(sent_ins(&card, "50"), 1);
@@ -8336,7 +8419,7 @@ mod tests {
             "80CA00E000".into(),
             hex::decode("E006C0040130801090 00".replace(' ', "")).unwrap(),
         );
-        let r = status_authenticated(&mut card, false, &auth(&keys)).unwrap();
+        let r = status_authenticated(&mut card, false, &profile::DEFAULT, &auth(&keys)).unwrap();
         assert_eq!(
             r.data["secure_channel"]["card_key_info"]["matches_supplied"],
             false
