@@ -28,9 +28,11 @@ All notable changes to this project are documented here. The format follows
 - `card` shell: `cardinfo` (reader, ATR, profile, class byte, ICCID, channels), as in pySim-shell (#161).
 - `card` shell: `dir` (`--fids`, `--names`, `--apps`, `--all`) and `desc`, as in pySim-shell; both work from the shell's state and send nothing (#158, #159).
 - `card` shell: `tree` (with `--json`, `--depth`, `--max`): print the current directory's file tree recursively from the file catalog, indented two spaces per level (#159).
+- `card` shell: `history` command prints the command history, numbered from 1; `--json` returns the array as JSON.
+- `card` shell: `run_script FILE` executes commands from a file, one per line; `#` starts a comment; capped at 1 MiB; write commands are dry runs unless `--yes` is provided.
 - `card`: a pySim-shell style shell over the card (#155). It keeps the equipped card, the logical channel and the
   selected file between commands; interactive, `-c "a; b"`, `--script FILE` and `--json` (one record per command).
-  `equip`, `status`, `open_channel`, `close_channel`, `channel`, `quit`. Reads are sent; commands that change the card are
+  `equip`, `status`, `open_channel`, `close_channel`, `channel`, `quit`, `history`, `run_script`. Reads are sent; commands that change the card are
   dry runs unless `--yes`. The file commands arrive in the issues that follow.
 - `card`: `apdu [--raw] [--expect-sw SW] [--expect-response-regex RE] [--yes] APDU` (#156): one raw APDU with GET RESPONSE
   followed, the channel applied to the class byte unless `--raw`, pySim's `x` wildcards in `--expect-sw`, and a dry run
