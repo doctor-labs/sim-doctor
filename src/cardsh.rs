@@ -2046,6 +2046,115 @@ impl Shell {
         self.cmd_terminate(args, 0xFE, "card usage")
     }
 
+    /// TERMINAL CAPABILITY: tells the card what this terminal supports. Changes the card's session
+    /// state, so it is a dry run unless `--yes`. The class is the UICC class with the 8X bit set.
+    fn cmd_terminal_capability(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let send = self.may_change_card(args);
+        let children = parse_hex(args.get_one::<String>("children").expect("required"))
+            .map_err(CmdErr::new)?;
+        let card = self.equipped()?;
+        let command =
+            terminal_capability_command(card.cla() | 0x80, &children).map_err(CmdErr::new)?;
+        let apdu = hex_upper(&command.encode().map_err(|e| CmdErr::new(e.to_string()))?);
+        if !send {
+            return Ok(Reply::ok(
+                format!("WARNING: TERMINAL CAPABILITY changes the card's session state. Dry run: would send {apdu} (add --yes to send)"),
+                json!({ "sent": false, "apdu": apdu }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let data = json!({ "sent": true, "apdu": apdu, "sw": sw.map(|s| s.to_string()) });
+        if sw.is_some_and(StatusWord::is_normal_processing) {
+            return Ok(Reply::ok("TERMINAL CAPABILITY sent", data));
+        }
+        Err(CmdErr {
+            message: format!("TERMINAL CAPABILITY refused: {}", sw_text(sw)),
+            data,
+        })
+    }
+
+    /// SUSPEND UICC: suspends the card until RESUME UICC with the token the card returns. A dry run
+    /// unless `--yes`. On success the negotiated duration and the resume token are reported.
+    fn cmd_suspend_uicc(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let send = self.may_change_card(args);
+        let unit = |id: &str| -> Result<u8, CmdErr> {
+            let name = args.get_one::<String>(id).expect("required");
+            duration_unit(name).map_err(CmdErr::new)
+        };
+        let min = (
+            unit("min-unit")?,
+            *args.get_one::<u8>("min-len").expect("required"),
+        );
+        let max = (
+            unit("max-unit")?,
+            *args.get_one::<u8>("max-len").expect("required"),
+        );
+        let card = self.equipped()?;
+        let command = suspend_uicc_command(card.cla() | 0x80, min, max);
+        let apdu = hex_upper(&command.encode().map_err(|e| CmdErr::new(e.to_string()))?);
+        if !send {
+            return Ok(Reply::ok(
+                format!("WARNING: SUSPEND UICC suspends the card; until RESUME UICC succeeds the card may stay unusable, and it can need a power cycle. Dry run: would send {apdu} (add --yes to send)"),
+                json!({ "sent": false, "apdu": apdu }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        if !sw.is_some_and(StatusWord::is_normal_processing) {
+            return Err(CmdErr {
+                message: format!("SUSPEND UICC refused: {}", sw_text(sw)),
+                data: json!({ "sent": true, "apdu": apdu, "sw": sw.map(|s| s.to_string()) }),
+            });
+        }
+        let d = ex.data();
+        if d.len() < 2 {
+            return Err(CmdErr {
+                message: "SUSPEND UICC answered without a negotiated duration".into(),
+                data: json!({ "sent": true, "apdu": apdu, "sw": sw.map(|s| s.to_string()) }),
+            });
+        }
+        let duration = hex_upper(&d[..2]);
+        let token = hex_upper(&d[2..]);
+        Ok(Reply::ok(
+            format!("SUSPEND UICC done; resume token {token} (keep it for RESUME UICC)"),
+            json!({
+                "sent": true,
+                "apdu": apdu,
+                "sw": sw.map(|s| s.to_string()),
+                "negotiated_duration": duration,
+                "resume_token": token,
+            }),
+        ))
+    }
+
+    /// RESUME UICC: resumes a suspended card with the token SUSPEND UICC returned. A dry run unless
+    /// `--yes`.
+    fn cmd_resume_uicc(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let send = self.may_change_card(args);
+        let token =
+            parse_hex(args.get_one::<String>("token").expect("required")).map_err(CmdErr::new)?;
+        let card = self.equipped()?;
+        let command = resume_uicc_command(card.cla() | 0x80, &token).map_err(CmdErr::new)?;
+        let apdu = hex_upper(&command.encode().map_err(|e| CmdErr::new(e.to_string()))?);
+        if !send {
+            return Ok(Reply::ok(
+                format!("WARNING: RESUME UICC resumes a suspended card; it needs the token SUSPEND UICC returned. Dry run: would send {apdu} (add --yes to send)"),
+                json!({ "sent": false, "apdu": apdu }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let data = json!({ "sent": true, "apdu": apdu, "sw": sw.map(|s| s.to_string()) });
+        if sw.is_some_and(StatusWord::is_normal_processing) {
+            return Ok(Reply::ok("RESUME UICC done", data));
+        }
+        Err(CmdErr {
+            message: format!("RESUME UICC refused: {}", sw_text(sw)),
+            data,
+        })
+    }
+
     fn cmd_read_decoded(&mut self, which: Which) -> CmdResult {
         let card = self.equipped()?;
         let ef = card.ef()?;
@@ -2938,6 +3047,64 @@ pub fn envelope_command(cla: u8, data: &[u8]) -> Result<apdu::Command, String> {
     apdu::Command::decode(&raw).map_err(|e| format!("envelope: {e}"))
 }
 
+/// TERMINAL CAPABILITY (ETSI TS 102 221 clause 10.1.2, table 10.5): `INS 0xAA`, `P1 = P2 = 00`.
+/// The data field is the BER-TLV object `A9` (clause 11.1.19.2.0) wrapping `children`, the terminal
+/// capability objects `80`..`83`. Short-form length only, so `children` is at most 127 octets.
+pub fn terminal_capability_command(cla: u8, children: &[u8]) -> Result<apdu::Command, String> {
+    if children.is_empty() {
+        return Err("TERMINAL CAPABILITY needs at least one capability object".into());
+    }
+    if children.len() > 127 {
+        return Err(format!(
+            "TERMINAL CAPABILITY objects are {} octets; the short length form allows 127",
+            children.len()
+        ));
+    }
+    let mut data = vec![0xA9, children.len() as u8];
+    data.extend_from_slice(children);
+    Ok(apdu::Command::case3(
+        apdu::Header::new(cla, 0xAA, 0x00, 0x00),
+        data,
+    ))
+}
+
+/// Maps a SUSPEND UICC time unit name to its code (pySim `encode_duration`: 00 seconds, 01 minutes,
+/// 02 hours, 03 days, 04 ten-day periods).
+pub fn duration_unit(name: &str) -> Result<u8, String> {
+    match name {
+        "seconds" => Ok(0),
+        "minutes" => Ok(1),
+        "hours" => Ok(2),
+        "days" => Ok(3),
+        "ten-days" => Ok(4),
+        other => Err(format!("unknown time unit {other}")),
+    }
+}
+
+/// SUSPEND UICC (ETSI TS 102 221 clause 11.1.22; pySim `suspend_uicc`): `INS 0x76`, `P1 = P2 = 00`,
+/// data = minimum and maximum suspension duration, each as (time unit, length).
+pub fn suspend_uicc_command(cla: u8, min: (u8, u8), max: (u8, u8)) -> apdu::Command {
+    apdu::Command::case3(
+        apdu::Header::new(cla, 0x76, 0x00, 0x00),
+        vec![min.0, min.1, max.0, max.1],
+    )
+}
+
+/// RESUME UICC (ETSI TS 102 221 clause 11.1.22; pySim `resume_uicc`): `INS 0x76`, `P1 = 01`,
+/// `P2 = 00`, data = the 8-octet token SUSPEND UICC returned.
+pub fn resume_uicc_command(cla: u8, token: &[u8]) -> Result<apdu::Command, String> {
+    if token.len() != 8 {
+        return Err(format!(
+            "a RESUME UICC token is 8 octets, got {}",
+            token.len()
+        ));
+    }
+    Ok(apdu::Command::case3(
+        apdu::Header::new(cla, 0x76, 0x01, 0x00),
+        token.to_vec(),
+    ))
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -3215,6 +3382,27 @@ pub fn grammar() -> clap::Command {
         .subcommand(
             C::new("terminate_card_usage")
                 .about("TERMINATE CARD USAGE: deactivate the card's usage. DESTRUCTIVE: can permanently disable it; a dry run unless --yes")
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("terminal_capability")
+                .about("TERMINAL CAPABILITY (TS 102 221 10.1.2): tell the card what this terminal supports. Changes the card's session state; a dry run unless --yes")
+                .arg(Arg::new("children").long("children").value_name("HEX").required(true).help("the capability objects inside tag A9, e.g. 820101 for the UICC CLF interface"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("suspend_uicc")
+                .about("SUSPEND UICC (TS 102 221 11.1.22): suspend the card until RESUME UICC. WARNING: the card may stay unusable until it is resumed or power cycled; a dry run unless --yes")
+                .arg(Arg::new("min-unit").long("min-unit").value_name("UNIT").required(true).value_parser(["seconds", "minutes", "hours", "days", "ten-days"]).help("unit of the minimum duration"))
+                .arg(Arg::new("min-len").long("min-len").value_name("N").required(true).value_parser(clap::value_parser!(u8)).help("length of the minimum duration, in units"))
+                .arg(Arg::new("max-unit").long("max-unit").value_name("UNIT").required(true).value_parser(["seconds", "minutes", "hours", "days", "ten-days"]).help("unit of the maximum duration"))
+                .arg(Arg::new("max-len").long("max-len").value_name("N").required(true).value_parser(clap::value_parser!(u8)).help("length of the maximum duration, in units"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("resume_uicc")
+                .about("RESUME UICC (TS 102 221 11.1.22): resume a suspended card with the 8-octet token SUSPEND UICC returned. WARNING: a wrong token leaves the card suspended; a dry run unless --yes")
+                .arg(Arg::new("token").long("token").value_name("HEX").required(true).help("the 8 octets SUSPEND UICC returned"))
                 .arg(yes_arg()),
         )
         .subcommand(
@@ -3686,6 +3874,9 @@ impl Shell {
             "terminate_df" => self.cmd_terminate_df(args),
             "terminate_ef" => self.cmd_terminate_ef(args),
             "terminate_card_usage" => self.cmd_terminate_card_usage(args),
+            "terminal_capability" => self.cmd_terminal_capability(args),
+            "suspend_uicc" => self.cmd_suspend_uicc(args),
+            "resume_uicc" => self.cmd_resume_uicc(args),
             "run_gsm_algorithm" => self.cmd_run_gsm(args),
             "authenticate" => self.cmd_authenticate(args),
             "service" => self.cmd_service(args),
@@ -5065,6 +5256,63 @@ mod tests {
         assert!(grammar()
             .try_get_matches_from(["envelope_sms", "82", "02", "82", "81"])
             .is_ok());
+    }
+
+    #[test]
+    fn terminal_capability_suspend_and_resume_build_the_right_apdu_and_are_gated() {
+        // TERMINAL CAPABILITY: TS 102 221 table 10.5, INS 0xAA, CLA 80, data = A9 { children }.
+        assert_eq!(
+            terminal_capability_command(0x80, &[0x82, 0x01, 0x01])
+                .unwrap()
+                .encode()
+                .unwrap(),
+            vec![0x80, 0xAA, 0x00, 0x00, 0x05, 0xA9, 0x03, 0x82, 0x01, 0x01]
+        );
+        assert!(terminal_capability_command(0x80, &[]).is_err());
+        // SUSPEND UICC (pySim: 80 76 00 00 04 <min unit, min len, max unit, max len>)
+        assert_eq!(
+            suspend_uicc_command(0x80, (0x01, 0x05), (0x02, 0x01))
+                .encode()
+                .unwrap(),
+            vec![0x80, 0x76, 0x00, 0x00, 0x04, 0x01, 0x05, 0x02, 0x01]
+        );
+        // RESUME UICC (pySim: 80 76 01 00 08 <8-octet token>)
+        let token = [1, 2, 3, 4, 5, 6, 7, 8];
+        assert_eq!(
+            resume_uicc_command(0x80, &token).unwrap().encode().unwrap(),
+            vec![0x80, 0x76, 0x01, 0x00, 0x08, 1, 2, 3, 4, 5, 6, 7, 8]
+        );
+        assert!(resume_uicc_command(0x80, &[1, 2, 3]).is_err());
+        assert_eq!(duration_unit("seconds"), Ok(0));
+        assert_eq!(duration_unit("ten-days"), Ok(4));
+        assert!(duration_unit("years").is_err());
+        for ins in [0xAA, 0x76] {
+            assert!(!is_read_only(ins), "INS {ins:02X} must be gated");
+        }
+    }
+
+    #[test]
+    fn terminal_capability_suspend_and_resume_are_dry_runs_without_yes() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("terminal_capability --children 820101");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert_eq!(r.data["apdu"], "80AA000005A903820101");
+        let r =
+            sh.exec("suspend_uicc --min-unit seconds --min-len 5 --max-unit minutes --max-len 1");
+        assert!(
+            r.ok && r.data["sent"] == false && r.text.contains("WARNING"),
+            "{}",
+            r.text
+        );
+        assert_eq!(r.data["apdu"], "807600000400050101");
+        let r = sh.exec("resume_uicc --token 0102030405060708");
+        assert!(
+            r.ok && r.data["sent"] == false && r.text.contains("WARNING"),
+            "{}",
+            r.text
+        );
+        assert_eq!(r.data["apdu"], "80760100080102030405060708");
+        assert!(log.borrow().is_empty(), "nothing reached the card");
     }
 
     #[test]
