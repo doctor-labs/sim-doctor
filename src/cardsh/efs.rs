@@ -1072,7 +1072,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_ST",
         0x4F01,
         'T',
-        "hex",
+        "services",
         "5G ProSe service table",
     ),
     (
@@ -1080,7 +1080,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_DD",
         0x4F02,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe direct discovery configuration",
     ),
     (
@@ -1088,7 +1088,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_DC",
         0x4F03,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe direct communication configuration",
     ),
     (
@@ -1096,7 +1096,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_U2NRU",
         0x4F04,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe UE-to-network relay UE configuration",
     ),
     (
@@ -1104,7 +1104,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_RU",
         0x4F05,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe remote UE configuration",
     ),
     (
@@ -1112,7 +1112,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_UIR",
         0x4F06,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe usage information reporting",
     ),
     (
@@ -1120,7 +1120,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_U2URU",
         0x4F07,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe UE-to-UE relay UE configuration",
     ),
     (
@@ -1128,7 +1128,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.5G_PROSE_EU",
         0x4F08,
         'T',
-        "hex",
+        "tlv",
         "5G ProSe end UE configuration",
     ),
     (

@@ -27,6 +27,7 @@ All notable changes to this project are documented here. The format follows
 - `sim-doctor sms decode` reassembles concatenated SMS parts by reference and reports missing parts (#200).
 - `sim-doctor sms decode`: offline SMS TPDU decoder (DELIVER, SUBMIT, STATUS-REPORT; GSM 7-bit, 8-bit, UCS2; UDH and concatenation) (#199).
 
+- `decode`/reads: EF.5G_PROSE_ST, EF.5G_PROSE_DD, EF.5G_PROSE_DC, EF.5G_PROSE_U2NRU, EF.5G_PROSE_RU, EF.5G_PROSE_UIR, EF.5G_PROSE_U2URU, EF.5G_PROSE_EU (5G ProSe config EFs under DF.5G_ProSe), EF.PROSE_MON and EF.PROSE_RADIO_COM (ProSe EFs under DF.ProSe) decode to their fields per 3GPP TS 31.102 clauses 4.4.8 (ProSe) / 4.4.13 (5G ProSe) (#176).
 - `sim-doctor ota-crypto`: offline DES/3DES/AES-CBC encrypt and decrypt, cryptographic checksum sign and check (CBC-MAC, AES-CMAC), as pySim's OTA layer uses (#204).
 - `decode`/reads: EF.LI, EF.RPLMNAcT, EF.VGCSCA and EF.VBSCA decode as a `TransRecEF` — a transparent EF split into fixed 2-octet records, each record decoded on its own with a short trailing remainder shown raw, matching pySim's `filesystem.py:1259` (`#178`).
 - `decode`/reads: EF.SST decoded with two bits per service (allocated, activated) and EF.IST services named, from pySim's tables (#171).
