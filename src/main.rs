@@ -814,6 +814,46 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Delete a key from the issuer security domain over an SCP03 channel
+    /// (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD
+    /// STATE.
+    ///
+    /// At least one of --key-id or --key-version must be given: with both, one
+    /// key is deleted; with either, every matching key is deleted. CAN
+    /// PERMANENTLY LOCK THE CARD'S ADMINISTRATIVE ACCESS — deleting the key
+    /// version this session authenticated with, or the only key of a type the
+    /// card expects, has no recovery.
+    ///
+    /// A dry run unless --yes: it prints the target and the exact APDUs and
+    /// sends nothing. With --keys-file/--keys-env the dry run also makes the one
+    /// SCP03 authentication attempt and reads the key information, and the
+    /// command refuses (nothing sent) when the key is not present or the key
+    /// information cannot be read. --yes needs keys. The ISD keys are read from
+    /// a file or environment variable, never the command line, and are never
+    /// printed. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a verified delete, 1 for a refusal, a card error
+    /// or a delete the key information does not confirm.
+    DeleteKey {
+        /// The Key Identifier to delete (GP tag D0). If absent, every key id
+        /// matches and only --key-version narrows the delete.
+        #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
+        key_id: Option<u8>,
+        /// The Key Version Number to delete (GP tag D2). If absent, every
+        /// version matches and only --key-id narrows the delete.
+        #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
+        key_version: Option<u8>,
+        /// Also delete related objects (P2 80).
+        #[arg(long)]
+        related: bool,
+        /// Send a delete that would remove the key set this session authenticated
+        /// with, or every key on the card, as a WARNING instead of refusing it.
+        /// Still needs --yes; without it nothing is sent.
+        #[arg(long)]
+        allow_lockout: bool,
+        #[command(flatten)]
+        dk: GpDeleteKeyFlags,
+    },
     /// Load a CAP file and install an applet over an SCP03 channel: INSTALL [for
     /// load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card
     /// Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT.
@@ -1001,6 +1041,29 @@ struct GpChannelArg {
     channel: u8,
 }
 
+/// What `gp delete-key` shares with the other gp commands: reader, output
+/// toggles, logical channel, key source and the `--yes` write gate.
+#[derive(Args)]
+struct GpDeleteKeyFlags {
+    /// The reader to use, matched against the driver's own name.
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+    /// Emit one JSON envelope of kind "gp" on stdout.
+    #[arg(long)]
+    json: bool,
+    /// Add every APDU exchange (command and response hex) as data.trace.
+    #[arg(long)]
+    trace: bool,
+    #[command(flatten)]
+    channel: GpChannelArg,
+    #[command(flatten)]
+    keys: GpKeySourceArgs,
+    /// Send the commands. Without it nothing is written. Needs --keys-file or
+    /// --keys-env.
+    #[arg(long, requires = "delete_key_source")]
+    yes: bool,
+}
+
 /// What `gp delete` and `gp install` share.
 #[derive(Args)]
 struct GpWriteFlags {
@@ -1021,6 +1084,21 @@ struct GpWriteFlags {
     /// --keys-env.
     #[arg(long, requires = "key_source")]
     yes: bool,
+}
+
+/// Where `gp delete-key` gets ISD keys (keys only, no INITIALIZE UPDATE key
+/// version — the version to delete is its own `--key-version` flag). Never a
+/// value on the command line: it would land in shell history and the process
+/// list.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("delete_key_source").args(["keys_file", "keys_env"])))]
+struct GpKeySourceArgs {
+    /// File holding the keys (keep it chmod 600).
+    #[arg(long, value_name = "PATH")]
+    keys_file: Option<std::path::PathBuf>,
+    /// Environment variable holding the keys.
+    #[arg(long, value_name = "VAR")]
+    keys_env: Option<String>,
 }
 
 /// Where `gp status` gets ISD keys. Never a value on the command line: it would
@@ -2082,6 +2160,13 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             } => run_gp_delete(&aid, related, &write),
             GpAction::MakeDefault { aid, write } => run_gp_make_default(&aid, &write),
             GpAction::RenameIsd { new_aid, write } => run_gp_rename_isd(&new_aid, &write),
+            GpAction::DeleteKey {
+                key_id,
+                key_version,
+                related,
+                allow_lockout,
+                dk,
+            } => run_gp_delete_key(key_id, key_version, related, allow_lockout, &dk),
             GpAction::Install {
                 load,
                 module,
@@ -3000,6 +3085,53 @@ fn bad_gp_request(e: &gp::BuildError, json: bool) -> contract::ExitCode {
         &e.to_string(),
         serde_json::json!({ "error": { "kind": "bad-request", "message": e.to_string() } }),
         json,
+    )
+}
+
+/// `sim-doctor gp delete-key`: a dry run unless `--yes`, offline without keys.
+fn run_gp_delete_key(
+    key_id: Option<u8>,
+    key_version: Option<u8>,
+    related: bool,
+    allow_lockout: bool,
+    delete_key: &GpDeleteKeyFlags,
+) -> contract::ExitCode {
+    let req = gp::DeleteKeyRequest {
+        key_id,
+        key_version,
+        related,
+        allow_lockout,
+    };
+    // INITIALIZE UPDATE key version defaults to 00 (card chooses).
+    let kvn_args = GpKeyArgs {
+        keys_file: delete_key.keys.keys_file.clone(),
+        keys_env: delete_key.keys.keys_env.clone(),
+        key_version: 0,
+    };
+    let keys = match load_gp_keys(&kvn_args, delete_key.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::delete_key_dry_run(&req) {
+            Ok(mut data) => {
+                if delete_key.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(delete_key.channel.channel);
+                    gp::retarget_channel(&mut data, delete_key.channel.channel);
+                }
+                emit_gp("gp delete-key", data, delete_key.json)
+            }
+            Err(e) => bad_gp_request(&e, delete_key.json),
+        };
+    };
+    let auth = gp_auth(&keys, &kvn_args, delete_key.channel.channel);
+    run_gp(
+        "gp delete-key",
+        delete_key.reader.as_deref(),
+        delete_key.json,
+        delete_key.trace,
+        delete_key.channel.channel,
+        |s, t| gp::delete_key(s, t, &req, &auth, delete_key.yes),
     )
 }
 

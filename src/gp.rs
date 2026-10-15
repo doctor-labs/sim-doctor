@@ -1938,6 +1938,9 @@ pub enum BuildError {
     /// The Install Parameters field does not hold the mandatory C9 tag.
     #[error("install parameters must be TLV that holds the mandatory C9 tag (C900 for none)")]
     InstallParameters,
+    /// Neither a key id nor a key version was given to `delete_key_command`.
+    #[error("DELETE KEY needs at least one of --key-id or --key-version")]
+    NoKeyIdentity,
     /// A PUT KEY parameter outside what GP Card Spec v2.3.1 11.8.2.1 to 11.8.2.3 allow.
     #[error("{0}")]
     PutKey(&'static str),
@@ -2376,6 +2379,38 @@ pub fn with_default_selected(privileges: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Builds, and does not send, DELETE [key]: `80 E4 00 <P2> Lc D0 01 <key_id>
+/// [D2 01 <key_version>] 00`. P2 is `80` to delete the key and its related
+/// objects, `00` for the key alone. At least one of `key_id` or `key_version`
+/// must be given: only `key_id` deletes every key with that identifier, only
+/// `key_version` deletes every key with that version, both delete one key. GP
+/// Card Spec v2.3.1 section 11.2.2 (Tables 11-20 to 11-23); the data field
+/// tags (`D0` Key Identifier, `D2` Key Version Number) and the P2 coding are
+/// pySim `do_delete_key` (`d001<kid> d201<kvn>`, `0x80` for related objects).
+/// GlobalPlatformPro `OPT_DELETE_KEY` builds the same data field. No token
+/// (`B6`, `9E`): delegated management is not supported.
+pub fn delete_key_command(
+    key_id: Option<u8>,
+    key_version: Option<u8>,
+    related: bool,
+) -> Result<Command, BuildError> {
+    if key_id.is_none() && key_version.is_none() {
+        return Err(BuildError::NoKeyIdentity);
+    }
+    let mut data = Vec::new();
+    if let Some(id) = key_id {
+        data.extend_from_slice(&[0xD0, 0x01, id]);
+    }
+    if let Some(ver) = key_version {
+        data.extend_from_slice(&[0xD2, 0x01, ver]);
+    }
+    Ok(Command::case4(
+        Header::new(0x80, 0xE4, 0x00, if related { 0x80 } else { 0x00 }),
+        data,
+        Le::Short(0),
+    ))
+}
+
 /// Builds, and does not send, INSTALL [for install] (`make_selectable` false,
 /// P1 `04`) or INSTALL [for install and make selectable] (P1 `0C`): `80 E6 <P1>
 /// 00 Lc <data> 00` with data = `LV(load file AID) LV(module AID) LV(application
@@ -2473,6 +2508,22 @@ pub struct DeleteRequest {
     pub aid: Vec<u8>,
     /// Also delete the related objects (DELETE P2 `80`).
     pub related: bool,
+}
+
+/// What `gp delete-key` removes. At least one of `key_id` or `key_version`
+/// must be set; with both, exactly one key is deleted. GP Card Spec v2.3.1
+/// section 11.2.2 Tables 11-22/11-23 (DELETE [key]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteKeyRequest {
+    /// The Key Identifier (tag `D0`), or `None` to match every key id.
+    pub key_id: Option<u8>,
+    /// The Key Version Number (tag `D2`), or `None` to match every version.
+    pub key_version: Option<u8>,
+    /// Also delete the related objects (DELETE P2 `80`).
+    pub related: bool,
+    /// Downgrade the two lock-out refusals (`would-delete-session-key`,
+    /// `would-delete-last-key-set`) to a loud warning. Nothing else changes.
+    pub allow_lockout: bool,
 }
 
 /// What `gp make-default` makes Default Selected.
@@ -2720,6 +2771,35 @@ pub fn delete_dry_run(req: &DeleteRequest) -> Result<Value, BuildError> {
         json!({ "aid": hex_of(&req.aid), "related": req.related }),
         &plan,
         "no keys were given, so the card was not contacted and the registry was not checked; add --keys-file or --keys-env to check that the AID is present, and --yes to send",
+    ))
+}
+
+/// `delete_key_command` wrapped in a single-step plan, for the offline dry run.
+fn delete_key_plan_steps(req: &DeleteKeyRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: "delete_key",
+        command: delete_key_command(req.key_id, req.key_version, req.related)?,
+    }])
+}
+
+/// `gp delete-key` without keys: the offline dry run. Sends nothing and does not
+/// touch a card. A stated key id/version of 0 is still a value to match, so 0 is
+/// a valid `key_id`/`key_version` (only `None` means "match all").
+///
+/// # Errors
+///
+/// [`BuildError::NoKeyIdentity`] when neither --key-id nor --key-version is given.
+pub fn delete_key_dry_run(req: &DeleteKeyRequest) -> Result<Value, BuildError> {
+    let plan = delete_key_plan_steps(req)?;
+    Ok(offline_dry_run(
+        "delete_key",
+        json!({
+            "key_id": req.key_id.map(|b| json!(format!("{b:02X}"))).unwrap_or(Value::Null),
+            "key_version": req.key_version.map(|b| json!(format!("{b:02X}"))).unwrap_or(Value::Null),
+            "related": req.related,
+        }),
+        &plan,
+        "no keys were given, so the card was not contacted and the key information was not checked; add --keys-file or --keys-env to confirm the key exists, and --yes to send",
     ))
 }
 
@@ -3220,6 +3300,246 @@ pub fn rename_isd<S: CardSession + ?Sized>(
     report.data["warning"] = json!(RENAME_ISD_WARNING);
     Ok(report)
 }
+
+/// `gp delete-key` over SCP03: authenticate once, read the key information
+/// (GET DATA E0), refuse when the requested key is not present
+/// (`key-not-present`) or the key information cannot be read
+/// (`registry-unreadable`); a dry run unless `yes`; otherwise DELETE KEY MAC'd,
+/// every status word reported with its own kind ([`status_word`]), and a
+/// re-read of GET DATA E0 that must no longer list the key (`verify-failed`).
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn delete_key<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &DeleteKeyRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let Prepared {
+        mut channel,
+        mut steps,
+        mut data,
+        card_keys,
+        current_kvn,
+        ..
+    } = match prepare_write(session, trace, auth)? {
+        Ok(p) => p,
+        Err(report) => return Ok(report),
+    };
+    data["operation"] = json!("delete_key");
+    let kid_hex = req.key_id.map(|b| format!("{b:02X}"));
+    let kvn_hex = req.key_version.map(|b| format!("{b:02X}"));
+    let key_id_val = kid_hex.as_deref().map(|s| json!(s)).unwrap_or(Value::Null);
+    let key_ver_val = kvn_hex.as_deref().map(|s| json!(s)).unwrap_or(Value::Null);
+    data["target"] = json!({
+        "key_id": key_id_val,
+        "key_version": key_ver_val,
+        "related": req.related,
+    });
+    data["dry_run"] = json!(!yes);
+    data["sent"] = json!(false);
+    let finish = |mut data: Value, steps: Vec<Value>| {
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        Ok(Report {
+            isd_found: true,
+            data,
+        })
+    };
+    // The DELETE KEY APDU. At least one identity was validated by the dry run
+    // path; here it is always Some.
+    let command = match delete_key_command(req.key_id, req.key_version, req.related) {
+        Ok(c) => c,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    let plan = [Planned {
+        step: "delete_key",
+        command,
+    }];
+    data["plan"] = json!({ "apdus": plan_json(&plan) });
+    // Pre-read check: the key must be present in the key information template.
+    match delete_key_checks(&card_keys, req, current_kvn) {
+        Ok(pre_read) => {
+            if let Some(w) = pre_read["lockout_warning"].as_str() {
+                data["warning"] = json!(w);
+            }
+            data["pre_read"] = pre_read;
+        }
+        Err((kind, message)) => {
+            data["error"] = json!({ "kind": kind, "message": message });
+            return finish(data, steps);
+        }
+    }
+    if !yes {
+        data["note"] = json!(
+            "dry run: the key information was checked over the secure channel, nothing was written; add --yes to send the plan"
+        );
+        data["warning"] = json!(match data["warning"].as_str() {
+            Some(w) => format!("{w}; {DELETE_KEY_WARNING}"),
+            None => DELETE_KEY_WARNING.to_string(),
+        });
+        return finish(data, steps);
+    }
+    let wrapped = match channel.wrap(&plan[0].command) {
+        Ok(w) => w,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    let ex = session::send(session, &wrapped, &read_policy())?;
+    push_steps(&mut steps, "delete_key", &ex);
+    data["sent"] = json!(true);
+    data["result"] = json!({ "steps": [{ "step": "delete_key", "status": sw_hex(&ex) }] });
+    if !ex.is_success() {
+        let mut err = refused("DELETE KEY", &ex);
+        err["step"] = json!("delete_key");
+        err["advice"] = json!(
+            "nothing was retried; read the key information with gp status --keys-file|--keys-env to see what the card now holds"
+        );
+        data["error"] = err;
+        return finish(data, steps);
+    }
+    // Re-read the key information over the channel and confirm the key is gone.
+    let read = Command::case2(Header::new(0x80, 0xCA, 0x00, 0xE0), Le::Short(0));
+    let ex = send_secure(
+        session,
+        &mut steps,
+        &mut channel,
+        "key_information_after",
+        &read,
+    )?;
+    let after = ex
+        .is_success()
+        .then(|| decode_key_information(ex.data()).ok())
+        .flatten();
+    let verified = after
+        .as_ref()
+        .and_then(Value::as_array)
+        .is_some_and(|list| !key_present(list, req));
+    data["result"]["verified"] = json!(verified);
+    if !verified {
+        let after_sw = sw_hex(&ex).unwrap_or_else(|| "none".to_string());
+        data["error"] = json!({
+            "kind": "verify-failed",
+            "message": format!(
+                "the card answered 9000 to DELETE KEY but its key information (read back with status {after_sw}) does not confirm the key was deleted"
+            ),
+        });
+    }
+    finish(data, steps)
+}
+
+/// Whether the key information list (from [`decode_key_information`]) contains a
+/// key matching the request: both `key_id` and `key_version` must match where
+/// the request names them.
+fn key_matches(key: &Value, req: &DeleteKeyRequest) -> bool {
+    req.key_id
+        .is_none_or(|id| key["key_id"].as_u64() == Some(u64::from(id)))
+        && req
+            .key_version
+            .is_none_or(|ver| key["key_version"].as_u64() == Some(u64::from(ver)))
+}
+
+fn key_present(list: &[Value], req: &DeleteKeyRequest) -> bool {
+    list.iter().any(|k| key_matches(k, req))
+}
+
+/// The pre-read check for `delete_key`: is the requested key present in the key
+/// information template that `prepare_write` already read, and does the delete
+/// lock the card out? Refuses (nothing sent) when the request would delete the
+/// key version this session authenticated with (`would-delete-session-key`), or
+/// every key in the template (`would-delete-last-key-set`). With `allow_lockout`
+/// both become a `lockout_warning` and the delete proceeds. Returns the
+/// `pre_read` object or a refusal `(kind, message)`.
+fn delete_key_checks(
+    card_keys: &Option<Value>,
+    req: &DeleteKeyRequest,
+    session_kvn: u8,
+) -> Result<Value, (&'static str, String)> {
+    let Some(list) = card_keys.as_ref().and_then(Value::as_array) else {
+        return Err((
+            "registry-unreadable",
+            "the key information (GET DATA E0) could not be read, so the key cannot be confirmed present; nothing was sent".into(),
+        ));
+    };
+    if !key_present(list, req) {
+        let kid = req.key_id.map_or("any".to_string(), |b| format!("{b:02X}"));
+        let kvn = req
+            .key_version
+            .map_or("any".to_string(), |b| format!("{b:02X}"));
+        return Err((
+            "key-not-present",
+            format!(
+                "key id {kid} version {kvn} is not in the card key information; nothing was sent"
+            ),
+        ));
+    }
+    // The keys the request deletes. With related objects (P2 80) every key of a
+    // matched key version goes too, so the lock-out check counts those as gone.
+    let matched: Vec<bool> = list.iter().map(|k| key_matches(k, req)).collect();
+    let related_versions: Vec<&Value> = list
+        .iter()
+        .zip(&matched)
+        .filter(|(_, m)| **m)
+        .map(|(k, _)| &k["key_version"])
+        .collect();
+    let gone =
+        |k: &Value, m: bool| m || (req.related && related_versions.contains(&&k["key_version"]));
+    let remaining = list
+        .iter()
+        .zip(&matched)
+        .filter(|(k, m)| !gone(k, **m))
+        .count();
+    let session_hit = list
+        .iter()
+        .zip(&matched)
+        .any(|(k, m)| *m && k["key_version"].as_u64() == Some(u64::from(session_kvn)));
+    let refusal = if session_hit {
+        Some((
+            "would-delete-session-key",
+            format!(
+                "the request would delete key version {session_kvn:02X}, the key set this session authenticated with; the card could be locked out of administration"
+            ),
+        ))
+    } else if remaining == 0 {
+        Some((
+            "would-delete-last-key-set",
+            "the request would delete every key in the card key information, leaving no key to authenticate with; the card could be locked out for good".into(),
+        ))
+    } else {
+        None
+    };
+    let base = json!({
+        "present": true,
+        "key_count": list.len(),
+        "session_key_version": format!("{session_kvn:02X}"),
+        "keys_remaining": remaining,
+    });
+    match refusal {
+        None => Ok(base),
+        Some((kind, message)) if req.allow_lockout => {
+            let mut base = base;
+            base["lockout_warning"] = json!(format!(
+                "WARNING ({kind}): {message}. --allow-lockout was given, so the delete is sent anyway."
+            ));
+            Ok(base)
+        }
+        Some((kind, message)) => Err((kind, format!("{message}; nothing was sent"))),
+    }
+}
+
+/// The warning printed for DELETE [key]: deleting a key the session authenticated
+/// with removes administrative access, and deleting a key version used by SCP03
+/// can lock the card's transport security.
+const DELETE_KEY_WARNING: &str = "DELETE KEY removes a key from the issuer security domain; deleting the key version this session authenticated with, or the only key of a type the card expects, can permanently lock administrative access to this security domain. There is no recovery and no retry. Confirm the key id and version are not the only path to administration before adding --yes";
 
 /// `gp install` over SCP03: authenticate once, GET STATUS, refuse when the load
 /// file or application AID is already in the registry (`package-already-loaded`,
@@ -5090,6 +5410,10 @@ mod tests {
     const CH1_GS_LF: &str = "85F220020A4F00D5DE997CD9F3F38F00";
     const CH1_GS_LFM: &str = "85F210020A4F0051004E46989F5E2B00";
     const PLAIN_DELETE: &str = "80E40000094F07A000000062000100";
+    const PLAIN_DELETE_KEY: &str = "80E4000006D00101D2013000";
+    const PLAIN_DELETE_KEY_RELATED: &str = "80E4008006D00101D2013000";
+    const PLAIN_DELETE_KEY_ID_ONLY: &str = "80E4000003D0010100";
+    const PLAIN_DELETE_KEY_VER_ONLY: &str = "80E4000003D2013000";
     const PLAIN_IFL: &str = "80E602001407A000000077010008A00000015100000000000000";
     const PLAIN_IFI: &str =
         "80E60C002207A000000077010008A00000007701000108A0000000770100020300000002C9000000";
@@ -5120,6 +5444,22 @@ mod tests {
         DeleteRequest {
             aid: hex::decode(aid).unwrap(),
             related: false,
+        }
+    }
+
+    fn delete_key_request(id: Option<u8>, ver: Option<u8>) -> DeleteKeyRequest {
+        DeleteKeyRequest {
+            key_id: id,
+            key_version: ver,
+            related: false,
+            allow_lockout: false,
+        }
+    }
+
+    fn delete_key_lockout_request(id: Option<u8>, ver: Option<u8>) -> DeleteKeyRequest {
+        DeleteKeyRequest {
+            allow_lockout: true,
+            ..delete_key_request(id, ver)
         }
     }
 
@@ -5390,6 +5730,358 @@ mod tests {
         let r = delete(&mut card, false, &delete_request(APP1), &auth(&keys), true).unwrap();
         assert_eq!(r.data["error"]["kind"], "verify-failed");
         assert_eq!(r.data["result"]["verified"], false);
+    }
+
+    // ---- DELETE KEY (issue #235) ---------------------------------------------
+
+    /// Wraps each command in `chain` (after EXT AUTH + the five GET STATUS
+    /// commands that read_registry sends) and returns the hex bytes of the last
+    /// one. Used to compute the MAC'd DELETE KEY and the MAC'd post-write
+    /// GET DATA E0 at the correct chain positions.
+    fn mac_sequence(commands: &[Command]) -> String {
+        let iur = scp03::InitializeUpdateResponse::parse(&hex::decode(INIT_UPDATE_RESP).unwrap())
+            .unwrap();
+        let enc: [u8; 16] = hex::decode(ENC_HEX).unwrap().try_into().unwrap();
+        let mac: [u8; 16] = hex::decode(MAC_HEX).unwrap().try_into().unwrap();
+        let sk = scp03::derive_session_keys(&enc, &mac, &HOST_CHALLENGE, &iur.card_challenge);
+        let host_cg = scp03::cryptogram(
+            &sk.mac,
+            scp03::Side::Host,
+            &HOST_CHALLENGE,
+            &iur.card_challenge,
+        );
+        let mut channel = scp03::Channel::new(&sk).on_logical_channel(0);
+        scp03::external_authenticate(&mut channel, scp03::LEVEL_C_MAC, &host_cg).unwrap();
+        let gs = |p1, p2| {
+            Command::case4(
+                Header::new(0x80, 0xF2, p1, p2),
+                vec![0x4F, 0x00],
+                Le::Short(0),
+            )
+        };
+        for p1p2 in [
+            (0x80u8, 0x02u8),
+            (0x40, 0x02),
+            (0x40, 0x03),
+            (0x20, 0x02),
+            (0x10, 0x02),
+        ] {
+            channel.wrap(&gs(p1p2.0, p1p2.1)).unwrap();
+        }
+        let mut last = Vec::new();
+        for c in commands {
+            last = channel.wrap(c).unwrap().encode().unwrap();
+        }
+        hex::encode_upper(last)
+    }
+
+    /// A card whose key information lists one AES key (id 0x01, version 0x30),
+    /// the same one it authenticated with, plus the given post-delete key info.
+    fn card_for_delete_key(post_delete_ki: &str) -> Card {
+        let mut card = secure_card("9000");
+        let dk_cmd = delete_key_command(Some(0x01), Some(0x30), false).unwrap();
+        // The MAC'd DELETE KEY command, at the chain state after prepare_write.
+        let dk_mac = mac_sequence(std::slice::from_ref(&dk_cmd));
+        set(&mut card, &dk_mac, "9000");
+        // The post-write GET DATA E0 is MAC'd AFTER the DELETE KEY wrap.
+        let plain_gd = Command::case2(Header::new(0x80, 0xCA, 0x00, 0xE0), Le::Short(0));
+        let post_gd = mac_sequence(&[dk_cmd, plain_gd]);
+        set(&mut card, &post_gd, post_delete_ki);
+        card
+    }
+
+    #[test]
+    fn delete_key_command_builds_the_exact_apdu() {
+        // 80 E4 00 00 06 D0 01 01 D2 01 30 00
+        let c = delete_key_command(Some(0x01), Some(0x30), false).unwrap();
+        assert_eq!(hex::encode_upper(c.encode().unwrap()), PLAIN_DELETE_KEY);
+        // key id only
+        let c = delete_key_command(Some(0x01), None, false).unwrap();
+        assert_eq!(
+            hex::encode_upper(c.encode().unwrap()),
+            PLAIN_DELETE_KEY_ID_ONLY
+        );
+        // key version only
+        let c = delete_key_command(None, Some(0x30), false).unwrap();
+        assert_eq!(
+            hex::encode_upper(c.encode().unwrap()),
+            PLAIN_DELETE_KEY_VER_ONLY
+        );
+        // related objects: P2 80
+        let c = delete_key_command(Some(0x01), Some(0x30), true).unwrap();
+        assert_eq!(
+            hex::encode_upper(c.encode().unwrap()),
+            PLAIN_DELETE_KEY_RELATED
+        );
+        assert_eq!(c.header().parameter_2(), 0x80);
+        // neither: refused before any card is touched
+        assert!(matches!(
+            delete_key_command(None, None, false),
+            Err(BuildError::NoKeyIdentity)
+        ));
+    }
+
+    #[test]
+    fn delete_key_dry_run_offline_shows_the_apdu_and_no_card() {
+        let req = delete_key_request(Some(0x01), Some(0x30));
+        let d = delete_key_dry_run(&req).unwrap();
+        assert_eq!(d["card_touched"], false);
+        assert_eq!(d["dry_run"], true);
+        assert_eq!(d["sent"], false);
+        assert_eq!(d["operation"], "delete_key");
+        assert_eq!(d["target"]["key_id"], "01");
+        assert_eq!(d["target"]["key_version"], "30");
+        assert_eq!(d["target"]["related"], false);
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], PLAIN_DELETE_KEY);
+        assert!(
+            d["note"].as_str().unwrap().contains("nothing was written")
+                || d["note"].as_str().unwrap().contains("no keys were given")
+        );
+        // no identity: refused offline
+        assert!(matches!(
+            delete_key_dry_run(&DeleteKeyRequest {
+                key_id: None,
+                key_version: None,
+                related: false,
+                allow_lockout: false,
+            }),
+            Err(BuildError::NoKeyIdentity)
+        ));
+    }
+
+    #[test]
+    fn delete_key_dry_run_sends_no_delete() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let req = delete_key_lockout_request(Some(0x01), Some(0x30));
+        let r = delete_key(&mut card, true, &req, &auth(&keys), false).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["dry_run"], true);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["target"]["key_id"], "01");
+        assert_eq!(r.data["target"]["key_version"], "30");
+        assert_eq!(r.data["pre_read"]["present"], true);
+        assert_eq!(r.data["pre_read"]["key_count"], 1);
+        assert_eq!(r.data["plan"]["apdus"][0]["apdu"], PLAIN_DELETE_KEY);
+        assert_eq!(sent_ins(&card, "E4"), 0);
+        assert!(r.data["warning"]
+            .as_str()
+            .unwrap()
+            .contains("permanently lock"));
+        let text = render_text(&r.data);
+        assert!(
+            text.contains("DRY RUN") && text.contains("DELETE_KEY"),
+            "{text}"
+        );
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn delete_key_yes_sends_and_verifies() {
+        let keys = keys();
+        // After the delete, the post-read key info lists no key at version 0x30.
+        let post_ki = "E000";
+        let mut card = card_for_delete_key(&format!("{post_ki}9000"));
+        let r = delete_key(
+            &mut card,
+            true,
+            &delete_key_lockout_request(Some(0x01), Some(0x30)),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["result"]["steps"][0]["status"], "9000");
+        assert_eq!(r.data["result"]["verified"], true);
+        assert_eq!(sent_ins(&card, "E4"), 1);
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn delete_key_refuses_a_missing_key_with_nothing_sent() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        // key id 02 version 30 is not in the fixture (only id 01 / ver 30 exists).
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_request(Some(0x02), Some(0x30)),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "key-not-present");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(sent_ins(&card, "E4"), 0);
+    }
+
+    #[test]
+    fn delete_key_refuses_when_key_info_is_unreadable() {
+        let keys = keys();
+        // Make the pre-auth GET DATA E0 (KI) fail, so key info is unreadable.
+        let mut card = Card::new(&[(SEL1, "9000"), ("80CA00E000", "6A88")]);
+        set(&mut card, INIT_UPDATE, &format!("{INIT_UPDATE_RESP}9000"));
+        set(&mut card, EXT_AUTH_01, "9000");
+        set(&mut card, GS_ISD, &(isd_entry() + "9000"));
+        set(&mut card, GS_APPS, "6310");
+        set(&mut card, GS_APPS_NEXT, "9000");
+        set(&mut card, GS_LF, "6A88");
+        set(&mut card, GS_LFM, "9000");
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_request(Some(0x01), Some(0x30)),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "registry-unreadable");
+        assert_eq!(sent_ins(&card, "E4"), 0);
+    }
+
+    #[test]
+    fn delete_key_verify_fails_when_key_still_present() {
+        let keys = keys();
+        // The post-read still lists the key → verify failed.
+        let post_ki = KEY_INFO_AES;
+        let mut card = card_for_delete_key(&format!("{post_ki}9000"));
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_lockout_request(Some(0x01), Some(0x30)),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+        assert_eq!(r.data["result"]["verified"], false);
+        assert_eq!(r.data["sent"], true);
+    }
+
+    /// The key information with the given `C0` key entries, under `E0`.
+    fn ki_with(keys: &[&str]) -> String {
+        let body: String = keys.concat();
+        format!("E0{:02X}{body}", body.len() / 2)
+    }
+
+    #[test]
+    fn delete_key_refuses_the_session_key_with_nothing_sent() {
+        let keys = keys();
+        // The session authenticated with key version 30 (INITIALIZE UPDATE), and the
+        // only key here is 01/30: deleting it must be refused.
+        let mut card = secure_card("9000");
+        set(&mut card, KI, &format!("{KEY_INFO_AES}9000"));
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_request(Some(0x01), Some(0x30)),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "would-delete-session-key");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(sent_ins(&card, "E4"), 0);
+    }
+
+    #[test]
+    fn delete_key_refuses_the_last_key_set_with_nothing_sent() {
+        let keys = keys();
+        // Session key is 30; the card holds only 01/20, so deleting it leaves nothing.
+        let mut card = secure_card("9000");
+        set(
+            &mut card,
+            KI,
+            &format!("{}9000", ki_with(&["C00401208810"])),
+        );
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_request(Some(0x01), Some(0x20)),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "would-delete-last-key-set");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(sent_ins(&card, "E4"), 0);
+    }
+
+    #[test]
+    fn allow_lockout_turns_both_refusals_into_a_warning() {
+        let keys = keys();
+        // Session key, allowed: a loud warning, still a dry run here (no --yes).
+        let mut card = secure_card("9000");
+        set(&mut card, KI, &format!("{KEY_INFO_AES}9000"));
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_lockout_request(Some(0x01), Some(0x30)),
+            &auth(&keys),
+            false,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert!(r.data["warning"]
+            .as_str()
+            .unwrap()
+            .contains("would-delete-session-key"));
+        assert_eq!(r.data["pre_read"]["present"], true);
+        assert_eq!(r.data["sent"], false);
+        assert!(render_text(&r.data).contains("WARNING"));
+        // Last key set, allowed: same treatment.
+        let mut card = secure_card("9000");
+        set(
+            &mut card,
+            KI,
+            &format!("{}9000", ki_with(&["C00401208810"])),
+        );
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_lockout_request(Some(0x01), Some(0x20)),
+            &auth(&keys),
+            false,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert!(r.data["warning"]
+            .as_str()
+            .unwrap()
+            .contains("would-delete-last-key-set"));
+        assert_eq!(sent_ins(&card, "E4"), 0);
+    }
+
+    #[test]
+    fn delete_of_a_non_session_key_that_is_not_the_last_still_plans() {
+        let keys = keys();
+        // Session key 30 and a second key 02/20: deleting 02/20 is neither refusal.
+        let mut card = secure_card("9000");
+        set(
+            &mut card,
+            KI,
+            &format!("{}9000", ki_with(&["C00401308810", "C00402208810"])),
+        );
+        let r = delete_key(
+            &mut card,
+            false,
+            &delete_key_request(Some(0x02), Some(0x20)),
+            &auth(&keys),
+            false,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["pre_read"]["keys_remaining"], 1);
+        assert!(r
+            .data
+            .get("warning")
+            .is_some_and(|w| !w.as_str().unwrap().contains("allow")));
+        assert_eq!(
+            r.data["plan"]["apdus"][0]["apdu"],
+            "80E4000006D00102D2012000"
+        );
+        assert_eq!(r.data["sent"], false);
     }
 
     fn card_for_install(after: bool) -> Card {
