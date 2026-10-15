@@ -86,6 +86,8 @@ struct Run {
     sarif: Option<std::path::PathBuf>,
     /// `--face legacy`: the full report instead of the kit's face.
     legacy: bool,
+    /// `--sffs`: follow standard identifiers only.
+    sffs: bool,
 }
 
 impl Run {
@@ -109,6 +111,7 @@ impl Run {
             baseline: None,
             sarif: None,
             legacy: false,
+            sffs: false,
         }
     }
 
@@ -133,6 +136,7 @@ impl Run {
             baseline: args.baseline.clone(),
             sarif: args.sarif.clone(),
             legacy: args.face.as_deref() == Some("legacy"),
+            sffs: args.sffs,
         }
     }
 }
@@ -205,7 +209,11 @@ impl SimDoctor {
             addressing: walk::Addressing::PathFromMasterFile,
             // Spelled out rather than inherited: this is the set that can miss a
             // file, and the line that decides that belongs where the walk is built.
-            candidates: walk::Candidates::SimFamilies,
+            candidates: if args.sffs {
+                walk::Candidates::StandardIds
+            } else {
+                walk::Candidates::SimFamilies
+            },
             // Only 6A 82 is classified. Nothing else is, because this repository has
             // read no other table; see walk::StatusMeaning and CONTEXT.md section 3.
             meaning: walk::StatusMeaning::default(),

@@ -207,6 +207,15 @@ pub enum Candidates {
 
     /// Exactly these identifiers, in identifier order, duplicates dropped.
     List(Vec<FileId>),
+
+    /// Only standard identifiers from ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011.
+    ///
+    /// Probed only the file identifiers defined in the ETSI and 3GPP specifications,
+    /// plus the files pySim can decode with standard names. This is stricter than
+    /// [`Candidates::SimFamilies`], which probes the broader GSM 11.11 family ranges.
+    ///
+    /// The standard identifier list is derived from the cardsh module's DIRS and EFS tables.
+    StandardIds,
 }
 
 impl Candidates {
@@ -253,6 +262,7 @@ impl Candidates {
                 families
             }
             Self::List(ids) => ids,
+            Self::StandardIds => standard_identifiers(),
         };
         out.sort_unstable();
         out.dedup();
@@ -260,6 +270,33 @@ impl Candidates {
         out.truncate(budget);
         (out, truncated)
     }
+}
+
+/// Builds the list of standard file identifiers from ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011.
+///
+/// This combines the directory identifiers (DIRS) and elementary file identifiers (EFS)
+/// from the cardsh module, which includes all the standard files pySim can decode with
+/// standard names.
+pub fn standard_identifiers() -> Vec<FileId> {
+    use crate::cardsh::names::{DIRS, EFS};
+
+    let mut ids: Vec<FileId> = Vec::new();
+
+    // Add directory identifiers (DIRS)
+    for (_name, fid, _parent) in DIRS.iter() {
+        ids.push(FileId::from_bytes(fid.to_be_bytes()));
+    }
+
+    // Add elementary file identifiers (EFS)
+    for (_scope, _name, fid, _structure, _decoder, _desc) in EFS.iter() {
+        ids.push(FileId::from_bytes(fid.to_be_bytes()));
+    }
+
+    // The same file appears once per scope in EFS, and DIRS and EFS overlap.
+    // Sorting by the two octets (wire order, so numeric order) lets dedup see every repeat.
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 /// The two meanings a refusal can carry, kept apart because a scan reports them
@@ -3908,5 +3945,86 @@ mod tests {
         assert_eq!(options.limits.max_directories, DEFAULT_MAX_DIRECTORIES);
         assert_eq!(options.session, session::Policy::default());
         assert_eq!(Options::default().candidates, Candidates::default());
+    }
+
+    #[test]
+    fn standard_ids_produces_identifiers() {
+        let ids = standard_identifiers();
+        // DIRS has 19 entries (MF + 18 DFs)
+        // EFS has 197 entries (from the efs.rs file)
+        // Total should be around 216 unique identifiers
+        assert!(
+            ids.len() > 200,
+            "Standard IDs should produce many identifiers, got {}",
+            ids.len()
+        );
+
+        // Check that MF (3F00) is included - it's a directory
+        assert!(
+            ids.contains(&FileId::from_bytes([0x3F, 0x00])),
+            "MF should be in standard IDs"
+        );
+
+        // Check that EF.DIR (2F00) is included
+        assert!(
+            ids.contains(&FileId::from_bytes([0x2F, 0x00])),
+            "EF.DIR should be in standard IDs"
+        );
+
+        // Check that EF.ICCID (2FE2) is included
+        assert!(
+            ids.contains(&FileId::from_bytes([0x2F, 0xE2])),
+            "EF.ICCID should be in standard IDs"
+        );
+
+        // Check that EF.IMSI (6F07) is included (under ADF.USIM)
+        assert!(
+            ids.contains(&FileId::from_bytes([0x6F, 0x07])),
+            "EF.IMSI should be in standard IDs"
+        );
+    }
+
+    #[test]
+    fn standard_ids_are_sorted_and_unique() {
+        let ids = standard_identifiers();
+        assert!(!ids.is_empty());
+        // Strictly increasing means both sorted and free of duplicates.
+        assert!(
+            ids.windows(2).all(|pair| pair[0] < pair[1]),
+            "standard IDs must be strictly increasing (sorted, no duplicates)"
+        );
+        // MF and DF.TELECOM come from DIRS, EF.ICCID and EF.IMSI from EFS.
+        for fid in [[0x3F, 0x00], [0x7F, 0x10], [0x2F, 0xE2], [0x6F, 0x07]] {
+            assert!(
+                ids.contains(&FileId::from_bytes(fid)),
+                "standard IDs must contain {fid:02X?}"
+            );
+        }
+    }
+
+    #[test]
+    fn standard_ids_is_not_sim_families() {
+        let _sim_families_ids = Candidates::SimFamilies.identifiers(usize::MAX).0;
+        let standard_ids = standard_identifiers();
+
+        // SimFamilies probes 5 families (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx) = 5 * 256 = 1280
+        // Standard IDs is a subset: only the defined standard files from ETSI/3GPP specs
+
+        // Standard IDs includes MF (3F00), which is not in SimFamilies
+        // But all other standard IDs should be in the SimFamilies ranges
+        for id in &standard_ids {
+            let first_octet = id.to_bytes()[0];
+            if id.to_bytes() == [0x3F, 0x00] {
+                // MF is special - skip it for this check
+                continue;
+            }
+            // All other standard IDs should be in SimFamilies range (2F, 4F, 5F, 6F, 7F)
+            assert!(
+                matches!(first_octet, 0x2F | 0x4F | 0x5F | 0x6F | 0x7F),
+                "Standard ID {} has first octet {:02X} not in SimFamilies range",
+                id,
+                first_octet
+            );
+        }
     }
 }
