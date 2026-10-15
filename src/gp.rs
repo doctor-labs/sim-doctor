@@ -2357,6 +2357,99 @@ pub fn channel_close<S: CardSession + ?Sized>(
 }
 
 // ---------------------------------------------------------------------------
+// SCP03 release (`gp release-scp`, issue #261)
+// ---------------------------------------------------------------------------
+
+/// Said in every `gp release-scp` output, dry run or not.
+pub const RELEASE_SCP_WARNING: &str = "releasing the secure channel destroys the SCP03 session the card holds on that logical channel: the session keys derived at INITIALIZE UPDATE go with it, and the channel is closed and has to be opened again. No file or key on the card is changed, but a session still holding state it had not written is lost";
+
+/// `gp release-scp --channel N` without `--yes`: the offline dry run.
+///
+/// Sends nothing, opens no reader and needs no keys.
+///
+/// **What the reference sends, and what this sends instead.** pySim-shell
+/// `release_scp` is `pySim/global_platform/__init__.py:1196-1202`
+/// (`do_release_scp`). It sends **no APDU at all**: it is not a MANAGE CHANNEL
+/// close and it does not deselect the ISD-R. The whole function prints
+/// "Cannot release SCP as none is established" when no session is open, and
+/// otherwise clears `lchan.scc.scp`. The card is never told. That is enough
+/// there, because the pySim shell holds the session keys in the host process
+/// and `lchan.scc` wraps a later APDU in secure messaging only while `.scp` is
+/// set, so dropping the reference ends the host side of the session.
+///
+/// sim-doctor runs one command per process, so there is no session state left
+/// to keep or drop: after `gp ... --keys-file K --channel N` the derived
+/// session keys go with the process while the **card keeps its own end of the
+/// session** until the logical channel goes away. The one wire operation that
+/// ends it is the MANAGE CHANNEL close of that channel, `00 70 80 <N>` on the
+/// basic channel (GP Card Spec v2.3.1 11.1.4, ISO/IEC 7816-4 11.1.2; the
+/// builder is [`session::manage_channel_close`], already used by
+/// `gp channel close`). So this command sends that one APDU, and is otherwise
+/// a thin label over [`channel_close`] rather than a second code path.
+///
+/// No keys are needed or accepted: closing a logical channel is not an
+/// authenticated operation, so there is no key material to pass and none can be
+/// printed.
+pub fn release_scp_dry_run(channel: u8) -> Value {
+    let Some(command) = session::manage_channel_close(channel) else {
+        return json!({
+            "card_touched": false,
+            "operation": "release-scp",
+            "dry_run": true,
+            "sent": false,
+            "target": { "channel": channel },
+            "warning": RELEASE_SCP_WARNING,
+            "error": {
+                "kind": "bad-channel",
+                "message": "the channel to release must be 1 to 19",
+            },
+        });
+    };
+    let wire = command.encode().expect("a built command encodes");
+    json!({
+        "card_touched": false,
+        "operation": "release-scp",
+        "dry_run": true,
+        "sent": false,
+        "target": {
+            "channel": channel,
+            "secure_channel": "any SCP session the card holds on this logical channel",
+        },
+        "plan": {
+            "apdus": [{ "step": "manage_channel_close", "apdu": hex_of(&wire) }],
+            "note": "one APDU: MANAGE CHANNEL on the basic channel, class 00, no secure messaging and no C-MAC, because closing a channel is not an authenticated operation",
+        },
+        "warning": RELEASE_SCP_WARNING,
+        "note": "this was a dry run: no reader was opened and the card was not contacted; add --yes to send",
+    })
+}
+
+/// `gp release-scp --channel N --yes`: the release.
+///
+/// A thin, documented wrapper over [`channel_close`]: the same
+/// `00 70 80 <channel>` APDU on the basic channel, sent once, never retried,
+/// a refusal reported with its own `data.error.kind`. It adds the SCP03 label
+/// and [`RELEASE_SCP_WARNING`]. See [`release_scp_dry_run`] for why a close is
+/// what a release sends here.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; a refusal is `data.error`.
+pub fn release_scp<S: CardSession + ?Sized>(
+    session: &mut S,
+    channel: u8,
+    trace: bool,
+) -> Result<Report, session::Error> {
+    let mut report = channel_close(session, channel, trace)?;
+    let sent = report.data.get("error").is_none();
+    report.data["operation"] = json!("release-scp");
+    report.data["target"] = json!({ "channel": channel });
+    report.data["warning"] = json!(RELEASE_SCP_WARNING);
+    report.data["sent"] = json!(sent);
+    Ok(report)
+}
+
+// ---------------------------------------------------------------------------
 // Card writes: DELETE and INSTALL/LOAD over the SCP03 channel (issues #133, #19)
 // ---------------------------------------------------------------------------
 
@@ -7870,6 +7963,102 @@ mod tests {
         let out = format!("{d}\n{}", render_text(&d)).to_lowercase();
         assert!(!out.contains(&DAP_KEY_HEX.to_lowercase()));
         assert!(out.contains(&DAP_LFDBH.to_lowercase()));
+    }
+
+    // -- `gp release-scp` (issue #261) -------------------------------------
+    // pySim `do_release_scp` (global_platform/__init__.py:1196-1202) sends no
+    // APDU at all and only drops the host side of the session. sim-doctor is
+    // one process per command, so what is left to release is the card side,
+    // and the one APDU that ends it is the MANAGE CHANNEL close of the
+    // logical channel the secure channel was established on.
+
+    #[test]
+    fn release_scp_sends_exactly_one_manage_channel_close_on_the_basic_channel() {
+        let mut card = Card::new(&[("00708003", "9000")]);
+        let r = release_scp(&mut card, 3, true).unwrap();
+        assert!(r.isd_found);
+        assert_eq!(card.sent, ["00708003"]);
+        assert_eq!(r.data["channel"]["action"], "close");
+        assert_eq!(r.data["channel"]["number"], 3);
+        assert_eq!(r.data["channel"]["status"], "9000");
+        assert_eq!(r.data["trace"][0]["command"], "00708003");
+        assert_eq!(r.data["operation"], "release-scp");
+        assert_eq!(r.data["target"]["channel"], 3);
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["warning"], RELEASE_SCP_WARNING);
+        // the same report gp channel close produces: one code path, not two
+        let text = render_text(&r.data);
+        assert!(text.contains("Logical channel close: 3"));
+        assert!(text.contains("RELEASE-SCP: SENT"));
+        assert!(text.contains("WARNING: "));
+    }
+
+    #[test]
+    fn release_scp_dry_run_sends_nothing_and_shows_the_one_apdu() {
+        let d = release_scp_dry_run(4);
+        assert_eq!(d["card_touched"], false);
+        assert_eq!(d["dry_run"], true);
+        assert_eq!(d["sent"], false);
+        assert_eq!(d["target"]["channel"], 4);
+        assert_eq!(d["plan"]["apdus"].as_array().unwrap().len(), 1);
+        assert_eq!(d["plan"]["apdus"][0]["step"], "manage_channel_close");
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], "00708004");
+        let text = render_text(&d);
+        assert!(text.contains("DRY RUN"));
+        assert!(text.contains("APDU manage_channel_close: 00708004"));
+        assert!(text.contains("no secure messaging"));
+    }
+
+    #[test]
+    fn release_scp_carries_no_key_material() {
+        // A close is not authenticated, so the command takes no keys and can
+        // print none. What it does put on the wire is four bytes: no data field
+        // and no Le, hence no session key, no C-MAC and nothing encrypted.
+        let mut card = Card::new(&[("00708002", "9000")]);
+        let r = release_scp(&mut card, 2, true).unwrap();
+        let d = release_scp_dry_run(2);
+        assert_eq!(r.data["trace"][0]["command"], "00708002");
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], "00708002");
+        for data in [&r.data, &d] {
+            for field in [
+                "keys",
+                "key",
+                "session",
+                "session_keys",
+                "cryptogram",
+                "kcv",
+                "dek",
+            ] {
+                assert!(
+                    data.get(field).is_none(),
+                    "release-scp must carry no key material, found {field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn release_scp_reports_a_card_that_refuses_and_never_retries() {
+        // 6882 is the close refused because secure messaging is not supported
+        // (GP Card Spec v2.3.1 11.1.4, Table 11-13): reported, not retried.
+        let mut card = Card::new(&[("00708005", "6882")]);
+        let r = release_scp(&mut card, 5, false).unwrap();
+        assert!(!r.isd_found);
+        assert_eq!(r.data["error"]["kind"], "secure-messaging-not-supported");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(card.sent, ["00708005"]);
+    }
+
+    #[test]
+    fn release_scp_of_the_basic_channel_sends_nothing() {
+        let mut card = Card::new(&[]);
+        let r = release_scp(&mut card, 0, false).unwrap();
+        assert_eq!(r.data["error"]["kind"], "bad-channel");
+        assert_eq!(r.data["card_touched"], false);
+        assert!(card.sent.is_empty());
+        let d = release_scp_dry_run(0);
+        assert_eq!(d["error"]["kind"], "bad-channel");
+        assert_eq!(d["card_touched"], false);
     }
 
     // ---------------------------------------------------------------------------
