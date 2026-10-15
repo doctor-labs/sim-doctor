@@ -59,6 +59,7 @@ All notable changes to this project are documented here. The format follows
   session key derivation, the card and host cryptograms under S-ENC, the B.1.2.2 C-MAC
   with its 8-byte ICV, the INITIALIZE UPDATE / EXTERNAL AUTHENTICATE builders, the
   response parser and the MANAGE CHANNEL release. Sends nothing; no `gp` subcommand (#255).
+- `gp --key-kdf`: master key diversification with the named KDF templates `kdf3` (SCP03), `emv`, `visa2` and `visa` (3DES), from the KDD the card returns in INITIALIZE UPDATE; known-answer tested against GlobalPlatformPro's vectors (#248).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).
