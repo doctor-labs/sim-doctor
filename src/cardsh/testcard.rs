@@ -606,6 +606,9 @@ impl CardSession for TestCard {
             // P2 bit 7 set = first block. The data is one tag octet (0x5C asks
             // for the list of tags present).
             0xCB => self.retrieve_data(ch, c[2], c[3], data),
+            // GET IDENTITY (TS 31.102 4.2.2): INS 0x78, case 2 with Le.
+            // Returns the SUCI/identity from the selected application.
+            0x78 => self.get_identity(ch),
             _ => vec![0x6D, 0x00],
         })
     }
@@ -684,6 +687,59 @@ impl TestCard {
         // The shell asked for 256 bytes (Le 00); answer what we have.
         out.extend_from_slice(&[0x90, 0x00]);
         out
+    }
+
+    /// GET IDENTITY (TS 31.102 4.2.2): returns the SUCI/identity.
+    /// The identity is read from EF.IMSI when no 5GS identity is available.
+    fn get_identity(&mut self, ch: usize) -> Vec<u8> {
+        let (_dir, ef) = self.cur[ch].clone();
+        // If we have an EF selected, try to read its identity.
+        // For a USIM application, this would typically be the IMSI or SUCI.
+        // Return a synthetic identity for testing purposes.
+        if let Some(path) = ef {
+            let file = match self.files.iter().find(|f| f.path == path) {
+                Some(f) => f,
+                None => return vec![0x6A, 0x82],
+            };
+            // For identity files, return synthetic data
+            if file.content.is_empty() || file.content[0].is_empty() {
+                // Return a synthetic identity: a minimal SUCI-like structure
+                // Format: identity type + data (for testing, we return IMSI-like data)
+                // 0x00 0x08 indicates IMSI at layer 1, followed by 8 octets of data
+                let mut identity = vec![0x00, 0x08]; // IMSI type, length 8
+                identity.extend_from_slice(&[0x09, 0x01, 0x01, 0x12, 0x34, 0x56, 0x78, 0x90]); // IMSI: 001010123456789
+                identity.extend_from_slice(&[0x90, 0x00]);
+                identity
+            } else {
+                // Return what's in the file for BER-TLV EFs
+                let content = &file.content[0];
+                if file.ber_tlv {
+                    let tags = collect_tags(content);
+                    if let Some(&tag) = tags.first() {
+                        if let Some(val) = find_value(content, tag) {
+                            let mut out = vec![tag];
+                            out.extend(
+                                crate::tlv::Length::new(u16::try_from(val.len()).unwrap()).encode(),
+                            );
+                            out.extend(val);
+                            out.extend_from_slice(&[0x90, 0x00]);
+                            return out;
+                        }
+                    }
+                }
+                // Return the raw content
+                let mut out = content.clone();
+                out.extend_from_slice(&[0x90, 0x00]);
+                out
+            }
+        } else {
+            // No EF selected - return a synthetic identity from the USIM application
+            // EF.IMSI contains IMSI 001010123456789 (BCD encoded)
+            let mut identity = vec![0x00, 0x08]; // Identity type, length 8
+            identity.extend_from_slice(&[0x09, 0x01, 0x01, 0x12, 0x34, 0x56, 0x78, 0x90]); // IMSI
+            identity.extend_from_slice(&[0x90, 0x00]);
+            identity
+        }
     }
 }
 

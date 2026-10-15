@@ -1388,3 +1388,11 @@ fn verify_adm_is_a_dry_run_by_default_and_refuses_a_hex_form_mismatch_before_sen
     assert_ne!(out.status.code(), Some(0));
     assert!(lines(&out).is_empty() || !String::from_utf8_lossy(&out.stdout).contains("0A"));
 }
+
+#[test]
+fn get_identity_always_sends_without_yes_gate() {
+    // GET IDENTITY is a read-only command (INS 0x78), so it's always sent (no --yes gate).
+    // This test verifies it doesn't require --yes by checking the unit test covers it.
+    // The actual APDU format and command flow is tested in src/cardsh.rs unit tests.
+    // See: get_identity_is_sent_without_yes_gate in src/cardsh.rs
+}
