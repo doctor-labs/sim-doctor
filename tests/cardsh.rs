@@ -105,6 +105,8 @@ fn help_lists_the_commands() {
         "close_channel",
         "channel",
         "quit",
+        "fsdump",
+        "export",
     ] {
         assert!(text.contains(name), "{name} missing:\n{text}");
     }
@@ -805,4 +807,154 @@ fn reset_and_equip_are_listed_by_help() {
     for name in ["echo", "version", "reset", "equip"] {
         assert!(text.contains(name), "{name} missing:\n{text}");
     }
+}
+
+/// Script for the cardsh_fsdump.jsonl corpus: full fsdump, filtered fsdump, then filtered export.
+const FSDUMP_SCRIPT: &str = "fsdump; fsdump --filename EF.ICCID; export --filename EF.ICCID";
+
+#[test]
+fn fsdump_dumps_all_mf_files_as_json() {
+    let out = card("cardsh_fsdump.jsonl", &["--json", "-c", "fsdump"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 1, "fsdump is a single command");
+    let arr = r[0]["data"]["files"].as_array().unwrap();
+    // The MF has 5 EFs (DIR, PL, ARR, UMPC, ICCID) + 2 DFs (TELECOM, GSM).
+    assert_eq!(arr.len(), 7, "expected 7 entries: {arr:?}");
+
+    // EF.DIR: linear-fixed, 2 records of 28 bytes, decoded TLV.
+    let dir = arr.iter().find(|f| f["name"] == "EF.DIR").unwrap();
+    assert_eq!(dir["structure"], "linear-fixed");
+    assert_eq!(dir["record_count"], 2);
+    assert_eq!(dir["size"], 56);
+    assert!(!dir["records"].is_null(), "DIR has records");
+    let records = dir["records"].as_array().unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["number"], 1);
+    assert_eq!(dir["decoded"]["records"].as_array().unwrap().len(), 2);
+
+    // EF.PL, EF.ARR, EF.UMPC: absent on the test card (6A82).
+    for name in ["EF.PL", "EF.ARR", "EF.UMPC"] {
+        let f = arr.iter().find(|f| f["name"] == name).unwrap();
+        assert_eq!(f["sw"], "6A82", "{name} should be absent");
+        assert!(f.get("data_hex").is_none(), "{name} has no data_hex");
+        assert!(f["size"].is_null(), "{name} has null size");
+    }
+
+    // EF.ICCID: transparent, 10 bytes, decoded as ICCID.
+    let iccid = arr.iter().find(|f| f["name"] == "EF.ICCID").unwrap();
+    assert_eq!(iccid["structure"], "transparent");
+    assert_eq!(iccid["size"], 10);
+    assert_eq!(iccid["data_hex"], "98101032547698103254");
+    assert_eq!(iccid["decoded"]["iccid"], "89010123456789012345");
+
+    // DFs appear as directory entries without data.
+    for name in ["DF.TELECOM", "DF.GSM"] {
+        let f = arr.iter().find(|f| f["name"] == name).unwrap();
+        assert_eq!(f["structure"], "directory");
+        assert!(f.get("data_hex").is_none(), "{name} has no data_hex");
+    }
+}
+
+#[test]
+fn fsdump_and_export_full_script() {
+    // Runs the full script: fsdump, fsdump --filename, export --filename.
+    let out = card("cardsh_fsdump.jsonl", &["--json", "-c", FSDUMP_SCRIPT]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 3, "three commands => three replies");
+    assert_eq!(r[0]["command"], "fsdump");
+    assert_eq!(r[1]["command"], "fsdump --filename EF.ICCID");
+    assert_eq!(r[2]["command"], "export --filename EF.ICCID");
+
+    // --- fsdump reply (index 0) ---
+    let fsdump_files = r[0]["data"]["files"].as_array().unwrap();
+    assert_eq!(fsdump_files.len(), 7);
+    let iccid = fsdump_files
+        .iter()
+        .find(|f| f["name"] == "EF.ICCID")
+        .unwrap();
+    assert_eq!(iccid["size"], 10);
+    assert_eq!(iccid["data_hex"], "98101032547698103254");
+
+    // --- fsdump --filename EF.ICCID reply (index 1) ---
+    let filtered = r[1]["data"]["files"].as_array().unwrap();
+    // Only ICCID + DFs pass the filter.
+    assert!(filtered.iter().any(|f| f["name"] == "EF.ICCID"));
+    assert!(filtered
+        .iter()
+        .all(|f| f["name"] == "EF.ICCID" || f["structure"] == "directory"));
+    let iccid_f = filtered.iter().find(|f| f["name"] == "EF.ICCID").unwrap();
+    assert_eq!(iccid_f["size"], 10);
+    assert_eq!(iccid_f["data_hex"], "98101032547698103254");
+
+    // --- export --filename EF.ICCID reply (index 2) ---
+    let export_files = r[2]["data"]["files"].as_array().unwrap();
+    let iccid_e = export_files
+        .iter()
+        .find(|f| f["name"] == "EF.ICCID")
+        .unwrap();
+    assert_eq!(iccid_e["size"], 10);
+    assert_eq!(iccid_e["data_hex"], "98101032547698103254");
+    assert_eq!(iccid_e["structure"], "transparent");
+    assert_eq!(iccid_e["decoded"]["iccid"], "89010123456789012345");
+    assert_eq!(r[2]["data"]["count"], 3, "ICCID + 2 DFs");
+}
+
+#[test]
+fn export_prints_a_pysim_script_and_never_writes() {
+    // Without --json: fsdump emits JSON text, export emits the pySim script.
+    let out = card("cardsh_fsdump.jsonl", &["-c", FSDUMP_SCRIPT]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    // The export line: `select EF.ICCID` then `update_binary --data <hex>`.
+    assert!(
+        text.contains("select EF.ICCID"),
+        "export script should select EF.ICCID"
+    );
+    assert!(
+        text.contains("update_binary --data 98101032547698103254"),
+        "export script should have update_binary"
+    );
+    // No write APDUs (INS 0xD6) are in the corpus: export is read-only.
+    let corpus = std::fs::read_to_string(format!(
+        "{}/tests/corpus/cardsh_fsdump.jsonl",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    assert!(
+        !corpus.contains("d6"),
+        "corpus should contain no WRITE BINARY (INS D6)"
+    );
+}
+
+#[test]
+fn export_json_includes_atr_and_name() {
+    let out = card("cardsh_fsdump.jsonl", &["--json", "-c", "fsdump"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    let data = &r[0]["data"];
+    assert_eq!(data["name"], "sim-doctor");
+    // ATR is null when replaying (no contact ATR in the test card fixture).
+    assert_eq!(data["atr"], serde_json::Value::Null);
 }
