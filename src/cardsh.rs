@@ -4118,29 +4118,45 @@ impl Shell {
             .get_one::<std::path::PathBuf>("file")
             .expect("required");
 
-        // Read the file (cap 1 MiB)
-        let content = std::fs::read_to_string(path)
+        // A regular file of at most 1 MiB, checked before reading (a FIFO would block, a huge file
+        // would be read whole).
+        let meta = std::fs::metadata(path)
             .map_err(|e| CmdErr::new(format!("cannot read {}: {}", path.display(), e)))?;
-        if content.len() > 1024 * 1024 {
+        if !meta.is_file() {
+            return Err(CmdErr::new(format!(
+                "{} is not a regular file",
+                path.display()
+            )));
+        }
+        if meta.len() > 1024 * 1024 {
             return Err(CmdErr::new(format!(
                 "{} exceeds 1 MiB limit",
                 path.display()
             )));
         }
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| CmdErr::new(format!("cannot read {}: {}", path.display(), e)))?;
 
         // Process each line
         let mut replies = Vec::new();
-        for line in content.lines() {
+        for (n, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             // Skip empty lines and comments
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 continue;
             }
+            // A script may not start another script: that could recurse without end.
+            if trimmed.split_whitespace().next() == Some("run_script") {
+                return Err(CmdErr::new(format!(
+                    "error at line {}: run_script cannot be nested",
+                    n + 1
+                )));
+            }
             let reply = self.exec(trimmed);
             replies.push(reply.clone());
             if !reply.ok {
                 return Err(CmdErr {
-                    message: format!("error at line {}: {}", replies.len(), reply.text),
+                    message: format!("error at line {}: {}", n + 1, reply.text),
                     data: reply.data.clone(),
                 });
             }
@@ -5396,7 +5412,7 @@ mod tests {
 
     #[test]
     fn run_script_requires_yes_for_write_commands() {
-        let (mut sh, _log) = shell_log();
+        let (mut sh, log) = shell_log();
         // yes is false by default
 
         // Create a temp script file with a write command
@@ -5409,11 +5425,36 @@ mod tests {
 
         // The history should contain the commands, not run_script itself
         assert_eq!(sh.history.len(), 2);
+        // Without --yes the UPDATE BINARY (INS D6) never reaches the card.
+        assert!(
+            !log.borrow().iter().any(|c| c.get(1) == Some(&0xD6)),
+            "a write command in a script was sent without --yes"
+        );
         // The update_binary command should have been a dry run (sent: false)
         // We need to verify by checking the replies from the script
         // Actually, the run_script just returns count, so we verify history
 
         // Cleanup
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn run_script_cannot_be_nested() {
+        let (mut sh, log) = shell_log();
+        let script_path = std::env::temp_dir().join("sim-doctor-nested-script.txt");
+        std::fs::write(
+            &script_path,
+            format!("status\nrun_script {}\n", script_path.display()),
+        )
+        .unwrap();
+        let r = sh.exec(&format!("run_script {}", script_path.display()));
+        assert!(!r.ok, "nested run_script must be refused");
+        assert!(
+            r.text.contains("line 2") && r.text.contains("nested"),
+            "{}",
+            r.text
+        );
+        let _ = log;
         std::fs::remove_file(&script_path).ok();
     }
 
