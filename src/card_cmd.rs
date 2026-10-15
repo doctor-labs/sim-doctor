@@ -39,6 +39,25 @@ pub struct CardShellArgs {
     #[arg(long, value_name = "PATH")]
     script: Option<std::path::PathBuf>,
 
+    /// Run the commands in the `command` column of this CSV file, one per row, and exit. This is a
+    /// command table, not pySim's provisioning CSV (no ICCID, IMSI or Ki columns). Each row is one
+    /// command exactly as typed; without `--yes` a row that changes the card is a dry run.
+    /// WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently
+    /// disable a file or the card, and delete_data and delete_all permanently destroy data.
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["command", "script"]
+    )]
+    read_csv: Option<std::path::PathBuf>,
+
+    /// Append a redacted result log to this CSV file: one row per command run (`command,ok,text`),
+    /// with the arguments replaced by `<args redacted>`. It is not pySim's provisioning CSV and
+    /// cannot be read back as one. A new file starts with the header row; blank and comment lines
+    /// are not logged.
+    #[arg(long, value_name = "PATH")]
+    write_csv: Option<std::path::PathBuf>,
+
     /// Print every reply as one JSON record (for agents).
     #[arg(long)]
     json: bool,
@@ -130,6 +149,19 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
             return contract::ExitCode::Error;
         }
     };
+    let mut csv_log = match args.write_csv.as_deref().map(CsvLog::open).transpose() {
+        Ok(log) => log,
+        Err(err) => {
+            eprintln!(
+                "sim-doctor: {}: {err}",
+                args.write_csv
+                    .as_deref()
+                    .unwrap_or(std::path::Path::new(""))
+                    .display()
+            );
+            return contract::ExitCode::Error;
+        }
+    };
     let dump_secrets = args.dump_secrets;
     let exclusive = args.exclusive;
     let opener: cardsh::Opener = Box::new(move |requested| {
@@ -169,8 +201,15 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
     }
     let lines: Vec<String> = if let Some(script) = &args.command {
         cardsh::split_commands(script)
-    } else if let Some(path) = &args.script {
+    } else if let Some(path) = args.script.as_ref().or(args.read_csv.as_ref()) {
         match std::fs::read_to_string(path) {
+            Ok(text) if args.read_csv.is_some() => match cardsh::csvfile::commands(&text) {
+                Ok(commands) => commands,
+                Err(message) => {
+                    eprintln!("sim-doctor: {}: {message}", path.display());
+                    return contract::ExitCode::Error;
+                }
+            },
             Ok(text) => text.lines().map(str::to_owned).collect(),
             Err(err) => {
                 eprintln!("sim-doctor: {}: {err}", path.display());
@@ -178,11 +217,11 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
             }
         }
     } else {
-        return interactive(&mut shell, args.json);
+        return interactive(&mut shell, args.json, csv_log.as_mut());
     };
     for line in lines {
         let reply = shell.exec(&line);
-        if emit(&line, &reply, args.json).is_err() {
+        if emit(&line, &reply, args.json, csv_log.as_mut()).is_err() {
             return contract::ExitCode::Error;
         }
         if reply.quit {
@@ -237,10 +276,59 @@ fn finish(shell: &Shell) -> contract::ExitCode {
     }
 }
 
+/// `--write-csv`: the file the command results are appended to, one row per command.
+struct CsvLog(std::fs::File);
+
+impl CsvLog {
+    fn open(path: &std::path::Path) -> io::Result<Self> {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        if file.metadata()?.len() == 0 {
+            file.write_all(cardsh::csvfile::row(&["command", "ok", "text"]).as_bytes())?;
+        }
+        Ok(Self(file))
+    }
+
+    /// Logs the command NAME only. Its arguments are never written: they can hold PINs, PUKs and keys
+    /// typed on the command line (`verify_chv 1 1234`, `apdu 0020...`). The reply text is already
+    /// masked by the shell.
+    fn record(&mut self, line: &str, reply: &cardsh::Reply) -> io::Result<()> {
+        let ok = if reply.ok { "true" } else { "false" };
+        let mut words = line.split_whitespace();
+        let name = words.next().unwrap_or("");
+        let args: Vec<&str> = words.collect();
+        let command = if args.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{name} <args redacted>")
+        };
+        // The shell echoes some arguments back (a dry run prints the APDU it would send), so each
+        // argument of four or more characters is also taken out of the text. A PIN is four digits.
+        let mut text = reply.text.clone();
+        for secret in args
+            .iter()
+            .copied()
+            .chain(std::iter::once(args.concat().as_str()))
+        {
+            if secret.len() >= 4 {
+                text = text.replace(secret, "<redacted>");
+            }
+        }
+        let row = cardsh::csvfile::row(&[command.as_str(), ok, text.as_str()]);
+        self.0.write_all(row.as_bytes())
+    }
+}
+
 /// Prints one reply: the text for a person, one record for `--json`. Errors go to stderr as text.
-fn emit(line: &str, reply: &cardsh::Reply, json: bool) -> io::Result<()> {
+/// The same reply is appended to `--write-csv` when it is given.
+fn emit(line: &str, reply: &cardsh::Reply, json: bool, csv: Option<&mut CsvLog>) -> io::Result<()> {
     if line.trim().is_empty() || line.trim_start().starts_with('#') {
         return Ok(());
+    }
+    if let Some(log) = csv {
+        log.record(line, reply)?;
     }
     let mut out = io::stdout().lock();
     if json {
@@ -253,7 +341,7 @@ fn emit(line: &str, reply: &cardsh::Reply, json: bool) -> io::Result<()> {
     out.flush()
 }
 
-fn interactive(shell: &mut Shell, json: bool) -> contract::ExitCode {
+fn interactive(shell: &mut Shell, json: bool, mut csv: Option<&mut CsvLog>) -> contract::ExitCode {
     let tty = io::stdin().is_terminal();
     if tty && !json {
         println!("sim-doctor card: type `help`; `quit` leaves.");
@@ -276,7 +364,7 @@ fn interactive(shell: &mut Shell, json: bool) -> contract::ExitCode {
             Ok(_) => {}
         }
         let reply = shell.exec(&line);
-        if emit(&line, &reply, json).is_err() || reply.quit {
+        if emit(&line, &reply, json, csv.as_deref_mut()).is_err() || reply.quit {
             break;
         }
     }
