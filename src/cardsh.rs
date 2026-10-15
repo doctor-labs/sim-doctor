@@ -943,6 +943,12 @@ fn tries_left(sw: Option<StatusWord>) -> Option<u8> {
         .map(|s| s.sw2() & 0x0F)
 }
 
+/// A PIN or PUK the card has blocked: `69 83` (ISO 7816-4) or `98 40` (the SIM form, "CHV blocked" in
+/// ETSI TS 102 221, what `trace::sw_meaning` calls "PIN blocked"). Cards send either.
+fn pin_blocked(sw: Option<StatusWord>) -> bool {
+    sw.is_some_and(|s| matches!(s.to_bytes(), [0x69, 0x83] | [0x98, 0x40]))
+}
+
 impl Shell {
     /// Puts the card's selection back to `saved` after a lookup that had to select something else.
     fn restore_selection(&mut self, saved: Chan) {
@@ -1043,7 +1049,7 @@ impl Shell {
                 target.label
             ))),
             (Some(0), _) => Err(refuse(format!("{} is blocked", target.label))),
-            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => Err(refuse(format!("{} is blocked", target.label))),
+            (None, _) if pin_blocked(sw) => Err(refuse(format!("{} is blocked", target.label))),
             (Some(_), _) => Ok(None),
             // UNBLOCK with no data is not defined by every card; it then tells nothing and the one attempt is made.
             (None, _) if !is_verify => Ok(None),
@@ -1678,7 +1684,7 @@ impl Shell {
         }
         let why = match (tries_left(sw), sw) {
             (Some(n), _) => format!("wrong {puk_label} for {}: {n} tries left", target.label),
-            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => {
+            (None, _) if pin_blocked(sw) => {
                 format!("the {puk_label} of {} is now blocked", target.label)
             }
             (None, s) => format!("UNBLOCK {} refused: {}", target.label, sw_text(s)),
@@ -1738,7 +1744,7 @@ impl Shell {
         }
         let why = match (left, sw) {
             (Some(n), _) => format!("wrong value for {}: {n} tries left", target.label),
-            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => {
+            (None, _) if pin_blocked(sw) => {
                 format!("{} is now blocked", target.label)
             }
             (None, s) => format!("CHANGE {} refused: {}", target.label, sw_text(s)),
@@ -1869,7 +1875,7 @@ impl Shell {
         }
         let why = match (tries_left(sw), sw) {
             (Some(n), _) => format!("wrong value for {}: {n} tries left", target.label),
-            (None, Some(s)) if s.to_bytes() == [0x69, 0x83] => {
+            (None, _) if pin_blocked(sw) => {
                 format!("{} is now blocked", target.label)
             }
             (None, s) => format!("VERIFY {} refused: {}", target.label, sw_text(s)),
@@ -5486,5 +5492,73 @@ mod tests {
         assert_eq!(arr.len(), 2);
         assert_eq!(arr[0], "status");
         assert_eq!(arr[1], "select 3F00");
+    }
+
+    /// The test card, except that every PIN command answers `98 40`, the SIM form of "CHV blocked"
+    /// (ETSI TS 102 221, and `trace::sw_meaning`'s "PIN blocked"); the test card answers `69 83`.
+    struct SimBlockedPins(TestCard);
+
+    impl CardSession for SimBlockedPins {
+        fn reader(&self) -> &crate::transport::ReaderName {
+            self.0.reader()
+        }
+
+        fn transmit(&mut self, c: &[u8]) -> Result<Vec<u8>, crate::transport::Error> {
+            if c.len() >= 4 && matches!(c[1], 0x20 | 0x24 | 0x2C) {
+                self.0.sent.borrow_mut().push(c.to_vec());
+                return Ok(vec![0x98, 0x40]);
+            }
+            self.0.transmit(c)
+        }
+
+        fn disconnect(&mut self) -> Result<(), crate::transport::Error> {
+            self.0.disconnect()
+        }
+    }
+
+    #[test]
+    fn a_pin_blocked_as_98_40_is_refused_as_blocked_before_any_secret_is_sent() {
+        let log: std::rc::Rc<std::cell::RefCell<Vec<Vec<u8>>>> = Default::default();
+        let sent = log.clone();
+        let mut sh = Shell::new(
+            Box::new(move |_| {
+                let mut card = TestCard::usim();
+                card.sent = sent.clone();
+                Ok((
+                    Box::new(SimBlockedPins(card)) as Box<dyn CardSession>,
+                    "test card".to_owned(),
+                    Some(vec![0x3B, 0x9F]),
+                ))
+            }),
+            Opts {
+                yes: true,
+                dialect: TagSet::ts_102_221(),
+                secrets: None,
+            },
+        );
+        sh.equip(None, Profile::Uicc).unwrap();
+        sh.opts.secrets = Some(
+            crate::cardsh::secrets::Secrets::parse("pin1=1234; puk1=12345678; new-pin1=4321")
+                .unwrap(),
+        );
+        // Each command makes one free tries query (INS 0x20 / 0x2C / 0x24, no data) and stops there.
+        for (line, ins, what) in [
+            ("verify_chv", 0x20, "VERIFY"),
+            ("unblock_chv", 0x2C, "UNBLOCK"),
+            ("change_chv", 0x24, "CHANGE"),
+        ] {
+            log.borrow_mut().clear();
+            let r = sh.exec(line);
+            assert!(!r.ok, "{what}: {}", r.text);
+            assert!(r.text.contains("PIN1 is blocked"), "{what}: {}", r.text);
+            let sent = log.borrow();
+            let mine: Vec<_> = sent.iter().filter(|c| c[1] == ins).collect();
+            assert_eq!(mine.len(), 1, "{what}: only the tries query went out");
+            assert_eq!(
+                mine[0].len(),
+                4,
+                "{what}: the query is the bare header, no data"
+            );
+        }
     }
 }

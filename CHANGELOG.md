@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- `card` shell: VERIFY, UNBLOCK and CHANGE refuse a PIN or PUK the card reports blocked with SW `98 40` ("CHV blocked", ETSI TS 102 221) as well as `69 83`, before any secret is sent; the retry counter from `63 Cx` is reported as before (#195).
 - `sms decode` reads the SCTS timestamp as swapped semi-octets with a signed quarter-hour zone; it printed raw byte values before.
 
 ### Added
