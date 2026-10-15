@@ -1361,6 +1361,16 @@ struct GpKeyArgs {
     #[arg(long, value_name = "HEX", default_value = "00", requires = "key_source",
           value_parser = parse_hex_byte)]
     key_version: u8,
+    /// SCP03 security level of the secure channel: mac (01, C-MAC only, the
+    /// default), enc (03, command encryption), rmac (11), renc (31) or all
+    /// (33). Any other level is refused before a reader is opened.
+    #[arg(
+        long,
+        value_name = "MODE",
+        default_value = "mac",
+        requires = "key_source"
+    )]
+    mode: gp::Scp03Mode,
 }
 
 /// Where `gp put-key` gets the NEW key set. Never a value on the command line.
@@ -3223,6 +3233,7 @@ fn gp_auth<'a>(keys: &'a gp::Keys, args: &GpKeyArgs, channel: u8) -> gp::Auth<'a
     gp::Auth {
         keys,
         key_version: args.key_version,
+        level: args.mode.into(),
         host_challenge,
         logical_channel: channel,
     }
@@ -6151,6 +6162,29 @@ mod tests {
     fn scan_has_no_diff_flag() {
         use clap::Parser;
         assert!(Cli::try_parse_from(["sim-doctor", "scan", "--diff"]).is_err());
+    }
+
+    // `--mode` names one of the SCP03 security levels this tool builds, and
+    // nothing else: clap rejects any other word before a reader is opened.
+    #[test]
+    fn gp_mode_accepts_only_the_levels_that_exist() {
+        let base = ["sim-doctor", "gp", "status", "--keys-file", "k"];
+        for name in ["mac", "enc", "rmac", "renc", "all"] {
+            let mut argv = base.to_vec();
+            argv.extend(["--mode", name]);
+            assert!(
+                Cli::try_parse_from(&argv).is_ok(),
+                "--mode {name} is a level this tool builds"
+            );
+        }
+        for name in ["31", "03", "c-mac", "everything", "0x33"] {
+            let mut argv = base.to_vec();
+            argv.extend(["--mode", name]);
+            assert!(
+                Cli::try_parse_from(&argv).is_err(),
+                "--mode {name} is not a level name"
+            );
+        }
     }
 
     /// `--sffs` parses correctly and sets the flag.

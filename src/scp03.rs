@@ -18,17 +18,21 @@
 //! operator SIM everywhere else.
 //!
 //! **Scope.** AES-128 keys, 8-byte challenges and 8-byte cryptograms/MACs
-//! (the "i" = 0x00/0x10 profiles). C-MAC only: C-DECRYPTION and R-MAC/R-ENC
-//! are not implemented, though S-ENC and S-RMAC are derived. SCP02 and SCP11
-//! are not implemented (tracked as a follow-up to issue #22).
+//! (the "i" = 0x00/0x10 profiles). All four protections of Amendment D 6.2: the
+//! C-MAC, C-ENC (the host encrypts the command data; the card's half of that
+//! same bit is C-DECRYPTION), R-MAC (the card MACs the response) and R-ENC
+//! (the host decrypts the response data), at the five levels in
+//! [`SecurityLevel`]. SCP02 and SCP11 are not implemented (tracked as a
+//! follow-up to issue #22).
 
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "scp03";
 
 use crate::apdu::{Command, Header, Le, StatusWord};
 use crate::rules;
+use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use aes::Aes128;
-use cmac::{Cmac, KeyInit, Mac};
+use cmac::{Cmac, Mac};
 
 /// Length of an AES-128 key, a MAC chaining value and a full CMAC output.
 pub const BLOCK: usize = 16;
@@ -43,8 +47,25 @@ pub const INS_INITIALIZE_UPDATE: u8 = 0x50;
 pub const INS_EXTERNAL_AUTHENTICATE: u8 = 0x82;
 /// Security level bit: command MAC.
 pub const LEVEL_C_MAC: u8 = 0x01;
-/// Security level bits: command MAC and command decryption (not implemented).
-pub const LEVEL_C_MAC_C_DECRYPTION: u8 = 0x03;
+/// Security level bit: command encryption. The host encrypts the command data
+/// (C-ENC, 6.2.6) and the card decrypts it (C-DECRYPTION). One bit with two
+/// names, because it is the same operation seen from either end of the channel.
+pub const LEVEL_C_ENC: u8 = 0x02;
+/// Security level bit: response MAC, produced by the card and checked here.
+pub const LEVEL_R_MAC: u8 = 0x10;
+/// Security level bit: response encryption. The card encrypts the response data
+/// and the host decrypts it (R-ENC, 6.2.7).
+pub const LEVEL_R_ENC: u8 = 0x20;
+/// `01`: C-MAC only, the level every live path used before this issue.
+pub const LEVEL_C_MAC_ONLY: u8 = LEVEL_C_MAC;
+/// `03`: C-MAC and command encryption, which the card applies as C-DECRYPTION.
+pub const LEVEL_C_MAC_C_DECRYPTION: u8 = LEVEL_C_MAC | LEVEL_C_ENC;
+/// `11`: C-MAC and R-MAC.
+pub const LEVEL_C_MAC_R_MAC: u8 = LEVEL_C_MAC | LEVEL_R_MAC;
+/// `31`: C-MAC, R-MAC and R-ENC.
+pub const LEVEL_C_MAC_R_MAC_R_ENC: u8 = LEVEL_C_MAC | LEVEL_R_MAC | LEVEL_R_ENC;
+/// `33`: all four protections.
+pub const LEVEL_ALL: u8 = LEVEL_C_MAC_C_DECRYPTION | LEVEL_R_MAC | LEVEL_R_ENC;
 
 /// Data derivation constants, Amendment D table 4-1.
 const DDC_CARD_CRYPTOGRAM: u8 = 0x00;
@@ -65,6 +86,21 @@ pub enum Error {
     /// The command data plus the MAC would not fit a short Lc.
     #[error("command data is {0} bytes; with the 8-byte C-MAC it exceeds a short APDU")]
     TooLong(usize),
+    /// The response carries no room for the 8-byte R-MAC.
+    #[error("response is {0} bytes: too short to carry the {MAC_LEN}-byte R-MAC")]
+    ResponseTooShort(usize),
+    /// The response's R-MAC does not verify under S-RMAC.
+    #[error("R-MAC mismatch: this response was not produced with these session keys")]
+    ResponseMac,
+    /// Ciphertext is not a whole number of AES blocks.
+    #[error("ciphertext is {0} bytes, not a non-zero multiple of the {BLOCK}-byte AES block")]
+    NotWholeBlocks(usize),
+    /// Decrypted data carries no `80` padding byte.
+    #[error("decrypted data carries no 0x80 padding byte")]
+    BadPadding,
+    /// A security level this tool will not build.
+    #[error("security level {0:02X} is not an SCP03 level this tool builds ({1})")]
+    UnsupportedLevel(u8, String),
 }
 
 /// AES-CMAC (NIST SP 800-38B), full 16-byte output.
@@ -92,11 +128,11 @@ fn kdf(key: &[u8; BLOCK], constant: u8, l_bits: u16, context: &[u8]) -> [u8; BLO
 /// The three session keys of one SCP03 session.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionKeys {
-    /// S-ENC (derived; unused while C-DECRYPTION is not implemented).
+    /// S-ENC: keys C-ENC (card-side C-DECRYPTION) and R-ENC.
     pub enc: [u8; BLOCK],
     /// S-MAC, keys the C-MAC and both cryptograms.
     pub mac: [u8; BLOCK],
-    /// S-RMAC (derived; unused while R-MAC is not implemented).
+    /// S-RMAC, keys the R-MAC.
     pub rmac: [u8; BLOCK],
 }
 
@@ -170,24 +206,200 @@ pub fn verify_card_cryptogram(
     ct_eq(&cryptogram(&keys.mac, Side::Card, host, card), received)
 }
 
-/// A secure channel's command-MAC state: S-MAC and the MAC chaining value.
+/// Pads to a whole number of `block`-byte blocks with `80` then zeroes
+/// (Amendment D 6.2.5 points at GPCS B.2.3 and NIST SP 800-38A). pySim
+/// `pad80`, `pySim/global_platform/scp.py:44-47`.
+fn pad80(data: &[u8], block: usize) -> Vec<u8> {
+    let mut out = data.to_vec();
+    out.push(0x80);
+    out.resize(out.len().next_multiple_of(block), 0);
+    out
+}
+
+/// Strips [`pad80`], refusing data that carries no `80` byte. pySim `unpad80`
+/// (`scp.py:50-56`), which asserts the same thing.
+fn unpad80(data: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut end = data.len();
+    while end > 0 && data[end - 1] == 0 {
+        end -= 1;
+    }
+    match data[..end].last() {
+        Some(0x80) => Ok(data[..end - 1].to_vec()),
+        _ => Err(Error::BadPadding),
+    }
+}
+
+/// AES-CBC under an explicit ICV, no padding of its own: the caller has already
+/// padded to a whole number of blocks (SP 800-38A, which Amendment D B.2 defers
+/// to). Written on the bare block cipher rather than through the `cbc` crate,
+/// whose cipher 0.5 types are a different major version from the ones `cmac`
+/// and this file's AES key conversions already use.
+fn cbc_encrypt(s_enc: &[u8; BLOCK], iv: &[u8; BLOCK], data: &[u8]) -> Vec<u8> {
+    let cipher = Aes128::new(&(*s_enc).into());
+    let mut prev = *iv;
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks_exact(BLOCK) {
+        let mut mixed = [0u8; BLOCK];
+        for (i, byte) in mixed.iter_mut().enumerate() {
+            *byte = chunk[i] ^ prev[i];
+        }
+        let mut work = mixed.into();
+        cipher.encrypt_block(&mut work);
+        prev.copy_from_slice(&work[..]);
+        out.extend_from_slice(&prev);
+    }
+    out
+}
+
+/// The inverse of [`cbc_encrypt`].
+fn cbc_decrypt(s_enc: &[u8; BLOCK], iv: &[u8; BLOCK], data: &[u8]) -> Result<Vec<u8>, Error> {
+    if data.is_empty() || data.len() % BLOCK != 0 {
+        return Err(Error::NotWholeBlocks(data.len()));
+    }
+    let cipher = Aes128::new(&(*s_enc).into());
+    let mut prev = *iv;
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks_exact(BLOCK) {
+        let mut plain = [0u8; BLOCK];
+        plain.copy_from_slice(chunk);
+        let mut work = plain.into();
+        cipher.decrypt_block(&mut work);
+        plain.copy_from_slice(&work[..]);
+        for (i, prev_byte) in prev.iter().enumerate() {
+            plain[i] ^= prev_byte;
+        }
+        out.extend_from_slice(&plain);
+        prev.copy_from_slice(chunk);
+    }
+    Ok(out)
+}
+
+/// An SCP03 security level this tool will build.
+///
+/// The five levels in [`Self::ALL`] are the ones pySim's own SCP03 known-answer
+/// classes drive (`tests/unittests/test_globalplatform.py`, AES128/192/256 at
+/// levels `01`, `03`, `11` and `33`) plus `31`, R-MAC and R-ENC without command
+/// encryption. The bits are pySim's `SCP.do_cmac`, `do_cenc`, `do_rmac` and
+/// `do_renc`, `pySim/global_platform/scp.py:165-183`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SecurityLevel(u8);
+
+impl SecurityLevel {
+    /// `01`: C-MAC only, and the level [`Channel::new`] opens.
+    pub const C_MAC: Self = Self(LEVEL_C_MAC);
+    /// Every level this tool builds, ascending.
+    pub const ALL: [Self; 5] = [
+        Self::C_MAC,
+        Self(LEVEL_C_MAC_C_DECRYPTION),
+        Self(LEVEL_C_MAC_R_MAC),
+        Self(LEVEL_C_MAC_R_MAC_R_ENC),
+        Self(LEVEL_ALL),
+    ];
+
+    /// The level byte, as it goes in P1 of EXTERNAL AUTHENTICATE.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+    /// Whether every command carries a C-MAC. True of every level here.
+    pub const fn c_mac(self) -> bool {
+        self.0 & LEVEL_C_MAC != 0
+    }
+    /// Whether command data is encrypted (C-ENC; C-DECRYPTION on the card).
+    pub const fn c_enc(self) -> bool {
+        self.0 & LEVEL_C_ENC != 0
+    }
+    /// Whether the card MACs its response and the MAC is checked here.
+    pub const fn r_mac(self) -> bool {
+        self.0 & LEVEL_R_MAC != 0
+    }
+    /// Whether response data is decrypted once the R-MAC has verified.
+    pub const fn r_enc(self) -> bool {
+        self.0 & LEVEL_R_ENC != 0
+    }
+
+    /// The level with those bits, or [`None`] for anything this tool will not
+    /// build: `00` (no secure messaging), a level without the C-MAC, and R-ENC
+    /// without R-MAC, which pySim refuses too (`scp.py:627-628`).
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.0 == bits)
+    }
+}
+
+impl std::fmt::Display for SecurityLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02X}", self.0)
+    }
+}
+
+/// The levels this tool builds, as `01 03 11 31 33`, for a refusal message.
+pub fn levels() -> String {
+    SecurityLevel::ALL
+        .iter()
+        .map(|level| level.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Whether a response with status word `sw` carries an R-MAC. Amendment D 6.2.5
+/// and pySim `SCP03.unwrap_rsp_apdu`, `scp.py:621-637`: `90 00` and the warning
+/// status words `62 xx` and `63 xx` are protected, every other status word is
+/// not, and an unprotected response is passed through untouched.
+fn r_mac_applies(sw: &[u8]) -> bool {
+    match sw {
+        [0x90, 0x00] => true,
+        [w1, _] => *w1 == 0x62 || *w1 == 0x63,
+        _ => false,
+    }
+}
+
+/// A secure channel: the C-MAC state (S-MAC and the MAC chaining value), the
+/// R-MAC key, S-ENC and the encryption counter.
 ///
 /// The chaining value starts at zero and becomes the **full 16-byte** CMAC of
 /// every command wrapped, in order, so wrapping must happen once per command
-/// actually sent and in send order.
-#[derive(Debug, Clone)]
+/// actually sent and in send order. The R-MAC reads that same chaining value
+/// and does not advance it.
+#[derive(Clone)]
 pub struct Channel {
+    s_enc: [u8; BLOCK],
     s_mac: [u8; BLOCK],
+    s_rmac: [u8; BLOCK],
     chain: [u8; BLOCK],
+    block_nr: u64,
+    level: SecurityLevel,
     logical: u8,
 }
 
+// Key material must not reach logs through `{:?}`, as in `SessionKeys`.
+impl std::fmt::Debug for Channel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Channel")
+            .field("level", &self.level)
+            .field("logical", &self.logical)
+            .field("chain", &self.chain)
+            .field("encryption_counter", &self.block_nr)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Channel {
-    /// A fresh channel with a zero chaining value.
+    /// A fresh channel at [`SecurityLevel::C_MAC`]: the level every live path
+    /// used before C-ENC, R-MAC and R-ENC existed, and the one whose bytes
+    /// [`Channel::wrap`] still produces.
     pub fn new(keys: &SessionKeys) -> Self {
+        Self::at_level(keys, SecurityLevel::C_MAC)
+    }
+
+    /// A fresh channel that builds `level` from the start, with a zero chaining
+    /// value and a zero encryption counter.
+    pub fn at_level(keys: &SessionKeys, level: SecurityLevel) -> Self {
         Self {
+            s_enc: keys.enc,
             s_mac: keys.mac,
+            s_rmac: keys.rmac,
             chain: [0; BLOCK],
+            block_nr: 0,
+            level,
             logical: 0,
         }
     }
@@ -200,27 +412,174 @@ impl Channel {
         self
     }
 
+    /// Sets the level this channel builds. A channel already used has a chain
+    /// and a counter; changing the level mid-session gives the two halves of
+    /// the channel different ideas about the wire format, so set it first.
+    pub fn with_security_level(mut self, level: SecurityLevel) -> Self {
+        self.level = level;
+        self
+    }
+
+    /// The level this channel builds.
+    pub const fn security_level(&self) -> SecurityLevel {
+        self.level
+    }
+
+    /// The encryption counter, pySim's `Scp03SessionKeys.block_nr`
+    /// (`scp.py:456`): how many C-ENC steps have been taken.
+    pub const fn encryption_counter(&self) -> u64 {
+        self.block_nr
+    }
+
+    /// The ICV of one encryption: Amendment D 6.2.6 for a command and 6.2.7 for
+    /// a response. The counter is left-padded with zeroes to a full block and
+    /// encrypted with S-ENC under an all-zero IV, which for one block is a
+    /// plain ECB encryption. For a response the most significant byte is set to
+    /// `80` first and the counter is the one the command just used, not a new
+    /// one. pySim `Scp03SessionKeys._get_icv`, `scp.py:472-490`.
+    fn icv(&self, counter: u64, response: bool) -> [u8; BLOCK] {
+        let mut raw = [0u8; BLOCK];
+        raw[BLOCK - 8..].copy_from_slice(&counter.to_be_bytes());
+        if response {
+            raw[0] = 0x80;
+        }
+        cbc_encrypt(&self.s_enc, &[0; BLOCK], &raw)
+            .try_into()
+            .expect("one AES block in, one AES block out")
+    }
+
+    /// C-ENC: pads `data` with [`pad80`] and encrypts it under S-ENC with the
+    /// ICV of `counter`. The caller owns the counter; [`Channel::wrap`] takes
+    /// the next value and advances it. pySim `Scp03SessionKeys._encrypt`
+    /// (`scp.py:493-495`) reached from `SCP03._wrap_cmd_apdu:595-600`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::TooLong`] when the padded data plus the MAC exceeds 255 bytes.
+    pub fn encrypt_command_data(&self, counter: u64, data: &[u8]) -> Result<Vec<u8>, Error> {
+        let padded = pad80(data, BLOCK);
+        if padded.len() + MAC_LEN > 0xFF {
+            return Err(Error::TooLong(data.len()));
+        }
+        Ok(cbc_encrypt(&self.s_enc, &self.icv(counter, false), &padded))
+    }
+
+    /// C-DECRYPTION: what the card does to a command it received. The inverse
+    /// of [`Channel::encrypt_command_data`] with the same `counter`, and the
+    /// reason the level carrying the C-ENC bit is called
+    /// [`LEVEL_C_MAC_C_DECRYPTION`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotWholeBlocks`] or [`Error::BadPadding`].
+    pub fn decrypt_command_data(&self, counter: u64, data: &[u8]) -> Result<Vec<u8>, Error> {
+        unpad80(&cbc_decrypt(&self.s_enc, &self.icv(counter, false), data)?)
+    }
+
+    /// R-ENC: decrypts response data the card encrypted, with the ICV of
+    /// `counter` carrying the `80` marker, and strips the padding. `counter` is
+    /// the value the matching command used, because a response does not advance
+    /// the counter.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotWholeBlocks`] or [`Error::BadPadding`].
+    pub fn decrypt_response_data(&self, counter: u64, data: &[u8]) -> Result<Vec<u8>, Error> {
+        unpad80(&cbc_decrypt(&self.s_enc, &self.icv(counter, true), data)?)
+    }
+
+    /// The MAC the card appends to a response: the first [`MAC_LEN`] bytes of
+    /// `CMAC(S-RMAC, chain || response data || sw)` (Amendment D 6.2.5). The
+    /// chaining value is the one the last command left and is **not** advanced
+    /// here: the chain moves on at the next C-MAC. pySim
+    /// `Scp03SessionKeys.calc_rmac`, `scp.py:466-470`.
+    pub fn response_mac(&self, response_data: &[u8], sw: &[u8]) -> [u8; MAC_LEN] {
+        let full = cmac(&self.s_rmac, &[&self.chain, response_data, sw]);
+        let mut out = [0u8; MAC_LEN];
+        out.copy_from_slice(&full[..MAC_LEN]);
+        out
+    }
+
+    /// Checks the R-MAC on a response and, at an R-ENC level, decrypts the
+    /// data. `data` is the response data field as the card sent it and `sw` its
+    /// status word, both before this function.
+    ///
+    /// No R-MAC is generated and no protection is applied to a response that
+    /// carries an error status word, and none at a level without R-MAC: the
+    /// data is returned unchanged in both cases.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::ResponseTooShort`], [`Error::ResponseMac`],
+    /// [`Error::NotWholeBlocks`] or [`Error::BadPadding`]. A caller that gets
+    /// one of these must discard the data: it did not come from a card holding
+    /// these session keys.
+    pub fn open_response(&self, data: &[u8], sw: &[u8]) -> Result<Vec<u8>, Error> {
+        if !self.level.r_mac() || !r_mac_applies(sw) {
+            return Ok(data.to_vec());
+        }
+        if data.len() < MAC_LEN {
+            return Err(Error::ResponseTooShort(data.len()));
+        }
+        let (body, received) = data.split_at(data.len() - MAC_LEN);
+        if !ct_eq(&self.response_mac(body, sw), received) {
+            return Err(Error::ResponseMac);
+        }
+        if self.level.r_enc() {
+            return self.decrypt_response_data(self.block_nr, body);
+        }
+        Ok(body.to_vec())
+    }
+
     /// Adds the C-MAC to `command`: sets the secure messaging bit (0x04) in
-    /// CLA, appends the 8-byte MAC to the data and advances the chain.
+    /// CLA, appends the 8-byte MAC to the data and advances the chain. At a
+    /// C-ENC level the data is encrypted first and the counter advances.
     ///
     /// MAC input (Amendment D 6.2.4): `chain || CLA' INS P1 P2 Lc' || data`,
-    /// where `CLA'` has the bit set and `Lc'` counts the MAC.
+    /// where `CLA'` has the bit set, `Lc'` counts the MAC, and `data` is the
+    /// data as it goes on the wire (the ciphertext, at a C-ENC level).
     ///
     /// # Errors
     ///
     /// [`Error::TooLong`] when data plus MAC exceeds 255 bytes.
     pub fn wrap(&mut self, command: &Command) -> Result<Command, Error> {
+        self.wrap_inner(command, false)
+    }
+
+    /// [`Channel::wrap`] with a chosen view of whether command encryption
+    /// applies. EXTERNAL AUTHENTICATE is never encrypted: its data field is the
+    /// host cryptogram, sent in the clear (Amendment D 7.1.2; pySim
+    /// `SCP03.gen_ext_auth_apdu`, `scp.py:562-567`, "bypass encryption for
+    /// EXTERNAL AUTHENTICATE"), and it burns no counter value.
+    fn wrap_inner(&mut self, command: &Command, skip_cenc: bool) -> Result<Command, Error> {
         let data = command.data();
-        let lc = u8::try_from(data.len() + MAC_LEN).map_err(|_| Error::TooLong(data.len()))?;
         let h = command.header();
         let class = crate::apdu::class_on_channel(h.class(), self.logical)
             .map_or(h.class() | 0x04, |c| {
                 c | if c & 0x40 != 0 { 0x20 } else { 0x04 }
             });
         let header = Header::new(class, h.instruction(), h.parameter_1(), h.parameter_2());
-        let full = cmac(&self.s_mac, &[&self.chain, &header.to_bytes(), &[lc], data]);
+        // A command with no data field has nothing to encrypt but still burns a
+        // counter value (pySim `SCP03._wrap_cmd_apdu:588-592`, which does this
+        // for a case 1 or case 2 command, the only ones sent without an Lc).
+        let mut body = if self.level.c_enc() && !skip_cenc {
+            if data.is_empty() {
+                self.block_nr += 1;
+                Vec::new()
+            } else {
+                let cipher = self.encrypt_command_data(self.block_nr + 1, data)?;
+                self.block_nr += 1;
+                cipher
+            }
+        } else {
+            data.to_vec()
+        };
+        let lc = u8::try_from(body.len() + MAC_LEN).map_err(|_| Error::TooLong(body.len()))?;
+        let full = cmac(
+            &self.s_mac,
+            &[&self.chain, &header.to_bytes(), &[lc], &body],
+        );
         self.chain = full;
-        let mut body = data.to_vec();
         body.extend_from_slice(&full[..MAC_LEN]);
         Ok(match command.le() {
             Some(le) => Command::case4(header, body, le),
@@ -253,10 +612,13 @@ pub fn external_authenticate(
     host_cryptogram: &[u8; MAC_LEN],
 ) -> Result<Command, Error> {
     // The wrap adds the secure-messaging bit, so build the plain 80 82 form.
-    channel.wrap(&Command::case3(
-        Header::new(0x80, INS_EXTERNAL_AUTHENTICATE, security_level, 0x00),
-        host_cryptogram.to_vec(),
-    ))
+    channel.wrap_inner(
+        &Command::case3(
+            Header::new(0x80, INS_EXTERNAL_AUTHENTICATE, security_level, 0x00),
+            host_cryptogram.to_vec(),
+        ),
+        true,
+    )
 }
 
 /// A parsed INITIALIZE UPDATE response (status word already stripped).
@@ -718,5 +1080,434 @@ mod tests {
         assert!(missing_mac(&Audit::default()).is_empty());
         assert!(!had_evidence(&Audit::default()));
         assert_eq!(missing_mac_spec().id().as_str(), MISSING_MAC_RULE);
+    }
+
+    fn b(s: &str) -> Vec<u8> {
+        hex::decode(s).unwrap()
+    }
+
+    /// The plain command of a wire APDU, for replaying a recorded exchange.
+    fn command(hex_cmd: &str) -> Command {
+        let bytes = b(hex_cmd);
+        let (header, rest) = (
+            Header::new(bytes[0], bytes[1], bytes[2], bytes[3]),
+            &bytes[4..],
+        );
+        match rest {
+            [] => Command::case1(header),
+            [le] => Command::case2(header, Le::Short(*le)),
+            [lc, tail @ ..] if tail.len() == usize::from(*lc) => {
+                Command::case3(header, tail.to_vec())
+            }
+            [lc, tail @ ..] => Command::case4(
+                header,
+                tail[..usize::from(*lc)].to_vec(),
+                Le::Short(tail[usize::from(*lc)]),
+            ),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // pySim's own SCP03 known answers.
+    //
+    // osmocom/pysim tests/unittests/test_globalplatform.py: one `SCP03_Test`
+    // subclass per security level, all on KEYSET_AES128 (KVN 30, ENC 00..0F,
+    // MAC 10..1F, DEK 20..2F). Each class records the INITIALIZE UPDATE command
+    // and response it used, so the host and card challenges -- and with them
+    // every session key, every ICV and every MAC -- are the reference's bytes
+    // and not this implementation's. `test_01`..`test_06` run in order over one
+    // SCP03 object, so the channel carries across them: handshake, then GET EID
+    // and its response, then the four case-1..4 commands.
+    // ------------------------------------------------------------------
+    const PYSIM_ENC: &str = "000102030405060708090a0b0c0d0e0f";
+    const PYSIM_MAC: &str = "101112131415161718191a1b1c1d1e1f";
+    /// `SCP03_Test.get_eid_rsp_plain`, the same for every class: the response
+    /// data in the clear, which at 11 and 33 is only reachable after the R-MAC
+    /// verified and, at 33, after R-ENC decrypted it.
+    const PYSIM_EID_RSP: &str = "bf3e125a1089882119900000000000000000000005";
+
+    /// The plain data field of `SCP03_Test.get_eid_cmd_plain`.
+    const PYSIM_EID_REQ: &str = "bf3e035c015a";
+    /// The four plain commands `SCP03_Test` wraps, in its order.
+    const PYSIM_PLAIN: [&str; 4] = [
+        "80f22002",                       // case 1
+        "80ca006600",                     // case 2
+        "80f220020a4f0212345c054f9f70c5", // case 3
+        "80f28002024f0000",               // case 4
+    ];
+
+    struct PySim {
+        level: u8,
+        init_upd_cmd: &'static str,
+        init_upd_rsp: &'static str,
+        ext_auth: &'static str,
+        get_eid_cmd: &'static str,
+        get_eid_rsp: &'static str,
+        cases: [&'static str; 4],
+    }
+
+    /// `SCP03_Test_AES128_11`: C-MAC and R-MAC, no encryption either way.
+    const AES128_11: PySim = PySim {
+        level: LEVEL_C_MAC_R_MAC,
+        init_upd_cmd: "8050300008b13e5f938fc108c400",
+        init_upd_rsp: "000000000000000000003003703eb51047495b249f66c484c1d2ef1948000002",
+        ext_auth: "84821100107d5f5826a993ebc89eea24957fa0b3ce",
+        get_eid_cmd: "84e291000ebf3e035c015a558d036518a2829700",
+        get_eid_rsp: "bf3e125a1089882119900000000000000000000005971be68992dbbdfa",
+        cases: [
+            "84f220020863a63f8959827fb2",
+            "84ca006608a0c6a4a74166f7ce00",
+            "84f22002124f0212345c054f9f70c52249b50272656536",
+            "84f280020a4f00e91443f6dce6b8ed00",
+        ],
+    };
+
+    /// `SCP03_Test_AES128_03`: C-MAC and command encryption. Its recorded
+    /// response carries no R-MAC and is already in the clear.
+    const AES128_03: PySim = PySim {
+        level: LEVEL_C_MAC_C_DECRYPTION,
+        init_upd_cmd: "80503000088e1552d0513c60f300",
+        init_upd_rsp: "0000000000000000000030037030760cd2c47c1dd395065fe5ead8a9d7000001",
+        ext_auth: "8482030010fd4721a14d9b07003c451d2f8ae6bb21",
+        get_eid_cmd: "84e2910018ca9c00f6713d79bc8baa642bdff51c3f6a4082d3bd9ad26c00",
+        get_eid_rsp: "bf3e125a1089882119900000000000000000000005",
+        cases: [
+            "84f2200208c9811b11f1264cf1",
+            "84ca006608e10ab60b3054798800",
+            "84f22002184e2908bdb48b2315a55482e9e936ca122d6ecfae7d17416e",
+            "84f28002180dd10a6b6193e5340b9e77d32d5a179cd710ac2773aefb2800",
+        ],
+    };
+
+    /// `SCP03_Test_AES128_33`: all four protections at once. Its recorded
+    /// response is R-MAC'd over the ciphertext and the ciphertext is the plain
+    /// GET EID response under the counter its command used.
+    const AES128_33: PySim = PySim {
+        level: LEVEL_ALL,
+        init_upd_cmd: "8050300008fdf38259a1e0de4400",
+        init_upd_rsp: "000000000000000000003003703b1aca81e821f219081cdc01c26b372d000003",
+        ext_auth: "84823300108c36f96bcc00724a4e13ad591d7da3f0",
+        get_eid_cmd: "84e2910018267a85dfe4a98fca6fb0527e0dfecce4914e40401433c87f00",
+        get_eid_rsp:
+            "f3ba2b1013aa6224f5e1c138d71805c569e5439b47576260b75fc021b25097cb2e68f8a0144975b9",
+        cases: [
+            "84f2200208ac6a59024bed84cc",
+            "84ca006608409912ad8fb7aed000",
+            "84f22002185f3dafc3ac14c381536a488bf44e06d056df9d74dbd21e5a",
+            "84f280021865165105be3373347d0424d4400af2ac393f569ec779389e00",
+        ],
+    };
+
+    fn pysim_keys(v: &PySim) -> SessionKeys {
+        let init = b(v.init_upd_cmd);
+        let host: [u8; CHALLENGE_LEN] = init[5..13].try_into().expect("8-byte host challenge");
+        let iur = InitializeUpdateResponse::parse(&b(v.init_upd_rsp)).expect("pySim's response");
+        let keys = derive_session_keys(&h(PYSIM_ENC), &h(PYSIM_MAC), &host, &iur.card_challenge);
+        assert!(
+            verify_card_cryptogram(&keys, &host, &iur.card_challenge, &iur.card_cryptogram),
+            "pySim's card cryptogram"
+        );
+        keys
+    }
+
+    /// Replays one pySim class byte for byte: INITIALIZE UPDATE, the response,
+    /// EXTERNAL AUTHENTICATE, GET EID wrapped, that response opened, and the
+    /// four case-1..4 commands wrapped. Returns the channel as pySim had it
+    /// after the GET EID response, with the session keys.
+    fn replay(v: &PySim) -> (Channel, SessionKeys) {
+        let level = SecurityLevel::from_bits(v.level).expect("a level pySim tests");
+        let init = b(v.init_upd_cmd);
+        let host: [u8; CHALLENGE_LEN] = init[5..13].try_into().expect("8-byte host challenge");
+        assert_eq!(
+            hex::encode(initialize_update(init[2], &host).encode().unwrap()),
+            v.init_upd_cmd
+        );
+        let keys = pysim_keys(v);
+        let mut ch = Channel::at_level(&keys, level);
+        let host_cg = cryptogram(&keys.mac, Side::Host, &host, &channel_card_challenge(v));
+        assert_eq!(
+            hex::encode(
+                external_authenticate(&mut ch, v.level, &host_cg)
+                    .unwrap()
+                    .encode()
+                    .unwrap()
+            ),
+            v.ext_auth
+        );
+        // EXTERNAL AUTHENTICATE is never encrypted and burns no counter value,
+        // which is why the first encrypted command below uses counter 1.
+        assert_eq!(ch.encryption_counter(), 0);
+
+        let wire = hex::encode(
+            ch.wrap(&command("80e2910006bf3e035c015a00"))
+                .unwrap()
+                .encode()
+                .unwrap(),
+        );
+        assert_eq!(wire, v.get_eid_cmd);
+        assert_eq!(
+            ch.open_response(&b(v.get_eid_rsp), &[0x90, 0x00]).unwrap(),
+            b(PYSIM_EID_RSP)
+        );
+        // The caller wants the channel as pySim had it when the GET EID
+        // response arrived, so hand back a copy taken before the four cases
+        // advanced the chain and the counter further.
+        let at_response = ch.clone();
+        for (plain, wire) in PYSIM_PLAIN.into_iter().zip(v.cases) {
+            assert_eq!(
+                hex::encode(ch.wrap(&command(plain)).unwrap().encode().unwrap()),
+                wire,
+                "{plain}"
+            );
+        }
+        (at_response, keys)
+    }
+
+    fn channel_card_challenge(v: &PySim) -> [u8; CHALLENGE_LEN] {
+        InitializeUpdateResponse::parse(&b(v.init_upd_rsp))
+            .expect("pySim's response")
+            .card_challenge
+    }
+
+    // R-MAC, against `SCP03_Test_AES128_11`: the response the reference
+    // recorded is its data in the clear with pySim's own 8-byte R-MAC on it.
+    #[test]
+    fn pysim_level_11_authenticates_the_response() {
+        replay(&AES128_11);
+    }
+
+    // C-ENC, against `SCP03_Test_AES128_03`: the command data is AES-CBC under
+    // S-ENC with the ICV of the counter, and the C-MAC covers the ciphertext.
+    #[test]
+    fn pysim_level_03_encrypts_the_command() {
+        replay(&AES128_03);
+    }
+
+    // All four, against `SCP03_Test_AES128_33`.
+    #[test]
+    fn pysim_level_33_runs_all_four_protections() {
+        replay(&AES128_33);
+    }
+
+    // Each protection on its own, against the same pySim bytes.
+    #[test]
+    fn c_enc_is_py_sim_s_ciphertext_under_the_counter() {
+        let ch = Channel::at_level(
+            &pysim_keys(&AES128_03),
+            SecurityLevel::from_bits(LEVEL_C_MAC_C_DECRYPTION).expect("level"),
+        );
+        let cipher = ch.encrypt_command_data(1, &b(PYSIM_EID_REQ)).unwrap();
+        // the data field of pySim's `get_eid_cmd` at level 03
+        assert_eq!(hex::encode(&cipher), "ca9c00f6713d79bc8baa642bdff51c3f");
+        // and the case-3 body from the same class, padded from 10 to 16 bytes,
+        // under the counter it had there: the GET EID took 1 and the two
+        // data-less case-1 and case-2 commands took 2 and 3.
+        let long = ch
+            .encrypt_command_data(4, &b("4f0212345c054f9f70c5"))
+            .unwrap();
+        // the first 16 bytes of the data field of pySim's `case_3_apdu`
+        assert_eq!(
+            &hex::encode(&long)[..32],
+            "4e2908bdb48b2315a55482e9e936ca12"
+        );
+    }
+
+    // C-DECRYPTION: the card's half of the same bit, and the exact inverse.
+    #[test]
+    fn c_decryption_recovers_the_command_the_card_would_read() {
+        for v in [&AES128_03, &AES128_33] {
+            let ch = Channel::at_level(&pysim_keys(v), SecurityLevel::from_bits(v.level).unwrap());
+            // GET EID is a case-4 command: header, Lc, the protected data,
+            // the 8-byte C-MAC over it, then the Le byte.
+            let wire = b(v.get_eid_cmd);
+            let data = &wire[5..wire.len() - 1 - MAC_LEN];
+            assert_eq!(data.len(), BLOCK, "{} is a whole AES block", v.level);
+            assert_eq!(
+                ch.decrypt_command_data(1, data).unwrap(),
+                b(PYSIM_EID_REQ),
+                "level {:02X}",
+                v.level
+            );
+            // the round trip through the encrypting half returns the same
+            // ciphertext pySim recorded
+            assert_eq!(ch.encrypt_command_data(1, &b(PYSIM_EID_REQ)).unwrap(), data);
+            // and the padding is the 0x80-then-zeroes of Amendment D B.2
+            let padded = cbc_decrypt(&ch.s_enc, &ch.icv(1, false), data).unwrap();
+            assert_eq!(padded[6], 0x80, "the 0x80 padding byte");
+            assert!(padded[7..].iter().all(|b| *b == 0), "zero padding");
+            // a counter the command did not use gives different bytes
+            assert_ne!(
+                ch.decrypt_command_data(2, data).ok(),
+                Some(b(PYSIM_EID_REQ))
+            );
+        }
+    }
+
+    // R-MAC, on its own: the first 8 bytes of CMAC(S-RMAC, chain || data || sw).
+    #[test]
+    fn r_mac_is_py_sim_s_trailing_eight_bytes() {
+        for v in [&AES128_11, &AES128_33] {
+            let (ch, _) = replay(v);
+            let rsp = b(v.get_eid_rsp);
+            let (data, mac) = rsp.split_at(rsp.len() - MAC_LEN);
+            assert_eq!(
+                hex::encode(ch.response_mac(data, &[0x90, 0x00])),
+                hex::encode(mac)
+            );
+            // the R-MAC reads the chaining value and does not advance it
+            assert_eq!(
+                hex::encode(ch.response_mac(data, &[0x90, 0x00])),
+                hex::encode(mac)
+            );
+            // a different status word MACs differently, which is why only
+            // 90 00 and the 62 xx / 63 xx warnings are protected
+            assert_ne!(ch.response_mac(data, &[0x63, 0x10]), mac);
+        }
+    }
+
+    // R-ENC, on its own: the response body under the counter the command used.
+    #[test]
+    fn r_enc_is_py_sim_s_ciphertext_under_the_same_counter() {
+        let (ch, keys) = replay(&AES128_33);
+        let rsp = b(AES128_33.get_eid_rsp);
+        let (data, _) = rsp.split_at(rsp.len() - MAC_LEN);
+        assert_eq!(ch.encryption_counter(), 1);
+        assert_eq!(ch.decrypt_response_data(1, data).unwrap(), b(PYSIM_EID_RSP));
+        // the response ICV is the command's counter with its top byte set to 80
+        let mut raw = [0u8; BLOCK];
+        raw[BLOCK - 8..].copy_from_slice(&1u64.to_be_bytes());
+        raw[0] = 0x80;
+        let expected: [u8; BLOCK] = cbc_encrypt(&keys.enc, &[0; BLOCK], &raw)
+            .try_into()
+            .expect("one AES block");
+        assert_eq!(ch.icv(1, true), expected);
+        assert_ne!(ch.icv(1, true), ch.icv(1, false));
+        assert_ne!(ch.icv(2, true), ch.icv(1, true));
+    }
+
+    // The ICV is what binds a response to its command: only the counter that
+    // command used opens it.
+    #[test]
+    fn a_response_whose_icv_does_not_match_is_refused() {
+        let (ch, keys) = replay(&AES128_33);
+        let rsp = b(AES128_33.get_eid_rsp);
+        let (data, _) = rsp.split_at(rsp.len() - MAC_LEN);
+        let plain = b(PYSIM_EID_RSP);
+        // the counter the command used is the only one that opens it
+        assert_eq!(ch.decrypt_response_data(1, data).unwrap(), plain);
+        assert_ne!(ch.decrypt_response_data(2, data).ok(), Some(plain.clone()));
+        assert_ne!(ch.decrypt_response_data(0, data).ok(), Some(plain));
+        // and a body that is not a whole number of AES blocks is refused
+        // before any cipher runs
+        assert_eq!(
+            ch.decrypt_response_data(1, &data[..15]),
+            Err(Error::NotWholeBlocks(15))
+        );
+        // the command ICV does not open the response ICV
+        assert_ne!(
+            cbc_decrypt(&keys.enc, &ch.icv(1, false), data).unwrap(),
+            cbc_decrypt(&keys.enc, &ch.icv(1, true), data).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_response_whose_r_mac_does_not_verify_is_refused() {
+        let (ch, _) = replay(&AES128_33);
+        let rsp = b(AES128_33.get_eid_rsp);
+        let mut flipped = rsp.clone();
+        let last = flipped.len() - 1;
+        flipped[last] ^= 0x01;
+        assert_eq!(
+            ch.open_response(&flipped, &[0x90, 0x00]),
+            Err(Error::ResponseMac)
+        );
+        // a body that moves under an unchanged MAC is refused too
+        let mut swapped = rsp.clone();
+        swapped.swap(0, 1);
+        assert_eq!(
+            ch.open_response(&swapped, &[0x90, 0x00]),
+            Err(Error::ResponseMac)
+        );
+        // a status word the MAC was not computed over is refused
+        assert_eq!(
+            ch.open_response(&rsp, &[0x62, 0x10]),
+            Err(Error::ResponseMac)
+        );
+        // and a response too short to hold an R-MAC is refused outright
+        assert_eq!(
+            ch.open_response(&rsp[..4], &[0x90, 0x00]),
+            Err(Error::ResponseTooShort(4))
+        );
+    }
+
+    // Amendment D 6.2.5 / pySim `scp.py:621-637`: an error status word is not
+    // protected, so its data is handed back exactly as the card sent it.
+    #[test]
+    fn an_error_status_word_is_passed_through_unprotected() {
+        let (ch, _) = replay(&AES128_33);
+        let rsp = b(AES128_33.get_eid_rsp);
+        for sw in [[0x69, 0x82], [0x6A, 0x80], [0x6F, 0x00]] {
+            assert_eq!(ch.open_response(&rsp, &sw).unwrap(), rsp, "{sw:02X?}");
+        }
+    }
+
+    // At a level with no R-MAC the response is handed back untouched, which is
+    // how pySim's own `SCP03_Test_AES128_03` records its response.
+    #[test]
+    fn a_level_without_r_mac_does_not_touch_the_response() {
+        let (ch, _) = replay(&AES128_03);
+        let rsp = b(AES128_03.get_eid_rsp);
+        assert!(!ch.security_level().r_mac());
+        assert_eq!(ch.open_response(&rsp, &[0x90, 0x00]).unwrap(), rsp);
+    }
+
+    #[test]
+    fn security_levels_that_exist_and_levels_that_do_not() {
+        assert_eq!(
+            SecurityLevel::ALL.map(|level| level.bits()),
+            [
+                LEVEL_C_MAC_ONLY,
+                LEVEL_C_MAC_C_DECRYPTION,
+                LEVEL_C_MAC_R_MAC,
+                LEVEL_C_MAC_R_MAC_R_ENC,
+                LEVEL_ALL
+            ]
+        );
+        assert_eq!(levels(), "01 03 11 31 33");
+        for level in SecurityLevel::ALL {
+            assert_eq!(SecurityLevel::from_bits(level.bits()), Some(level));
+        }
+        // 00 is no secure messaging, the rest are a level without the C-MAC or
+        // R-ENC without R-MAC, which pySim refuses too (scp.py:627-628).
+        for bits in [0x00u8, 0x02, 0x10, 0x13, 0x20, 0x21, 0x23, 0x41, 0xFF] {
+            assert_eq!(SecurityLevel::from_bits(bits), None, "{bits:02X}");
+            assert_eq!(
+                Error::UnsupportedLevel(bits, levels()).to_string(),
+                format!(
+                    "security level {bits:02X} is not an SCP03 level this tool builds \
+                     (01 03 11 31 33)"
+                )
+            );
+        }
+    }
+
+    // Today's C-MAC path must not move: `Channel::new` is the channel the live
+    // commands had, and its bytes are the ones pySim records at level 01.
+    #[test]
+    fn level_c_mac_bytes_do_not_move() {
+        let keys = pysim_keys(&AES128_11);
+        let mut by_default = Channel::new(&keys);
+        let mut by_level = Channel::at_level(&keys, SecurityLevel::C_MAC);
+        assert_eq!(by_default.security_level(), SecurityLevel::C_MAC);
+        assert_eq!(by_default.encryption_counter(), 0);
+        let cmd = command("80e2910006bf3e035c015a00");
+        let from_new = hex::encode(by_default.wrap(&cmd).unwrap().encode().unwrap());
+        let from_level = hex::encode(by_level.wrap(&cmd).unwrap().encode().unwrap());
+        assert_eq!(from_new, from_level);
+        // no encryption, and the counter does not move
+        assert_eq!(by_default.encryption_counter(), 0);
+        assert!(!by_default.security_level().c_enc());
+        assert!(!by_default.security_level().r_mac());
+        assert!(!by_default.security_level().r_enc());
     }
 }
