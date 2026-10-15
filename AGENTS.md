@@ -1122,6 +1122,22 @@ run lists every profile that would be erased, provisioning ones are never erased
 `notification-not-found`; the dry run says a removed notification is never sent to the operator). Result codes: delete
 1/2/3/127, reset and remove 1 `nothing-to-delete` / 127 `undefined-error`; all other codes `es10-refused`. Encodings checked
 2026-10-10 against pySim `rsp.asn` and lpac `es10b.c` / `es10c.c` (cited in `es10.rs`).
+
+The write outside #117 is `euicc set-default-dp <ADDRESS>` (ES10a SetDefaultDpAddress
+`BF3F { 80 <address> }`, [V] SGP.22 v2.5 §5.7.4; the encoding was checked 2026-10-15 against pySim
+`euicc.py`, read and cited in `es10.rs`), which changes where the eUICC looks for profiles rather than
+any profile on it: the address is validated before any reader is opened (non-empty, no control
+characters, at most `es10::MAX_DEFAULT_DP_ADDRESS_BYTES` = 128 bytes), and the dry run, which is the
+default, opens no reader at all, reporting the exact request and `card_touched: false`; `--yes` sends
+it as one STORE DATA. Its help text and its dry-run output carry one warning
+(`euicc::DEFAULT_DP_WARNING`, so the two cannot drift): the default SM-DP+ address is where the card
+sends every future download request, so an address that cannot be reached leaves the eUICC unable to
+download anything until the address is set back. `--yes` then re-reads GetEuiccConfiguredAddresses
+(`BF3C`), the same read `euicc info` shows as `configured_addresses.default_smdp`, and fails
+`verify-failed` unless the card now shows the new address (result 127 is `undefined-error`, 0 is the
+only success, a code the enumeration does not name is `es10-refused` with the code carried); like the
+other eUICC writes it is not a tool over MCP.
+
 The swSIM fixture is not an eUICC, so the card-side check is the live-card item on #92; the tests
 use synthetic ES10 responses through the replay transport.
 

@@ -37,6 +37,7 @@
 //! | AuthenticateServer | 5.7.13 | `BF38` | `BF38` |
 //! | CancelSession | 5.7.14 | `BF41` | `BF41` |
 //! | GetEuiccConfiguredAddresses (ES10a) | 5.7.3 | `BF3C` | `BF3C` |
+//! | SetDefaultDpAddress (ES10a) | 5.7.4 | `BF3F` | `BF3F` |
 //! | GetProfilesInfo | 5.7.15 | `BF2D` | `BF2D` |
 //! | EnableProfile | 5.7.16 | `BF31` | `BF31` |
 //! | DisableProfile | 5.7.17 | `BF32` | `BF32` |
@@ -64,10 +65,10 @@
 //! # Not implemented
 //!
 //! The "alternative case 3" form of EnableProfile and DeleteProfile (P1 `90`,
-//! no response data, 5.7.16 and 5.7.18), and the SetDefaultDpAddress function
-//! (HandleNotification is ES9+, in [`crate::es9`]). None is
-//! in issue #18. Decoders preserve tags they do not know in `unknown` fields
-//! instead of dropping them.
+//! no response data, 5.7.16 and 5.7.18) is the only ES10x function still
+//! missing; SetDefaultDpAddress (5.7.4) arrived with issue #227, and
+//! HandleNotification is ES9+, in [`crate::es9`]. Decoders preserve tags they
+//! do not know in `unknown` fields instead of dropping them.
 
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "es10";
@@ -747,6 +748,17 @@ code_enum! {
     ResetResult { Ok = 0, NothingToDelete = 1, UndefinedError = 127 }
 }
 code_enum! {
+    /// `SetDefaultDpAddrRes` ([SGP.22 v2.5 §5.7.4]): ok(0) and
+    /// undefinedError(127), tag `80` in the **response**. pySim `euicc.py`
+    /// line 116 spells the enumeration as `Enum(Int8ub, ok=0,
+    /// undefinedError=127)`.
+    ///
+    /// A code the enumeration does not name stays
+    /// [`SetDefaultDpResult::Unknown`] and is never guessed into one of the
+    /// two.
+    SetDefaultDpResult { Ok = 0, UndefinedError = 127 }
+}
+code_enum! {
     /// `euiccCategory` ([SGP.22 v2.5 §5.7.8]).
     EuiccCategory { Other = 0, BasicEuicc = 1, MediumEuicc = 2, ContactlessEuicc = 3 }
 }
@@ -793,6 +805,49 @@ pub fn get_eid_request() -> Vec<u8> {
 /// [SGP.22 v2.5 §5.7.3]): the default SM-DP+ and root SM-DS addresses.
 pub fn get_euicc_configured_addresses_request() -> Vec<u8> {
     tlv(0xBF3C, &[])
+}
+
+/// Longest `defaultDpAddress` this crate will encode, in bytes.
+///
+/// `[U]` SGP.22 constrains `defaultDpAddress` with an ASN.1 `SIZE(1..max)`, but
+/// the upper bound was **not** verified against the v2.5 PDF text, so this is
+/// this crate's own cap and not a published constant. 128 is chosen because an
+/// SM-DP+ address is a host name or a URL, neither of which comes anywhere near
+/// it, and a cap that stops a hostile address is worth more than a byte of room.
+/// `blocks` still segments a longer frame when `--max-segment` is small, so
+/// this is a policy limit, not a wire limit.
+pub const MAX_DEFAULT_DP_ADDRESS_BYTES: usize = 128;
+
+/// `SetDefaultDpAddressRequest`, `BF 3F { 80 <defaultDpAddress> }` (ES10a,
+/// [SGP.22 v2.5 §5.7.4]): tag `80` [V] carries the new default SM-DP+ address
+/// as a **UTF-8 string**.
+///
+/// **Tag `80` means two different things in this one function.** In the request
+/// it is the address, a string; in the response it is `SetDefaultDpAddrRes`, an
+/// **INTEGER** ([`decode_set_default_dp`]). They are different messages, which
+/// is exactly why the encoder and the decoder are two functions and never one.
+///
+/// Verified 2026-10-15 against pySim `euicc.py` (osmocom/pysim, GPL reference,
+/// read not copied): line 108 `class DefaultDpAddress(BER_TLV_IE, tag=0x80)`
+/// with `_construct = Utf8Adapter(GreedyBytes)` (a UTF-8 string), lines 115-118
+/// `class SetDefaultDpAddrRes(BER_TLV_IE, tag=0x80)` with
+/// `_construct = Enum(Int8ub, ok=0, undefinedError=127)` and
+/// `class SetDefaultDpAddress(BER_TLV_IE, tag=0xbf3f, nested=[DefaultDpAddress,
+/// SetDefaultDpAddrRes])`, and `do_set_default_dp_address` at line 424, which
+/// builds exactly this frame and sends it as one STORE DATA.
+///
+/// # Errors
+///
+/// [`EncodeError::FieldLength`] for an empty address or one over
+/// [`MAX_DEFAULT_DP_ADDRESS_BYTES`].
+pub fn set_default_dp_request(address: &str) -> Result<Vec<u8>, EncodeError> {
+    check(
+        address.as_bytes(),
+        "defaultDpAddress",
+        1,
+        MAX_DEFAULT_DP_ADDRESS_BYTES,
+    )?;
+    Ok(tlv(0xBF3F, &tlv(0x80, address.as_bytes())))
 }
 
 /// Longest `profileNickname`, in bytes ([SGP.22 v2.5 §5.7.21]:
@@ -1471,6 +1526,36 @@ pub fn decode_configured_addresses(data: &[u8]) -> Result<ConfiguredAddresses, D
 pub fn decode_set_nickname(data: &[u8]) -> Result<SetNicknameResult, DecodeError> {
     result_code(data, 0xBF29, "setNicknameResult")
         .map(|(code, _)| SetNicknameResult::from_code(code))
+}
+
+/// `SetDefaultDpAddressResponse` ([SGP.22 v2.5 §5.7.4]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetDefaultDpResponse {
+    /// `SetDefaultDpAddrRes`, tag `80`, an **INTEGER** - not the UTF-8 string
+    /// the same tag carries in the request.
+    pub result: SetDefaultDpResult,
+    /// Tags this decoder does not know.
+    pub unknown: Vec<Unknown>,
+}
+
+/// Decodes the response data of SetDefaultDpAddress (`BF3F`) into its
+/// `SetDefaultDpAddrRes` ([SGP.22 v2.5 §5.7.4]).
+///
+/// Separate from [`decode_configured_addresses`] on purpose: tag `80` is the
+/// address, a UTF-8 string, in the GetEuiccConfiguredAddresses **response**,
+/// and `SetDefaultDpAddrRes`, an INTEGER, here. One decoder cannot read both,
+/// and the tests pin which is which.
+///
+/// # Errors
+///
+/// A [`DecodeError`] for a malformed or incomplete structure - including a
+/// `BF3C` answer, whose outer tag is not `BF3F` and whose `80` is a string.
+pub fn decode_set_default_dp(data: &[u8]) -> Result<SetDefaultDpResponse, DecodeError> {
+    let (result, unknown) = result_code(data, 0xBF3F, "setDefaultDpAddrRes")?;
+    Ok(SetDefaultDpResponse {
+        result: SetDefaultDpResult::from_code(result),
+        unknown,
+    })
 }
 
 /// One `NotificationMetadata` (`BF2F`) of a ListNotification response
@@ -3216,6 +3301,86 @@ mod tests {
         let root_only =
             decode_configured_addresses(&h("BF3C 10 81 0E 64732E6578616D706C652E6F7267")).unwrap();
         assert_eq!(root_only.default_dp_address, None);
+    }
+
+    #[test]
+    fn set_default_dp_request_is_the_bf3f_string_frame() {
+        // Hand-written from pySim `euicc.py` (lines 108, 118, 424): BF3F
+        // wrapping 80 wrapping the UTF-8 address. Two addresses, because one
+        // would not catch a length field that only happens to come out right.
+        assert_eq!(
+            set_default_dp_request("dp.example.com").unwrap(),
+            h("BF3F 10 80 0E 64702E6578616D706C652E636F6D")
+        );
+        assert_eq!(
+            set_default_dp_request("smdp.example.com").unwrap(),
+            h("BF3F 12 80 10 736D64702E6578616D706C652E636F6D")
+        );
+        assert!(matches!(
+            set_default_dp_request(&"a".repeat(200)),
+            Err(EncodeError::FieldLength {
+                field: "defaultDpAddress",
+                ..
+            })
+        ));
+        assert!(set_default_dp_request(&"a".repeat(MAX_DEFAULT_DP_ADDRESS_BYTES)).is_ok());
+        assert!(matches!(
+            set_default_dp_request(""),
+            Err(EncodeError::FieldLength {
+                field: "defaultDpAddress",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn set_default_dp_result_is_an_integer_where_the_request_tag_was_a_string() {
+        // Tag 80 in one function: a UTF-8 string outbound, an INTEGER inbound.
+        // Confusing the two is the obvious bug here.
+        assert_eq!(
+            decode_set_default_dp(&h("BF3F 03 80 01 00")).unwrap(),
+            SetDefaultDpResponse {
+                result: SetDefaultDpResult::Ok,
+                unknown: vec![]
+            }
+        );
+        assert_eq!(
+            decode_set_default_dp(&h("BF3F 03 80 01 7F"))
+                .unwrap()
+                .result,
+            SetDefaultDpResult::UndefinedError
+        );
+        // A code the enumeration does not name is kept, never guessed.
+        assert_eq!(
+            decode_set_default_dp(&h("BF3F 03 80 01 63"))
+                .unwrap()
+                .result,
+            SetDefaultDpResult::Unknown(99)
+        );
+        assert_eq!(
+            decode_set_default_dp(&h("BF3F 03 80 01 63"))
+                .unwrap()
+                .result
+                .code(),
+            99
+        );
+        // An address is not a result, and BF3C is not this response.
+        assert!(matches!(
+            decode_set_default_dp(&h("BF3C 09 80 07 64702E6578616D")),
+            Err(DecodeError::WrongTag { .. })
+        ));
+        assert!(decode_set_default_dp(&h("BF3F 10 80 07 64702E6578616D")).is_err());
+        assert!(decode_set_default_dp(&h("BF3F 00")).is_err());
+        // An unknown tag beside the result is kept whole, not dropped.
+        assert_eq!(
+            decode_set_default_dp(&h("BF3F 06 80 01 00 99 01 AA"))
+                .unwrap()
+                .unknown,
+            vec![Unknown {
+                tag: 0x99,
+                value: vec![0xAA]
+            }]
+        );
     }
 
     #[test]
