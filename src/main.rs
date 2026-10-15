@@ -942,7 +942,51 @@ struct FuzzOtaArgs {
     /// sweeping it.
     #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
     spi2: Option<u8>,
+
+    /// The class byte the ENVELOPE and its CAT follow-ups are sent at.
+    ///
+    /// Not [`FuzzSafety`]: `fuzz apdu` already has a `--class`, and that one
+    /// is the CLA an INS-discovery sweep starts from, not an enum.
+    #[arg(long, value_enum, value_name = "CLASS", help = CLASS_ARG_HELP, long_help = CLASS_ARG_LONG_HELP)]
+    class: Option<tar::Class>,
 }
+
+/// `--class`, one line.
+///
+/// Written once and used by both commands that take it, so `scan --help` and
+/// `fuzz ota --help` cannot drift apart.
+const CLASS_ARG_HELP: &str =
+    "The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).";
+
+/// `--class`, in full: what 2G APDU format is, and what it is not.
+///
+/// \[V] every row below is one `if (SIMLibrary.third_gen_apdu)` in
+/// SIMTester, which `-2g` sets false; see `src/tar.rs` `policy_for` for the
+/// file and line of each.
+const CLASS_ARG_LONG_HELP: &str = "\
+2G APDU FORMAT: a 2G SIM has no ETSI class byte, so the CAT commands go out at CLA A0 instead of
+CLA 80. Only the class byte moves; the INS and the P1 P2 are identical in both forms.
+
+    command        3G form      2G form      SIMTester reference
+    ENVELOPE       80 C2 00 00  A0 C2 00 00  Envelope.getAPDU, lines 22-25
+    FETCH          80 12 00 00  A0 12 00 00  APDUToolkit.fetchAPDU, lines 28-31
+    GET RESPONSE   00 C0 00 00  A0 C0 00 00  APDUToolkit.getResponse, lines 48-51
+    STATUS         00 F2 00 00  A0 F2 00 00  APDUToolkit.sendStatus, lines 81-84
+
+This is SIMTester's -2g / --2g-cmds. Without --class the ENVELOPE is sent at CLA 80, which is what
+this tool has always sent.
+
+THE FOLLOW-UPS FOLLOW. A 61 xx drawn by a CLA A0 ENVELOPE is collected with GET RESPONSE at CLA
+A0, and a 91 xx is drained with FETCH at CLA A0, because that is the one thing SIMTester switches.
+At CLA 80 both are what they always were: GET RESPONSE at CLA 00, FETCH at CLA 80. TERMINAL
+PROFILE and TERMINAL RESPONSE (--terminal-profile) go out at the same class as the audit.
+
+WHAT IT IS REPORTED IN: data.tar.class and data.tar.class_octet, or data.fuzz.ota.class. The class
+is part of the run fingerprint, so --diff refuses to compare a CLA 80 run against a CLA A0 one
+rather than reporting a difference between two different exchanges.
+
+WHAT IT IS NOT: the file walk. SELECT and READ BINARY stay plain ISO 7816-4 at CLA 00, and SCP03
+is untouched.";
 
 /// Everything `sim-doctor gp` takes.
 #[derive(Args)]
@@ -2687,6 +2731,10 @@ struct ScanArgs {
     /// filtered, since the baseline is measured from it. Ignored under `--tar off`.
     #[arg(long, value_name = "REGEX")]
     tar_filter: Option<tar::ResponseFilter>,
+
+    /// The class byte the ENVELOPE and its CAT follow-ups are sent at.
+    #[arg(long, value_enum, value_name = "CLASS", help = CLASS_ARG_HELP, long_help = CLASS_ARG_LONG_HELP)]
+    class: Option<tar::Class>,
 
     /// Send a TERMINAL PROFILE to the card before the TAR audit.
     ///
@@ -7452,6 +7500,7 @@ fn run_fuzz_apdu(args: FuzzApduArgs) -> contract::ExitCode {
         emit_fuzz_report(
             apdu_scan::KIND,
             reader.as_str(),
+            None,
             audit.to_json(),
             &findings,
             args.safety.json,
@@ -7464,6 +7513,7 @@ fn run_fuzz_apdu(args: FuzzApduArgs) -> contract::ExitCode {
         emit_fuzz_report(
             apdu_scan::KIND,
             reader.as_str(),
+            None,
             audit.to_json(),
             &findings,
             args.safety.json,
@@ -7565,6 +7615,7 @@ fn run_fuzz_mutate(args: FuzzMutateArgs) -> contract::ExitCode {
         return emit_fuzz_report(
             apdu_fuzz::KIND,
             "(dry run)",
+            None,
             apdu_fuzz::plan_json(&config),
             &[],
             args.json,
@@ -7612,6 +7663,7 @@ fn run_fuzz_mutate(args: FuzzMutateArgs) -> contract::ExitCode {
     emit_fuzz_report(
         apdu_fuzz::KIND,
         if args.mock { "mock" } else { "replay" },
+        None,
         run.to_json(),
         &findings,
         args.json,
@@ -7626,10 +7678,11 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
         Err(code) => return code,
     };
 
+    let class = args.class.unwrap_or_default();
     let sweep = fuzz::Sweep {
         quick: args.safety.quick,
         poke: args.poke,
-        class: tar::Class::Etsi,
+        class,
     };
     let overrides = fuzz::Overrides {
         kic: args.kic,
@@ -7656,6 +7709,7 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
     emit_fuzz_report(
         fuzz::KIND,
         reader.as_str(),
+        Some(&fuzz::class_note(class)),
         audit.to_json(),
         &findings,
         args.safety.json,
@@ -7668,6 +7722,7 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
 fn emit_fuzz_report(
     kind: &str,
     reader: &str,
+    note: Option<&str>,
     audit: serde_json::Value,
     findings: &[rules::Finding],
     json: bool,
@@ -7696,6 +7751,14 @@ fn emit_fuzz_report(
         }
     } else {
         let mut text = format!("{kind} on {reader}: {} finding(s)\n", findings.len());
+        // What was in force goes in the human report as well as the JSON: a
+        // sweep that found nothing is a different fact at each class, and a
+        // reader of the log cannot see which one they are looking at otherwise.
+        if let Some(note) = note {
+            text.push_str("  ");
+            text.push_str(note);
+            text.push('\n');
+        }
         for finding in findings {
             text.push_str(&format!("{finding}\n"));
         }

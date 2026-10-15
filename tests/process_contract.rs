@@ -3156,3 +3156,51 @@ fn gp_install_only_and_update_send_one_apdu_and_refuse_the_rest() {
     );
     assert_eq!(out.code(), 1, "{}", out.stderr);
 }
+
+/// #268: `--class` is refused, not ignored, anywhere it does not apply.
+///
+/// The flag exists on `scan` and on `fuzz ota` and nowhere else, so every
+/// other command refuses it at the parse rather than taking it and doing
+/// nothing. `scan --tar off --class gsm` is refused by the command itself,
+/// because no ENVELOPE is sent at all and a class reported as "in force"
+/// would be a class nothing went out at.
+#[test]
+fn the_class_flag_is_refused_where_it_does_not_apply() {
+    let bin = env!("CARGO_BIN_EXE_sim-doctor");
+
+    // A CLA that is neither of the two the tool can name.
+    let out = std::process::Command::new(bin)
+        .args(["scan", "--class", "3g", "--tar", "off"])
+        .output()
+        .expect("the binary runs");
+    assert!(
+        !out.status.success(),
+        "a class that is not etsi or gsm is refused"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("etsi") && err.contains("gsm"), "{err}");
+
+    // A command line that is well formed but asks for nothing to be sent.
+    let out = std::process::Command::new(bin)
+        .args(["scan", "--tar", "off", "--class", "gsm"])
+        .output()
+        .expect("the binary runs");
+    assert!(
+        !out.status.success(),
+        "--class beside --tar off is refused rather than ignored"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("--class is only meaningful with --tar other than off"),
+        "{err}"
+    );
+
+    // A command that does not take the flag at all.
+    let out = std::process::Command::new(bin)
+        .args(["why", "gsma/msl-zero-allowed", "--class", "gsm"])
+        .output()
+        .expect("the binary runs");
+    assert!(!out.status.success(), "why does not take --class");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--class"), "{err}");
+}

@@ -570,8 +570,17 @@ pub struct Sweep {
     /// The three-TAR "poke": like quick, but only [`POKE_TARS`] (issue #267).
     /// Takes precedence over `quick` when both are set.
     pub poke: bool,
-    /// The ENVELOPE class, same meaning as [`crate::tar::Class`].
+    /// The ENVELOPE class, same meaning as [`crate::tar::Class`], and the
+    /// class every CAT follow-up of the sweep goes out at too.
     pub class: Class,
+}
+
+/// The one-line note the human report carries about the class in force.
+pub fn class_note(class: Class) -> String {
+    format!(
+        "ENVELOPE CLASS: {class} - {}",
+        crate::tar::class_assumption(class)
+    )
 }
 
 impl Default for Sweep {
@@ -661,6 +670,8 @@ impl Audit {
             "quick": self.sweep.quick,
             "poke": self.sweep.poke,
             "class": self.sweep.class.id(),
+            "class_octet": format!("{:02X}", self.sweep.class.octet()),
+            "class_assumption": crate::tar::class_assumption(self.sweep.class),
             "max_probes": MAX_PROBES,
             "probed": self.probes.len(),
             "exhausted": self.exhausted,
@@ -757,7 +768,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
     // exactly as before, with no CAT state change.
     let mut terminal_profile = None;
     if baseline.generic_error().is_some() {
-        terminal_profile = Some(tar::send_terminal_profile(session, policy)?);
+        terminal_profile = Some(tar::send_terminal_profile(session, sweep.class, policy)?);
         calibration = calibrate(
             session,
             sweep.class,
@@ -1671,6 +1682,105 @@ mod tests {
             Overrides::default().mechanisms(&MECHANISMS),
             MECHANISMS.to_vec()
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // #268: the 2G class, on the bytes the card actually received.
+    // ---------------------------------------------------------------------
+
+    /// The class byte of every command this card was sent, in order.
+    ///
+    /// A swicc-pcsc reader is sent the header and the data apart, so this
+    /// alternates the class byte of each ENVELOPE with the `D1` tag that opens
+    /// its body. `step_by(2)` is the header list.
+    fn classes_sent(card: &Scripted) -> Vec<u8> {
+        card.sent
+            .borrow()
+            .iter()
+            .step_by(2)
+            .map(|opening| opening[0])
+            .collect()
+    }
+
+    /// No flag is CLA 80: `Sweep::default` and the wire agree.
+    #[test]
+    fn the_default_sweep_opens_its_envelopes_at_cla_80() {
+        assert_eq!(Sweep::default().class, Class::Etsi);
+        let mut card = swsim_like();
+        audit(&mut card, Sweep::default(), &Policy::default(), &mut || {
+            false
+        })
+        .expect("no transport error");
+        assert!(
+            classes_sent(&card).iter().all(|cla| *cla == 0x80),
+            "every envelope opened at CLA 80 with no flag"
+        );
+    }
+
+    /// `--class gsm` opens every ENVELOPE of the sweep at CLA A0, INS and P1
+    /// P2 unchanged.
+    ///
+    /// \[V] SIMTester `Envelope.getAPDU`, lines 22-25.
+    #[test]
+    fn the_gsm_class_opens_every_envelope_of_the_sweep_at_cla_a0() {
+        let mut card = swsim_like();
+        let run = audit(
+            &mut card,
+            Sweep {
+                quick: true,
+                poke: false,
+                class: Class::Gsm,
+            },
+            &Policy::default(),
+            &mut || false,
+        )
+        .expect("no transport error");
+
+        let sent = classes_sent(&card);
+        assert!(!sent.is_empty(), "the sweep sent something");
+        assert!(
+            sent.iter().all(|cla| *cla == 0xA0),
+            "every envelope opened at CLA A0, {} openings",
+            sent.len()
+        );
+        assert_eq!(&card.sent.borrow()[0][..4], &[0xA0, 0xC2, 0x00, 0x00]);
+        assert_eq!(run.to_json()["class_octet"], "A0");
+    }
+
+    /// Both classes sweep the same (TAR, keyset, mechanism) plan and reach the
+    /// same verdict; only the class byte differs.
+    #[test]
+    fn both_classes_sweep_the_same_plan() {
+        let mut seen = Vec::new();
+        for class in Class::ALL {
+            let mut card = swsim_like();
+            let run = audit(
+                &mut card,
+                Sweep {
+                    quick: true,
+                    poke: false,
+                    class,
+                },
+                &Policy::default(),
+                &mut || false,
+            )
+            .expect("no transport error");
+            seen.push((run.probes.len(), run.accepted().count(), run.is_complete()));
+        }
+        assert_eq!(seen[0], seen[1], "the plan does not depend on the class");
+        assert_eq!(
+            seen[0].0,
+            tars(true).len() * QUICK_KEYSETS.len() * QUICK_MECHANISMS.len()
+        );
+    }
+
+    /// The class note a human report carries names the class in force and the
+    /// class it did not probe.
+    #[test]
+    fn the_class_note_names_both_classes() {
+        let note = class_note(Class::Gsm);
+        assert!(note.contains("gsm (A0)"), "{note}");
+        assert!(note.contains("--class etsi"), "{note}");
     }
 }
 

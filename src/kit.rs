@@ -124,13 +124,20 @@ impl Run {
     }
 
     fn scan(args: &ScanArgs) -> Run {
+        // One source of truth for the class: the selection's own field, which
+        // `--tar` can only ever spell as `etsi`. `--class` is the one way to
+        // move it, so there is nowhere for a second copy to disagree.
+        let mut tar = args.tar.clone().skipping_responses(args.tar_filter.clone());
+        if let Some(class) = args.class {
+            tar.class = class;
+        }
         Run {
             reader: args.reader.clone(),
             reader_index: args.reader_index,
             dialect: args.dialect,
             limits: limits_from(&args.walk_limits),
             break_after_count_match: args.walk_limits.break_after_count_match,
-            tar: args.tar.clone().skipping_responses(args.tar_filter.clone()),
+            tar,
             terminal_profile: args.terminal_profile,
             por: if args.sms_deliver_report {
                 tar::PorMode::SmsDeliverReport
@@ -774,6 +781,16 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
     }
     if args.tar_uncapped && matches!(args.tar.mode, tar::Mode::Off) {
         eprintln!("sim-doctor: --tar-uncapped is only meaningful with --tar other than off");
+        return contract::ExitCode::Error;
+    }
+    // Refused rather than ignored: a --class beside `--tar off` sends no
+    // ENVELOPE at all, so honouring it silently would report a class in force
+    // that nothing was sent at.
+    if args.class.is_some() && matches!(args.tar.mode, tar::Mode::Off) {
+        eprintln!(
+            "sim-doctor: --class is only meaningful with --tar other than off; it chooses the \
+             class byte the TAR probes are sent at"
+        );
         return contract::ExitCode::Error;
     }
     let run = d.run.get_or_init(|| Run::scan(&args));

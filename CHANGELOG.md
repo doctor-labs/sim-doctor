@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
   asks for them. A wrong transport key, an edited cell, a malformed row and a missing column are all
   refused by name, and no key material reaches an output, an error or the file. The PostgreSQL half of the
   issue is NOT built: it needs a database driver, and this repository takes no new crate.
+- `scan --class etsi|gsm` and `fuzz ota --class etsi|gsm`: the 2G APDU format for the TAR/OTA path (SIMTester's `-2g`). The ENVELOPE and its FETCH, GET RESPONSE, TERMINAL PROFILE and TERMINAL RESPONSE follow-ups go out at CLA A0 instead of CLA 80; the default is unchanged (CLA 80) and the file walk is untouched (#268).
 
 ### Fixed
 - `card` shell: VERIFY, UNBLOCK and CHANGE refuse a PIN or PUK the card reports blocked with SW `98 40` ("CHV blocked", ETSI TS 102 221) as well as `69 83`, before any secret is sent; the retry counter from `63 Cx` is reported as before (#195).
