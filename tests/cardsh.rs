@@ -1131,3 +1131,40 @@ fn query_card_key_a_missing_field_column_is_an_error() {
     assert_eq!(r[0]["ok"], false);
     assert!(r[0]["error"].as_str().unwrap().contains("SPN"));
 }
+
+#[test]
+fn retrieve_tags_and_retrieve_data_run_read_only_without_yes() {
+    // RETRIEVE DATA (0xCB) is read-only: without --yes it is still sent, and
+    // the recorded card's 5C tag list and per-tag values reach the JSON records.
+    let out = card(
+        "cardsh_retrieve.jsonl",
+        &[
+            "--json",
+            "-c",
+            "select 3F00/ADF:A0000000871002/6F5A; retrieve_tags; retrieve_data 2F; \
+             retrieve_data 30; retrieve_data 5C; retrieve_data 31",
+        ],
+    );
+    // The last command asks for a tag the card does not hold, so the run is a
+    // failure (exit 1) with five records before it.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 6);
+    assert!(r.iter().take(5).all(|v| v["ok"] == true), "{r:?}");
+    // retrieve_tags: the 5C tag list, upper-case, in order.
+    assert_eq!(r[1]["data"]["tags"], serde_json::json!(["2F", "30"]));
+    // retrieve_data 2F / 30: the tag's value bytes.
+    assert_eq!(r[2]["data"]["value"], "AABBCC");
+    assert_eq!(r[3]["data"]["value"], "1122");
+    // retrieve_data 5C: the tag list itself is a value too.
+    assert_eq!(r[4]["data"]["value"], "2F30");
+    // The absent tag: the card's 6A 82 surfaces as a refused, not a data gap.
+    assert_eq!(r[5]["ok"], false);
+    let err = r[5]["error"].as_str().unwrap_or("");
+    assert!(err.contains("31") && err.contains("refused"), "{err}");
+}
