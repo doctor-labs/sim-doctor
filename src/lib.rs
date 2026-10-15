@@ -136,6 +136,7 @@ pub mod rules;
 pub mod saip;
 pub mod sarif;
 pub mod scan;
+pub mod scp02;
 pub mod scp03;
 pub mod scp03t;
 pub mod session;
@@ -306,6 +307,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: scp03::NAME,
         owns: "SCP03 key derivation, cryptograms, C-MAC, the INITIALIZE UPDATE / EXTERNAL AUTHENTICATE builders and the auth/scp03-missing-mac rule over a recorded exchange; sends nothing.",
         depends_on: &[apdu::NAME, rules::NAME],
+    },
+    ModuleInfo {
+        name: scp02::NAME,
+        owns: "SCP02 session key derivation, the card and host cryptograms under S-ENC, the B.1.2.2 C-MAC with its 8-byte ICV, the INITIALIZE UPDATE and EXTERNAL AUTHENTICATE builders, the INITIALIZE UPDATE response parser, the MANAGE CHANNEL release and the SCP02 key version ranges; sends nothing.",
+        depends_on: &[apdu::NAME],
     },
     ModuleInfo {
         name: scp03t::NAME,

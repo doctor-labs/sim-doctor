@@ -904,6 +904,22 @@ management), DELETE [key], other INSTALL kinds or STORE DATA. Replay tests only;
 DELETE/INSTALL/LOAD and the channel-1 flow come from an independent Python SCP03 model that first
 reproduces pySim's `SCP03_Test_AES128_11` and the existing GET STATUS vectors.
 
+**SCP02 (issue #255, not shipped).** `src/scp02.rs` is the SCP02 core: two-key 3DES
+session key derivation, the card and host cryptograms under S-ENC, the B.1.2.2 C-MAC
+with its 8-byte ICV, the INITIALIZE UPDATE and EXTERNAL AUTHENTICATE builders, the
+fixed 28-byte INITIALIZE UPDATE response parser (6-byte card challenge, mandatory
+2-byte sequence counter) and the MANAGE CHANNEL release. It is
+verified against pySim and there is **no `gp scp02` subcommand**: nothing sends a byte, no reader is opened and the
+card is never touched. Verified against pySim `pySim/global_platform/scp.py` (`SCP02`,
+`Scp02SessionKeys`, `scp02_key_derivation`) and its `SCP02_Auth_Test` / `SCP02_Test`
+vectors; the ICV advance was cross-read against GlobalPlatformPro `SCP02Wrapper.wrap`
+(LGPL-3.0, read only). Its known-answer tests are green: they replay pySim own
+handshake, its four-command C-MAC chain and its INITIALIZE UPDATE response bytes. Four things differ from SCP03 and matter: 3DES keys, a
+6-byte card challenge plus a mandatory sequence counter, cryptograms keyed with S-ENC
+over that counter, and an 8-byte ICV advanced by one DES encryption per command
+instead of a 16-byte MAC chaining value. SCP02 R-MAC/R-ENC/C-DECRYPTION and the SCP02
+key check value are not implemented.
+
 ### MCP
 
 `sim-doctor mcp` serves MCP over stdio with nine tools: `scan`, `rules_list`, `rules_explain`, the read-only eUICC queries `euicc_info`, `euicc_profiles` and `euicc_notifications`, and the read-only GlobalPlatform reads `gp_info`, `gp_ara` and `gp_status` (the `gp` writes are never tools; each takes an optional `reader`; they return the `euicc ... --json` / `gp ... --json` envelope unchanged).
