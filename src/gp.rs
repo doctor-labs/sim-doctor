@@ -2310,6 +2310,51 @@ pub fn delete_command(aid: &[u8], related: bool) -> Result<Command, BuildError> 
     ))
 }
 
+/// The Default Selected privilege is Card Reset (GP Card Spec v2.3.1 Table 11-7,
+/// privileges byte 1 bit 3, `04`), encoded in three bytes as GlobalPlatformPro's
+/// `makeDefaultSelected` does (`BitField.encode(CardReset, 3)`).
+const DEFAULT_SELECTED_PRIVILEGES: [u8; 3] = [0x04, 0x00, 0x00];
+
+/// Builds, and does not send, INSTALL [for make selectable] (`80 E6 08 00`): the
+/// Default Selected privilege for an installed application. Data is an empty load
+/// file AID, an empty module AID, the application AID, the privileges and the
+/// Install Parameters, with no install token. GP Card Spec v2.3.1 Table 11-41 (P1
+/// b4 make selectable, `08`) and 11.5; layout as GlobalPlatformPro
+/// `GPSession.makeDefaultSelected`. The C9 tag is mandatory (Table 11-49), so the
+/// parameters are an empty `C9 00`; GlobalPlatformPro sends none, which this
+/// deliberately does not copy.
+///
+/// # Errors
+///
+/// [`BuildError::Aid`] for an AID that is not 5 to 16 bytes.
+pub fn make_default_command(aid: &[u8]) -> Result<Command, BuildError> {
+    aid_ok("make default target", aid, false)?;
+    let mut data = vec![0x00, 0x00];
+    lv(&mut data, "make default target", aid)?;
+    lv(&mut data, "privileges", &DEFAULT_SELECTED_PRIVILEGES)?;
+    data.extend_from_slice(&[0xC9, 0x00]);
+    Ok(Command::case4(
+        Header::new(0x80, 0xE6, 0x08, 0x00),
+        data,
+        Le::Short(0),
+    ))
+}
+
+/// Builds, and does not send, STORE DATA (`80 E2 90 00`) with data `4F LEN AID`:
+/// the new Issuer Security Domain AID. Layout and P1 `90` as GlobalPlatformPro
+/// `GPSession.renameISD`; the GP Card Spec v2.3.1 STORE DATA table was not
+/// available offline, so those two values are taken from that source only.
+///
+/// # Errors
+///
+/// [`BuildError::Aid`] for an AID that is not 5 to 16 bytes.
+pub fn rename_isd_command(new_aid: &[u8]) -> Result<Command, BuildError> {
+    aid_ok("new ISD AID", new_aid, false)?;
+    let mut data = vec![0x4F];
+    lv(&mut data, "new ISD AID", new_aid)?;
+    Ok(Command::case3(Header::new(0x80, 0xE2, 0x90, 0x00), data))
+}
+
 /// Builds, and does not send, INSTALL [for install] (`make_selectable` false,
 /// P1 `04`) or INSTALL [for install and make selectable] (P1 `0C`): `80 E6 <P1>
 /// 00 Lc <data> 00` with data = `LV(load file AID) LV(module AID) LV(application
@@ -2363,6 +2408,24 @@ pub struct DeleteRequest {
     /// Also delete the related objects (DELETE P2 `80`).
     pub related: bool,
 }
+
+/// What `gp make-default` makes Default Selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MakeDefaultRequest {
+    /// The application AID (5 to 16 bytes).
+    pub aid: Vec<u8>,
+}
+
+/// What `gp rename-isd` renames the Issuer Security Domain to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenameIsdRequest {
+    /// The new ISD AID (5 to 16 bytes).
+    pub new_aid: Vec<u8>,
+}
+
+/// Shown in the dry run and in the result of `gp rename-isd`. The ISD is the
+/// administrative entry point: once renamed, the old AID no longer selects it.
+pub const RENAME_ISD_WARNING: &str = "renaming the issuer security domain changes the AID that selects it: the old ISD AID no longer selects this card's ISD, so a mistyped or unrecorded new AID can lock you out of administrative access. Check the new AID against your records before adding --yes";
 
 /// What `gp install` loads and installs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2566,6 +2629,54 @@ pub fn delete_dry_run(req: &DeleteRequest) -> Result<Value, BuildError> {
         &plan,
         "no keys were given, so the card was not contacted and the registry was not checked; add --keys-file or --keys-env to check that the AID is present, and --yes to send",
     ))
+}
+
+fn make_default_plan_steps(req: &MakeDefaultRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: "make_default",
+        command: make_default_command(&req.aid)?,
+    }])
+}
+
+fn rename_isd_plan_steps(req: &RenameIsdRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: "rename_isd",
+        command: rename_isd_command(&req.new_aid)?,
+    }])
+}
+
+/// `gp make-default` without keys: the offline dry run. Sends nothing and does
+/// not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError::Aid`] for an AID that is not 5 to 16 bytes.
+pub fn make_default_dry_run(req: &MakeDefaultRequest) -> Result<Value, BuildError> {
+    let plan = make_default_plan_steps(req)?;
+    Ok(offline_dry_run(
+        "make-default",
+        json!({ "aid": hex_of(&req.aid), "privilege": "card_reset" }),
+        &plan,
+        "no keys were given, so the card was not contacted and the registry was not checked; add --keys-file or --keys-env to check that the AID is an application, and --yes to send",
+    ))
+}
+
+/// `gp rename-isd` without keys: the offline dry run, with the warning. Sends
+/// nothing and does not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError::Aid`] for an AID that is not 5 to 16 bytes.
+pub fn rename_isd_dry_run(req: &RenameIsdRequest) -> Result<Value, BuildError> {
+    let plan = rename_isd_plan_steps(req)?;
+    let mut data = offline_dry_run(
+        "rename-isd",
+        json!({ "new_aid": hex_of(&req.new_aid) }),
+        &plan,
+        "no keys were given, so the card was not contacted and the registry was not checked; add --keys-file or --keys-env to check that the new AID is free, and --yes to send",
+    );
+    data["warning"] = json!(RENAME_ISD_WARNING);
+    Ok(data)
 }
 
 /// `gp install` without keys: the offline dry run, with the default ISD AID as
@@ -2905,6 +3016,117 @@ pub fn delete<S: CardSession + ?Sized>(
         },
         |after| registry_entry(after, &aid_hex).is_none(),
     )
+}
+
+/// `gp make-default` over SCP03: authenticate once, GET STATUS, refuse when the
+/// AID is not in the registry (`aid-not-present`), is the ISD (`refusing-isd`),
+/// is not an application (`not-an-application`) or the registry cannot be read
+/// in full (`registry-unreadable`), all with nothing sent; a dry run unless
+/// `yes`; otherwise INSTALL [for make selectable] MAC'd, and a re-read that must
+/// show Card Reset on the AID (`verify-failed`).
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn make_default<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &MakeDefaultRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let aid_hex = hex::encode_upper(&req.aid);
+    let target = json!({ "aid": aid_hex, "privilege": "card_reset" });
+    write(
+        session,
+        trace,
+        auth,
+        yes,
+        "make-default",
+        target,
+        |_| make_default_plan_steps(req),
+        |registry| {
+            if !registry_complete(registry) {
+                return Err((
+                    "registry-unreadable",
+                    "the registry could not be read in full, so the AID cannot be confirmed present; nothing was sent".into(),
+                ));
+            }
+            match registry_entry(registry, &aid_hex) {
+                None => Err((
+                    "aid-not-present",
+                    format!("{aid_hex} is not in the card registry; nothing was sent"),
+                )),
+                Some(("isd", _)) => Err((
+                    "refusing-isd",
+                    format!("{aid_hex} is the issuer security domain; it is refused and nothing was sent"),
+                )),
+                Some(("applications", e)) => Ok(json!({
+                    "present": true,
+                    "scope": "applications",
+                    "lifecycle": e["lifecycle_name"],
+                    "privileges": e["privilege_names"],
+                })),
+                Some((scope, _)) => Err((
+                    "not-an-application",
+                    format!("{aid_hex} is a {scope} entry, not an application; nothing was sent"),
+                )),
+            }
+        },
+        |after| {
+            registry_entry(after, &aid_hex).is_some_and(|(_, e)| {
+                e["privilege_names"]
+                    .as_array()
+                    .is_some_and(|p| p.iter().any(|n| n.as_str() == Some("card_reset")))
+            })
+        },
+    )
+}
+
+/// `gp rename-isd` over SCP03: authenticate once, GET STATUS, refuse when the new
+/// AID is already in the registry (`new-aid-present`) or the registry cannot be
+/// read in full (`registry-unreadable`), all with nothing sent; a dry run unless
+/// `yes`; otherwise STORE DATA MAC'd, and a re-read that must list the new AID as
+/// the ISD (`verify-failed`). The result always carries [`RENAME_ISD_WARNING`].
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn rename_isd<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &RenameIsdRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let new_hex = hex::encode_upper(&req.new_aid);
+    let mut report = write(
+        session,
+        trace,
+        auth,
+        yes,
+        "rename-isd",
+        json!({ "new_aid": new_hex }),
+        |_| rename_isd_plan_steps(req),
+        |registry| {
+            if !registry_complete(registry) {
+                return Err((
+                    "registry-unreadable",
+                    "the registry could not be read in full, so the new AID cannot be checked against it; nothing was sent".into(),
+                ));
+            }
+            match registry_entry(registry, &new_hex) {
+                Some((scope, _)) => Err((
+                    "new-aid-present",
+                    format!("{new_hex} is already a {scope} entry in the card registry; nothing was sent"),
+                )),
+                None => Ok(json!({ "new_aid": new_hex, "present": false })),
+            }
+        },
+        |after| registry_entry(after, &new_hex).is_some_and(|(scope, _)| scope == "isd"),
+    )?;
+    report.data["warning"] = json!(RENAME_ISD_WARNING);
+    Ok(report)
 }
 
 /// `gp install` over SCP03: authenticate once, GET STATUS, refuse when the load
@@ -5946,5 +6168,127 @@ mod tests {
         assert_eq!(r.data["sent"], true);
         assert_eq!(r.data["error"]["step"], "store_data");
         assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn make_default_and_rename_isd_bytes_are_exact() {
+        // INSTALL [for make selectable] 80 E6 08 00: empty load file and module AIDs,
+        // the AID, Card Reset `04 00 00`, `C9 00`, no install token.
+        let m = make_default_command(&hex::decode(APP1).unwrap()).unwrap();
+        assert_eq!(
+            hex::encode_upper(m.encode().unwrap()),
+            "80E6080010000007A000000062000103040000C90000"
+        );
+        // STORE DATA 80 E2 90 00 with `4F LEN AID`, no Le.
+        let r = rename_isd_command(&hex::decode(APP1).unwrap()).unwrap();
+        assert_eq!(
+            hex::encode_upper(r.encode().unwrap()),
+            "80E29000094F07A0000000620001"
+        );
+        assert!(matches!(
+            make_default_command(&[1, 2, 3]),
+            Err(BuildError::Aid { .. })
+        ));
+        assert!(matches!(
+            rename_isd_command(&[1, 2, 3]),
+            Err(BuildError::Aid { .. })
+        ));
+    }
+
+    #[test]
+    fn make_default_and_rename_dry_runs_send_nothing_and_warn() {
+        let m = make_default_dry_run(&MakeDefaultRequest {
+            aid: hex::decode(APP1).unwrap(),
+        })
+        .unwrap();
+        assert_eq!(m["card_touched"], false);
+        assert_eq!(m["sent"], false);
+        assert_eq!(
+            m["plan"]["apdus"][0]["apdu"],
+            "80E6080010000007A000000062000103040000C90000"
+        );
+        let r = rename_isd_dry_run(&RenameIsdRequest {
+            new_aid: hex::decode(APP1).unwrap(),
+        })
+        .unwrap();
+        assert_eq!(r["card_touched"], false);
+        assert_eq!(
+            r["plan"]["apdus"][0]["apdu"],
+            "80E29000094F07A0000000620001"
+        );
+        assert_eq!(r["warning"], RENAME_ISD_WARNING);
+        assert!(RENAME_ISD_WARNING.contains("lock you out"));
+    }
+
+    #[test]
+    fn make_default_refuses_isd_absent_and_non_applications_and_sends_nothing() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let ok = make_default(
+            &mut card,
+            true,
+            &MakeDefaultRequest {
+                aid: hex::decode(APP1).unwrap(),
+            },
+            &auth(&keys),
+            false,
+        )
+        .unwrap();
+        assert!(ok.data.get("error").is_none(), "{:?}", ok.data);
+        assert_eq!(ok.data["pre_read"]["present"], true);
+        assert_eq!(ok.data["dry_run"], true);
+        assert_eq!(sent_ins(&card, "E6"), 0);
+        for (aid, kind) in [
+            ("A000000151000000", "refusing-isd"),
+            ("A0000000620099", "aid-not-present"),
+        ] {
+            let r = make_default(
+                &mut card,
+                true,
+                &MakeDefaultRequest {
+                    aid: hex::decode(aid).unwrap(),
+                },
+                &auth(&keys),
+                true,
+            )
+            .unwrap();
+            assert_eq!(r.data["error"]["kind"], kind, "{aid}");
+        }
+        assert_eq!(sent_ins(&card, "E6"), 0);
+        assert_no_key_material(&everything(&ok, &keys));
+    }
+
+    #[test]
+    fn rename_isd_refuses_a_taken_aid_and_dry_run_sends_nothing() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let taken = rename_isd(
+            &mut card,
+            true,
+            &RenameIsdRequest {
+                new_aid: hex::decode(APP1).unwrap(),
+            },
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(taken.data["error"]["kind"], "new-aid-present");
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        let free = rename_isd(
+            &mut card,
+            true,
+            &RenameIsdRequest {
+                new_aid: hex::decode("A000000151000001").unwrap(),
+            },
+            &auth(&keys),
+            false,
+        )
+        .unwrap();
+        assert!(free.data.get("error").is_none(), "{:?}", free.data);
+        assert_eq!(free.data["dry_run"], true);
+        assert_eq!(free.data["sent"], false);
+        assert_eq!(free.data["warning"], RENAME_ISD_WARNING);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert_no_key_material(&everything(&free, &keys));
     }
 }
