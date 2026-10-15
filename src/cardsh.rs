@@ -1445,7 +1445,7 @@ impl Shell {
         let send = self.may_change_card(args);
         let card = self.equipped()?;
         let _ = card.ef()?;
-        let cla = card.cla();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
         let path = card.chans[&card.channel].path();
         if !send {
             let probe = Self::retrieve_data_bytes(0x5C);
@@ -1474,7 +1474,7 @@ impl Shell {
         let card = self.equipped()?;
         let _ = card.ef()?;
         let path = card.chans[&card.channel].path();
-        let cla = card.cla();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
         let tags = self.retrieve_data_tags(cla)?;
         Ok(Reply::ok(
             format!(
@@ -1496,7 +1496,7 @@ impl Shell {
         let card = self.equipped()?;
         let _ = card.ef()?;
         let path = card.chans[&card.channel].path();
-        let cla = card.cla();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
         let value = self.retrieve_data_tag(cla, tag)?;
         Ok(Reply::ok(
             format!("tag {tag:02X} in {}: {}", path, hex_upper(&value)),
@@ -1528,7 +1528,7 @@ impl Shell {
         sent: &mut Vec<session::Exchange>,
     ) -> Result<(), CmdErr> {
         let card = self.equipped()?;
-        let cla = card.cla();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
         let command = Command::case3(apdu::Header::new(cla, 0xDB, 0x00, p2), data.to_vec());
         let ex = card.send(&command)?;
         sent.push(ex);
@@ -4931,7 +4931,7 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(
             sent[0],
-            [0x00, 0xDB, 0x00, 0x80, 0x05, 0x2F, 0x03, 0xAA, 0xBB, 0xCC],
+            [0x80, 0xDB, 0x00, 0x80, 0x05, 0x2F, 0x03, 0xAA, 0xBB, 0xCC],
             "CLA 00 on basic channel, INS 0xDB, P1 0x00, P2 0x80 first block"
         );
     }
@@ -4955,7 +4955,7 @@ mod tests {
         assert_eq!(sent.len(), 1, "only the SET DATA delete");
         assert_eq!(
             sent[0],
-            [0x00, 0xDB, 0x00, 0x80, 0x01, 0x30],
+            [0x80, 0xDB, 0x00, 0x80, 0x01, 0x30],
             "DELETE DATA: tag-only fragment"
         );
     }
@@ -4984,10 +4984,10 @@ mod tests {
         assert_eq!(deletes.len(), 2);
         assert!(deletes
             .iter()
-            .any(|c| c == &[0x00, 0xDB, 0x00, 0x80, 0x01, 0x2F]));
+            .any(|c| c == &[0x80, 0xDB, 0x00, 0x80, 0x01, 0x2F]));
         assert!(deletes
             .iter()
-            .any(|c| c == &[0x00, 0xDB, 0x00, 0x80, 0x01, 0x30]));
+            .any(|c| c == &[0x80, 0xDB, 0x00, 0x80, 0x01, 0x30]));
     }
 
     #[test]
@@ -5187,7 +5187,7 @@ mod tests {
         assert!(r.text.contains("2F 30"), "{}", r.text);
         let sent = log.borrow().clone();
         assert_eq!(sent.len(), 1, "exactly one exchange: {:?}", sent);
-        assert_eq!(sent[0], [0x00, 0xCB, 0x00, 0x80, 0x01, 0x5C, 0x00]);
+        assert_eq!(sent[0], [0x80, 0xCB, 0x00, 0x80, 0x01, 0x5C, 0x00]);
     }
 
     #[test]
