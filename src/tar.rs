@@ -319,6 +319,42 @@ const SPI1_PLAIN: u8 = 0x00;
 /// `SPI2 |= (1 << 5) & 0x20 = 0x20`. So `0x01 | 0x08 | 0x20 = 0x29`.
 const SPI2_PROBE: u8 = 0x29;
 
+/// The proof-of-receipt mode the TAR probe's Command Packet asks for.
+///
+/// \[V] SIMTester `CommandPacket.POR_MODE_SMS_DELIVER_REPORT = 0x0` and
+/// `POR_MODE_SMS_SUBMIT = 0x1`, both written by `setPoRMode` as
+/// `SPI2 |= (mode << 5) & 0x20`: the mode is SPI2 bit 5 and no other bit moves.
+/// SIMTester's `-sdr` flag sets `TARScanner.use_sms_submit = false`, which is
+/// the switch between the two. The default is SMS-SUBMIT, as in SIMTester's
+/// `TARScanner.use_sms_submit = true`. The TPDU wrapping the envelope is
+/// SMS-DELIVER in both modes; only the PoR bit differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PorMode {
+    /// SPI2 `29`, the probe's default.
+    #[default]
+    SmsSubmit,
+    /// SPI2 `09`: the same probe with bit 5 cleared.
+    SmsDeliverReport,
+}
+
+impl PorMode {
+    /// The SPI2 octet this mode writes into the Command Packet.
+    pub const fn spi2(self) -> u8 {
+        match self {
+            Self::SmsSubmit => SPI2_PROBE,
+            Self::SmsDeliverReport => SPI2_PROBE & !0x20,
+        }
+    }
+
+    /// The name the report carries.
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::SmsSubmit => "sms-submit",
+            Self::SmsDeliverReport => "sms-deliver-report",
+        }
+    }
+}
+
 /// The key set the probe's KIC and KID name.
 ///
 /// \[V] `CommandPacket.setKeyset(0)` writes `KIC |= 0 << 4` and
@@ -1342,6 +1378,9 @@ pub struct Audit {
     /// The TERMINAL PROFILE sent before the audit, when `--terminal-profile`
     /// asked for one. `None` means none was sent, which is the default.
     pub terminal_profile: Option<TerminalProfile>,
+    /// The proof-of-receipt mode the probes' Command Packets asked for
+    /// (`--sms-deliver-report`). The default is SMS-SUBMIT.
+    pub por_mode: PorMode,
 }
 
 impl Audit {
@@ -1355,6 +1394,7 @@ impl Audit {
             stopped: Some(reason.into()),
             exchanges: 0,
             terminal_profile: None,
+            por_mode: PorMode::default(),
         }
     }
 
@@ -1479,6 +1519,10 @@ impl Audit {
         });
         if let Some(object) = block.as_object_mut() {
             object.insert("probes".to_owned(), json!(self.probe_sample()));
+            // Present only when `--sms-deliver-report` changed the probes, so the default report is unchanged.
+            if self.por_mode != PorMode::default() {
+                object.insert("por_mode".to_owned(), json!(self.por_mode.id()));
+            }
         }
         block
     }
@@ -1712,9 +1756,10 @@ fn probe<S: CardSession + ?Sized>(
     session: &mut S,
     tar: u32,
     class: Class,
+    por: PorMode,
     policy: &Policy,
 ) -> Result<Result<Reply, String>, Error> {
-    let Some(apdu) = envelope_apdu(tar, class) else {
+    let Some(apdu) = envelope_apdu_with(tar, class, KEY_SET, SPI1_PLAIN, por.spi2()) else {
         return Err(Error::UnbuildableEnvelope(
             "the SMS-PP-DOWNLOAD envelope does not fit a short APDU data field",
         ));
@@ -1916,6 +1961,25 @@ pub fn audit_with<S: CardSession + ?Sized>(
     terminal_profile: bool,
     interrupt: &mut dyn FnMut() -> bool,
 ) -> Result<Audit, Error> {
+    audit_with_por(
+        session,
+        selection,
+        policy,
+        terminal_profile,
+        PorMode::default(),
+        interrupt,
+    )
+}
+
+/// [`audit_with`] with the proof-of-receipt mode the probes ask for (`--sms-deliver-report`).
+pub fn audit_with_por<S: CardSession + ?Sized>(
+    session: &mut S,
+    selection: &Selection,
+    policy: &Policy,
+    terminal_profile: bool,
+    por: PorMode,
+    interrupt: &mut dyn FnMut() -> bool,
+) -> Result<Audit, Error> {
     if matches!(selection.mode, Mode::Off) {
         return Ok(Audit {
             selection: selection.clone(),
@@ -1925,6 +1989,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
             stopped: Some("the operator asked for no TAR probing".to_owned()),
             exchanges: 0,
             terminal_profile: None,
+            por_mode: por,
         });
     }
 
@@ -1941,6 +2006,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
             stopped: Some(format!("the selection {selection} matched no TAR")),
             exchanges: 0,
             terminal_profile: None,
+            por_mode: por,
         });
     }
 
@@ -1971,7 +2037,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
             halted = Some(Stop::Interrupted);
             break;
         }
-        match probe(session, tar, selection.class, policy) {
+        match probe(session, tar, selection.class, por, policy) {
             Ok(Ok(reply)) => {
                 exchanges += reply.exchanges;
                 calibration.push(Some(reply.signature));
@@ -2004,7 +2070,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
                 halted = Some(Stop::Interrupted);
                 break;
             }
-            match probe(session, tar, selection.class, policy) {
+            match probe(session, tar, selection.class, por, policy) {
                 Ok(Ok(reply)) => {
                     exchanges += reply.exchanges;
                     let verdict = if baseline.refuses(&reply.signature) {
@@ -2066,6 +2132,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
         stopped,
         exchanges,
         terminal_profile: sent_profile,
+        por_mode: por,
     })
 }
 
@@ -2816,15 +2883,77 @@ mod tests {
     // The probe loop, against a card that answers from a script
     // -----------------------------------------------------------------------
 
+    /// `-sdr` changes one octet of the probe on the wire: SPI2 goes from `29`
+    /// to `09`, and nothing else in the envelope moves. The default is the
+    /// SMS-SUBMIT envelope, unchanged.
+    #[test]
+    fn the_deliver_report_mode_changes_only_the_spi2_octet() {
+        assert_eq!(PorMode::SmsSubmit.spi2(), 0x29);
+        assert_eq!(PorMode::SmsDeliverReport.spi2(), 0x09);
+        let submit = envelope_apdu_with(
+            0,
+            Class::Etsi,
+            KEY_SET,
+            SPI1_PLAIN,
+            PorMode::SmsSubmit.spi2(),
+        )
+        .expect("built");
+        let report = envelope_apdu_with(
+            0,
+            Class::Etsi,
+            KEY_SET,
+            SPI1_PLAIN,
+            PorMode::SmsDeliverReport.spi2(),
+        )
+        .expect("built");
+
+        assert_eq!(submit, envelope_apdu(0, Class::Etsi).expect("built"));
+        assert_eq!(submit.len(), report.len());
+        let moved: Vec<(u8, u8)> = submit
+            .iter()
+            .zip(&report)
+            .filter(|(a, b)| a != b)
+            .map(|(a, b)| (*a, *b))
+            .collect();
+        assert_eq!(moved, vec![(0x29, 0x09)]);
+    }
+
+    /// The probe sends the SMS-DELIVER-REPORT mode to the card when asked.
+    #[test]
+    fn a_deliver_report_probe_sends_the_report_mode_to_the_card() {
+        let mut card = StrictIfd::new(&[0x90, 0x00]);
+        probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::SmsDeliverReport,
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("the card cooperated");
+
+        assert_eq!(card.sent.len(), 1);
+        assert_eq!(
+            card.sent[0],
+            envelope_apdu_with(0, Class::Etsi, KEY_SET, SPI1_PLAIN, 0x09).expect("built")
+        );
+    }
+
     /// The happy path on a real reader: ONE complete APDU, no header-only
     /// transmit. The scripted IFD below rejects a bare header the way a CCID
     /// reader does, so a regression to the two-step form fails here.
     #[test]
     fn a_probe_is_one_complete_apdu_on_a_reader_that_rejects_a_bare_header() {
         let mut card = StrictIfd::new(&[0x90, 0x00]);
-        let reply = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect("the card cooperated");
+        let reply = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("the card cooperated");
 
         assert_eq!(card.sent.len(), 1);
         assert_eq!(card.sent[0], envelope_apdu(0, Class::Etsi).expect("built"));
@@ -2840,9 +2969,15 @@ mod tests {
     #[test]
     fn a_61xx_after_the_whole_apdu_is_collected_with_get_response() {
         let mut card = Scripted::new(&[&[0x61, 0x02], &[0xAB, 0xCD, 0x90, 0x00]]);
-        let reply = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect("answered");
+        let reply = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("answered");
         let sent = card.sent();
         assert_eq!(sent.len(), 2);
         assert_eq!(sent[0].len(), 5 + PROBE_ENVELOPE_LEN);
@@ -2857,9 +2992,15 @@ mod tests {
     #[test]
     fn a_91xx_is_recorded_as_the_answer_and_never_fetched() {
         let mut card = Scripted::new(&[&[0x91, 0x80]]);
-        let reply = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect("answered");
+        let reply = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("answered");
         assert_eq!(card.sent().len(), 1, "no FETCH, no loop");
         assert_eq!(reply.signature.status().expect("sw").to_string(), "9180");
         assert_eq!(reply.exchanges, 1);
@@ -2896,9 +3037,15 @@ mod tests {
     #[test]
     fn a_probe_on_swicc_is_the_opening_then_the_envelope_then_the_answer() {
         let mut card = Scripted::cycling(&[&[0x61, 0x3A], &[0x90, 0x00]]).swicc();
-        let reply = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect("the card cooperated");
+        let reply = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("the card cooperated");
 
         let sent = card.sent();
         assert_eq!(sent.len(), 2);
@@ -2917,9 +3064,15 @@ mod tests {
     #[test]
     fn a_card_that_wants_a_different_length_stops_the_probe() {
         let mut card = Scripted::new(&[&[0x61, 0x10]]).swicc();
-        let reason = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect_err("the card wanted 16 octets, not 58");
+        let reason = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect_err("the card wanted 16 octets, not 58");
         assert!(reason.contains("16 octets"), "{reason}");
         assert!(
             reason.contains("abandoned rather than sent mismatched"),
@@ -2939,9 +3092,15 @@ mod tests {
     #[test]
     fn a_card_that_does_not_ask_for_data_is_taken_at_its_word() {
         let mut card = Scripted::new(&[&[0x6D, 0x00]]).swicc();
-        let reply = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect("the card answered");
+        let reply = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("the card answered");
         assert_eq!(reply.exchanges, 1);
         assert_eq!(card.sent().len(), 1);
         assert_eq!(
@@ -2960,9 +3119,15 @@ mod tests {
         // 128 data octets, then the FETCH and its answer.
         let fetch_answer = [0xD0u8, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00];
         let mut card = Scripted::new(&[&[0x61, 0x3A], &[0x91, 0x80], &fetch_answer]).swicc();
-        let reply = probe(&mut card, 0, Class::Etsi, &Policy::default())
-            .expect("no transport error")
-            .expect("the card cooperated");
+        let reply = probe(
+            &mut card,
+            0,
+            Class::Etsi,
+            PorMode::default(),
+            &Policy::default(),
+        )
+        .expect("no transport error")
+        .expect("the card cooperated");
 
         let sent = card.sent();
         assert_eq!(sent.len(), 3, "opening, envelope data, then the FETCH");

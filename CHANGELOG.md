@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
 - `fuzz ota` sends a TERMINAL PROFILE itself, once, when its calibration is a generic-error blind spot, then calibrates again; the profile is reported as `data.fuzz.ota.terminal_profile` (#211). A card that already judges envelopes gets no profile.
 - `fuzz`: SIMTester crypto fuzzers 5-8 and 13-16 build their Command Packet (CC and ciphering) in `FuzzerSpec::secured_command_packet`; the `fuzz ota` sweep is not rewired onto them yet.
 - OTA fuzzer table: SIMTester's seventeen fuzzers (`FuzzerFactory` 0-16) as `fuzz::FUZZERS`, with the counter-mode, PoR and KIC/KID algorithm fields and a Command Packet header builder. Fuzzers with a KIC or KID algorithm return no packet until the cryptographic checksum and ciphering are built (#209).
+- `scan --tar --sms-deliver-report` (`--sdr`, SIMTester's `-sdr`): the TAR probes ask for SMS-DELIVER-REPORT as the proof-of-receipt mode (SPI2 `09`) instead of SMS-SUBMIT (SPI2 `29`, the default); reported as `data.tar.por_mode` (#207).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).

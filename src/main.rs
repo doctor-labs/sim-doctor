@@ -1322,6 +1322,18 @@ struct ScanArgs {
     #[arg(long)]
     terminal_profile: bool,
 
+    /// Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT.
+    ///
+    /// SIMTester's `-sdr`. Only meaningful with --tar other than `off`; without it the command
+    /// line is refused (exit 2).
+    ///
+    /// WHAT CHANGES: one octet of the Command Packet inside each ENVELOPE. The PoR mode is bit 5
+    /// of SPI2, which is `29` for SMS-SUBMIT (the default) and `09` for SMS-DELIVER-REPORT, as
+    /// SIMTester's `CommandPacket.POR_MODE_*` writes it. It names the mode the card is asked to
+    /// answer the proof of receipt with. The mode is reported as data.tar.por_mode.
+    #[arg(long = "sms-deliver-report", alias = "sdr")]
+    sms_deliver_report: bool,
+
     /// The human report: a doctor-kit face (rich, plain or compact), or the full legacy report.
     ///
     /// The default is the kit's face (rich on a terminal, plain otherwise): the findings, the

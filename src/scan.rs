@@ -3375,6 +3375,7 @@ mod tests {
             stopped: None,
             exchanges: 2,
             terminal_profile: None,
+            por_mode: tar::PorMode::default(),
         };
         let ran = Verdict::new(rules::Findings::complete(Vec::new()), 2)
             .scored(true)
@@ -3482,6 +3483,7 @@ mod tests {
             stopped: None,
             exchanges: 4,
             terminal_profile: None,
+            por_mode: tar::PorMode::default(),
         }
     }
 
@@ -3503,6 +3505,7 @@ mod tests {
             stopped: None,
             exchanges: 2,
             terminal_profile: None,
+            por_mode: tar::PorMode::default(),
         }
     }
 
