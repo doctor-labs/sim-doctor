@@ -30,6 +30,7 @@ use crate::apdu::{self, Command, StatusWord};
 use crate::ef;
 use crate::fcp::{self, TagSet};
 use crate::fs::{self, FileId};
+use crate::gp;
 use crate::session::{self, PendingFollowUp, Policy};
 use crate::transport::CardSession;
 
@@ -1428,6 +1429,101 @@ impl Shell {
             }
             _ => Err(CmdErr::new(format!("unknown service action: {action}"))),
         }
+    }
+
+    /// SET STATUS (GP Card Spec v2.3.1 11.5.2.3.3, INS F0), built by
+    /// `gp::set_status_command` (the same builder the GP path uses). `--scope isd`
+    /// sets the ISD state (`initialized|secured|locked|terminated`); `--scope
+    /// app|apps` locks or unlocks the applet or SSD named by `--aid`
+    /// (`lock|unlock`). A state from the other family is refused by the builder.
+    /// The CLA is `80` with the channel in use ORed in.
+    fn cmd_set_status(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let scope: &str = args.get_one::<String>("scope").expect("required (default)");
+        let status_text: &str = args.get_one::<String>("status").expect("required");
+        let scope_val = match scope {
+            "isd" => gp::SetStatusScope::Isd,
+            "app" => gp::SetStatusScope::AppOrSsd,
+            "apps" => gp::SetStatusScope::IsdAndAssocApps,
+            _ => unreachable!("clap value_parser restricts scope"),
+        };
+        let target = match status_text {
+            "initialized" => gp::SetStatusTarget::Isd(gp::IsdState::Initialized),
+            "secured" => gp::SetStatusTarget::Isd(gp::IsdState::Secured),
+            "locked" => gp::SetStatusTarget::Isd(gp::IsdState::Locked),
+            "terminated" => gp::SetStatusTarget::Isd(gp::IsdState::Terminated),
+            "lock" => gp::SetStatusTarget::App(gp::AppLock::Locked),
+            "unlock" => gp::SetStatusTarget::App(gp::AppLock::Unlocked),
+            _ => unreachable!("clap value_parser restricts status"),
+        };
+        let aid = match args.get_one::<String>("aid") {
+            Some(hex) => parse_hex(hex).map_err(CmdErr::new)?,
+            None => Vec::new(),
+        };
+        // App and apps scopes name a specific AID; ISD scope carries none.
+        if matches!(
+            scope_val,
+            gp::SetStatusScope::AppOrSsd | gp::SetStatusScope::IsdAndAssocApps
+        ) && aid.is_empty()
+        {
+            return Err(CmdErr::new(
+                "SET STATUS in this scope requires --aid <HEX> (5 to 16 octets)",
+            ));
+        }
+        if matches!(scope_val, gp::SetStatusScope::Isd) && !aid.is_empty() {
+            return Err(CmdErr::new("SET STATUS with --scope isd takes no --aid"));
+        }
+        // One builder for the APDU (CLA 80, state in P2). Then the channel bits
+        // go into the CLA, as the GP session does for its own commands.
+        let command = gp::set_status_command(scope_val, target, &aid)
+            .map_err(|e| CmdErr::new(e.to_string()))?;
+        let mut wire = command
+            .encode()
+            .map_err(|e| CmdErr::new(format!("not an APDU: {e}")))?;
+        let send = self.may_change_card(args);
+        // Terminating the ISD is irreversible: it needs --yes AND --confirm-terminate.
+        if target == gp::SetStatusTarget::Isd(gp::IsdState::Terminated)
+            && send
+            && !args.get_flag("confirm_terminate")
+        {
+            return Err(CmdErr::new(
+                "SET STATUS terminated is irreversible: add --confirm-terminate along with --yes",
+            ));
+        }
+        let cla = apdu::class_on_channel(0x80, self.equipped()?.channel).unwrap_or(0x80);
+        wire[0] = cla;
+        let p1 = scope_val as u8;
+        let p2 = target.p2();
+        let head = format!("{:02X} F0 {:02X} {:02X}", cla, p1, p2);
+        let aid_tag = if aid.is_empty() {
+            "(ISD, no AID)"
+        } else {
+            &format!("AID {}", hex_upper(&aid))
+        };
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {head} <Lc> {aid_tag} (WARNING: SET STATUS to `locked` or `terminated` on the ISD, or `lock` on an applet, can permanently disable the card or applet; add --yes to send)"
+                ),
+                json!({ "sent": false, "scope": scope, "status": status_text, "aid": if aid.is_empty() { json!(null) } else { json!(hex_upper(&aid)) }, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let card = self.equipped()?;
+        let command =
+            Command::decode(&wire).map_err(|e| CmdErr::new(format!("not an APDU: {e}")))?;
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let sw_hex = sw.map(|s| s.to_string());
+        let data = json!({ "sent": true, "scope": scope, "status": status_text, "sw": sw_hex, "apdu": hex_upper(&wire) });
+        if sw.is_some_and(StatusWord::is_success) {
+            return Ok(Reply::ok(
+                format!("SET STATUS done (scope {scope}, state {status_text})"),
+                data,
+            ));
+        }
+        Err(CmdErr {
+            message: format!("SET STATUS refused: {}", sw_text(sw)),
+            data,
+        })
     }
 
     /// SET DATA (TS 102 221 11.3.2): write one BER-TLV object `tag` + `value`
@@ -4170,6 +4266,15 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("nswo-context").long("nswo-context").action(clap::ArgAction::SetTrue).help("use the SUCI 5G NSWO identity context (P2 02) instead of SUCI (P2 01)")),
         )
         .subcommand(
+            C::new("set_status")
+                .about("SET STATUS (GP Card Spec 11.5.2.3.3, INS F0): change a lifecycle state. --scope isd sets the ISD state, STATUS initialized|secured|locked|terminated; --scope app|apps locks or unlocks the applet or SSD named by --aid, STATUS lock|unlock. A dry run unless --yes. **WARNING:** locking or terminating the card can permanently disable it; terminated also needs --confirm-terminate")
+                .arg(Arg::new("scope").long("scope").value_name("SCOPE").value_parser(["isd", "app", "apps"]).default_value("app").help("isd: the ISD only (no --aid); app: one applet/SSD by --aid (default); apps: a security domain and its associated applets"))
+                .arg(Arg::new("status").required(true).value_parser(["initialized", "secured", "locked", "terminated", "lock", "unlock"]).help("for --scope isd: initialized, secured, locked or terminated; for --scope app or apps: lock or unlock"))
+                .arg(Arg::new("aid").long("aid").value_name("HEX").help("the AID whose state changes (required for app/apps scope)"))
+                .arg(yes_arg())
+                .arg(Arg::new("confirm_terminate").long("confirm-terminate").action(clap::ArgAction::SetTrue).help("also required with --yes for status terminated: the ISD becomes TERMINATED and cannot be undone")),
+        )
+        .subcommand(
             C::new("quit")
                 .visible_aliases(["exit", "eof"])
                 .about("Leave the shell"),
@@ -4501,6 +4606,7 @@ impl Shell {
             "retrieve_tags" => self.cmd_retrieve_tags(args),
             "retrieve_data" => self.cmd_retrieve_data(args),
             "get_identity" => self.cmd_get_identity(args),
+            "set_status" => self.cmd_set_status(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
             "select_path" => {
                 self.cmd_select(&path_arg(args.get_one::<String>("path").expect("required")))
@@ -7733,5 +7839,122 @@ mod file_management_tests {
             !data.is_empty() || r.data["sw"] == "9000",
             "Should have identity data or SW 9000"
         );
+    }
+
+    #[test]
+    fn set_status_is_a_dry_run_that_prints_the_apdu_and_a_warning() {
+        let (mut sh, log) = shell_log();
+        log.borrow_mut().clear();
+        // Dry run: the APDU is printed, nothing reaches the card.
+        let r = sh.exec("set_status lock --aid A0000000620001");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["scope"], "app");
+        assert_eq!(r.data["status"], "lock");
+        assert_eq!(r.data["aid"], "A0000000620001");
+        // 80 F0 40 80 <Lc> AID: CLA 80 on the basic channel (channel 0).
+        assert!(r.text.contains("80 F0 40 80"), "{}", r.text);
+        assert!(
+            r.text.contains("--yes to send") && r.text.contains("permanently disable"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty(), "nothing reached the card");
+
+        // ISD scope: no AID, case 1 (4-byte APDU).
+        let r = sh.exec("set_status locked --scope isd");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["aid"], serde_json::Value::Null);
+        assert!(
+            r.text.contains("80 F0 80 7F"),
+            "ISD lock is 80 F0 80 7F: {}",
+            r.text
+        );
+    }
+
+    #[test]
+    fn set_status_yes_sends_ins_f0_and_the_testcard_locks_and_unlocks() {
+        let (mut sh, log) = shell_with("pin1=1234", true);
+        log.borrow_mut().clear();
+        // Lock the card: SET STATUS ISD, locked. The test card answers 9000 and
+        // sets its locked flag.
+        let r = sh.exec("set_status locked --scope isd --yes");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["sw"], "9000");
+        let sent = log.borrow().clone();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], [0x80, 0xF0, 0x80, 0x7F]);
+
+        // A write while locked is refused by the card (6A 81), even though the
+        // same command works when unlocked.
+        log.borrow_mut().clear();
+        let r = sh.exec("apdu --yes --expect-sw 6A81 00D6000002546F");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sw"], "6A81", "{}", r.text);
+
+        // Unlock the card: SET STATUS ISD, initialized (0x07).
+        log.borrow_mut().clear();
+        let r = sh.exec("set_status initialized --scope isd --yes");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sw"], "9000");
+
+        // After unlock, SET STATUS itself is still accepted (9000).
+        log.borrow_mut().clear();
+        let r = sh.exec("set_status locked --scope isd --yes");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sw"], "9000", "{}", r.text);
+    }
+
+    #[test]
+    fn set_status_app_scope_requires_an_aid() {
+        let (mut sh, _log) = shell_log();
+        // App scope without --aid: rejected before anything is built.
+        let r = sh.exec("set_status lock --scope app");
+        assert!(!r.ok && r.text.contains("aid"), "{}", r.text);
+    }
+
+    #[test]
+    fn set_status_refuses_a_state_from_the_wrong_scope() {
+        let (mut sh, log) = shell_log();
+        log.borrow_mut().clear();
+        // An application lock with the ISD scope, and an ISD state with an app scope.
+        let r = sh.exec("set_status lock --scope isd --yes");
+        assert!(
+            !r.ok && r.text.contains("not valid for scope"),
+            "{}",
+            r.text
+        );
+        let r = sh.exec("set_status terminated --scope app --aid A0000000620001 --yes");
+        assert!(
+            !r.ok && r.text.contains("not valid for scope"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty(), "a refused state is never sent");
+    }
+
+    #[test]
+    fn set_status_terminate_needs_yes_and_confirm_terminate() {
+        let (mut sh, log) = shell_with("pin1=1234", true);
+        log.borrow_mut().clear();
+        // --yes alone is refused: the ISD would be TERMINATED, irreversibly.
+        let r = sh.exec("set_status terminated --scope isd --yes");
+        assert!(
+            !r.ok && r.text.contains("--confirm-terminate"),
+            "{}",
+            r.text
+        );
+        assert!(
+            log.borrow().is_empty(),
+            "nothing sent without --confirm-terminate"
+        );
+        // A dry run of terminate prints the APDU and sends nothing.
+        let (mut dry, dry_log) = shell_log();
+        let r = dry.exec("set_status terminated --scope isd");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(r.text.contains("80 F0 80 FF"), "{}", r.text);
+        assert!(dry_log.borrow().is_empty());
     }
 }

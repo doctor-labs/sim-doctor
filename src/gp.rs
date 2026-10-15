@@ -2051,6 +2051,15 @@ pub enum BuildError {
         /// Its length.
         len: usize,
     },
+    /// A SET STATUS state that the scope does not define (for example the
+    /// ISD states with an application scope, or the application lock with the ISD).
+    #[error("SET STATUS state `{state}` is not valid for scope {scope}")]
+    StatusScope {
+        /// The scope label.
+        scope: &'static str,
+        /// The state label.
+        state: &'static str,
+    },
     /// The INSTALL data field is over 255 bytes.
     #[error("INSTALL data is {0} bytes, at most 255 fit a short Lc")]
     InstallTooLong(usize),
@@ -2837,6 +2846,133 @@ pub fn store_data_command(data: &[u8]) -> Result<Command, BuildError> {
     ))
 }
 
+/// SET STATUS command builder, request type and lifecycle states.
+///
+/// SET STATUS changes the lifecycle state of the ISD, an application, or a
+/// supplementary security domain. GlobalPlatform Card Specification v2.3.1,
+/// section 11.5.2.3.3 (SET STATUS). The command is `80 F0 <P1> <P2> [Lc <AID>]`:
+/// P1 selects the scope and P2 the state. The data field is `Lc AID` for an
+/// application or SSD scope and is absent for the ISD scope.
+///
+/// P1 scope values: `80` ISD, `40` applications and supplementary SDs, `60` a
+/// security domain and its associated applications. The P2 values depend on the
+/// scope, so there is one enum per scope: [`IsdState`] for `Isd`, [`AppLock`]
+/// for the two application scopes. A pair the card does not define is a
+/// [`BuildError::StatusScope`].
+///
+/// The scope a SET STATUS command targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetStatusScope {
+    /// The issuer security domain (P1 `80`): no AID is given.
+    Isd = 0x80,
+    /// An application or supplementary security domain (P1 `40`): AID required.
+    AppOrSsd = 0x40,
+    /// A security domain and its associated applications (P1 `60`): AID required.
+    IsdAndAssocApps = 0x60,
+}
+
+/// An ISD lifecycle state, set with scope [`SetStatusScope::Isd`]
+/// (GP Card Spec v2.3.1 section 11.5.2.3.3). `OP_READY` (`01`) is the initial
+/// state and is not settable. `Terminated` is irreversible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IsdState {
+    /// P2 `07`: INITIALIZED.
+    Initialized = 0x07,
+    /// P2 `0F`: SECURED.
+    Secured = 0x0F,
+    /// P2 `7F`: CARD_LOCKED. The card is unusable until unlocked.
+    Locked = 0x7F,
+    /// P2 `FF`: TERMINATED. Irreversible.
+    Terminated = 0xFF,
+}
+
+/// An application or SSD lock state, set with scope [`SetStatusScope::AppOrSsd`]
+/// or [`SetStatusScope::IsdAndAssocApps`] (lock and unlock, as GlobalPlatformPro
+/// does). SELECTABLE and PERSONALIZED are not offered: the SET STATUS use of
+/// those values is not cited here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppLock {
+    /// P2 `80`: lock the application or SSD.
+    Locked = 0x80,
+    /// P2 `00`: unlock the application or SSD.
+    Unlocked = 0x00,
+}
+
+/// The P2 state of a SET STATUS command: an ISD state or an application lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetStatusTarget {
+    /// An ISD state (scope `Isd`).
+    Isd(IsdState),
+    /// An application or SSD lock (scope `AppOrSsd` or `IsdAndAssocApps`).
+    App(AppLock),
+}
+
+impl SetStatusTarget {
+    /// The P2 byte.
+    #[must_use]
+    pub const fn p2(self) -> u8 {
+        match self {
+            Self::Isd(state) => state as u8,
+            Self::App(lock) => lock as u8,
+        }
+    }
+}
+
+/// What `gp set-status` changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetStatusRequest {
+    /// The scope of the status change.
+    pub scope: SetStatusScope,
+    /// The target state (P2).
+    pub target: SetStatusTarget,
+    /// The AID of the application or SD (absent for ISD scope).
+    pub aid: Vec<u8>,
+}
+
+/// Builds a SET STATUS command (GP Card Spec v2.3.1 11.5.2.3.3):
+/// `80 F0 <scope> <state> [Lc <AID>]`, CLA `80`.
+///
+/// `scope` is `Isd` (no AID, an [`IsdState`]) or `AppOrSsd` / `IsdAndAssocApps`
+/// (AID required, an [`AppLock`]). The AID must be 5 to 16 bytes for an
+/// application or SD; for `Isd` it must be empty. A state from the other
+/// family is refused with [`BuildError::StatusScope`].
+pub fn set_status_command(
+    scope: SetStatusScope,
+    target: SetStatusTarget,
+    aid: &[u8],
+) -> Result<Command, BuildError> {
+    let valid = matches!(
+        (scope, target),
+        (SetStatusScope::Isd, SetStatusTarget::Isd(_))
+            | (
+                SetStatusScope::AppOrSsd | SetStatusScope::IsdAndAssocApps,
+                SetStatusTarget::App(_)
+            )
+    );
+    if !valid {
+        return Err(BuildError::StatusScope {
+            scope: scope_label(scope),
+            state: state_label(target),
+        });
+    }
+    if !matches!(scope, SetStatusScope::Isd) {
+        aid_ok("SET STATUS target", aid, false)?;
+    } else if !aid.is_empty() {
+        return Err(BuildError::Field {
+            field: "SET STATUS ISD target",
+            len: aid.len(),
+        });
+    }
+    let header = Header::new(0x80, 0xF0, scope as u8, target.p2());
+    Ok(if aid.is_empty() {
+        // ISD scope: case 1 (header only, no data field).
+        Command::case1(header)
+    } else {
+        // Command::case3 adds the Lc byte via push_data_field automatically.
+        Command::case3(header, aid)
+    })
+}
+
 /// What `gp delete` removes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteRequest {
@@ -3191,6 +3327,56 @@ pub fn rename_isd_dry_run(req: &RenameIsdRequest) -> Result<Value, BuildError> {
     Ok(data)
 }
 
+/// The single SET STATUS plan step: one SET STATUS command per the request.
+fn set_status_plan_steps(req: &SetStatusRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: "set_status",
+        command: set_status_command(req.scope, req.target, &req.aid)?,
+    }])
+}
+
+/// A human label for a [`SetStatusScope`].
+fn scope_label(scope: SetStatusScope) -> &'static str {
+    match scope {
+        SetStatusScope::Isd => "isd",
+        SetStatusScope::AppOrSsd => "app_or_ssd",
+        SetStatusScope::IsdAndAssocApps => "isd_and_assoc_apps",
+    }
+}
+
+/// A human label for a SET STATUS state, named as the card shell names it.
+fn state_label(target: SetStatusTarget) -> &'static str {
+    match target {
+        SetStatusTarget::Isd(IsdState::Initialized) => "initialized",
+        SetStatusTarget::Isd(IsdState::Secured) => "secured",
+        SetStatusTarget::Isd(IsdState::Locked) => "locked",
+        SetStatusTarget::Isd(IsdState::Terminated) => "terminated",
+        SetStatusTarget::App(AppLock::Locked) => "lock",
+        SetStatusTarget::App(AppLock::Unlocked) => "unlock",
+    }
+}
+
+/// `gp set-status` without keys: the offline dry run. Sends nothing and does
+/// not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError`] for a scope/AID combination that cannot be built into a command
+/// (for example an AID with the ISD scope, or a too-short AID).
+pub fn set_status_dry_run(req: &SetStatusRequest) -> Result<Value, BuildError> {
+    let plan = set_status_plan_steps(req)?;
+    Ok(offline_dry_run(
+        "set_status",
+        json!({
+            "scope": scope_label(req.scope),
+            "status": state_label(req.target),
+            "aid": if req.aid.is_empty() { json!(null) } else { hex_of(&req.aid) },
+        }),
+        &plan,
+        "no keys were given, so the card was not contacted and the registry was not checked; add --keys-file or --keys-env to authenticate, and --yes to send",
+    ))
+}
+
 /// `gp install` without keys: the offline dry run, with the default ISD AID as
 /// the security domain. Sends nothing and does not touch a card.
 ///
@@ -3527,6 +3713,97 @@ pub fn delete<S: CardSession + ?Sized>(
             }
         },
         |after| registry_entry(after, &aid_hex).is_none(),
+    )
+}
+
+/// `gp set-status` over SCP03: authenticate once, GET STATUS, refuse when the
+/// AID is not in the registry (`aid-not-present`) or the registry cannot be
+/// read in full (`registry-unreadable`); nothing is sent when the scope is ISD
+/// and the state would lock or terminate the card without keys. A dry run unless
+/// `yes`; otherwise SET STATUS MAC'd, every status word reported with its own
+/// kind ([`status_word`]), and a re-read that must show the target lifecycle
+/// state (`verify-failed`).
+///
+/// GlobalPlatform Card Specification v2.3.1 section 11.5.2.3.3 (SET STATUS),
+/// matching pySim `do_set_status` / `set_status`. Locking the ISD makes the
+/// card unusable, so `--yes` requires keys and a dry run without keys shows the
+/// APDU but sends nothing.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn set_status<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &SetStatusRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    // The ISD-scope status change (lock the card, lock the ISD) cannot be
+    // verified as reversible, so require keys and authentication even in a dry
+    // run when an AID is named — keys are needed to open the secure channel the
+    // card demands for SET STATUS. The offline dry run path is taken in main
+    // before a reader is opened; this is the authenticated path.
+    let aid_hex = if req.aid.is_empty() {
+        String::new()
+    } else {
+        hex::encode_upper(&req.aid)
+    };
+    let target = json!({
+        "scope": scope_label(req.scope),
+        "status": state_label(req.target),
+        "aid": if req.aid.is_empty() { json!(null) } else { json!(aid_hex) },
+    });
+    write(
+        session,
+        trace,
+        auth,
+        yes,
+        "set_status",
+        target,
+        |_| set_status_plan_steps(req),
+        |registry| {
+            if !registry_complete(registry) {
+                return Err((
+                    "registry-unreadable",
+                    "the registry could not be read in full, so the target cannot be confirmed present; nothing was sent".into(),
+                ));
+            }
+            // For an ISD-scope command there is no AID to check; the command is
+            // allowed through (locking the ISD is intentional when requested).
+            if req.aid.is_empty() {
+                return Ok(json!({
+                    "present": true,
+                    "scope": "isd",
+                    "note": "ISD scope carries no AID; SET STATUS on the ISD changes the card lock state",
+                }));
+            }
+            match registry_entry(registry, &aid_hex) {
+                None => Err((
+                    "aid-not-present",
+                    format!("{aid_hex} is not in the card registry; nothing was sent"),
+                )),
+                Some(("isd", _)) => Err((
+                    "refusing-isd",
+                    format!("{aid_hex} is the issuer security domain; SET STATUS on the ISD is refused and nothing was sent"),
+                )),
+                Some((scope, e)) => Ok(json!({
+                    "present": true,
+                    "scope": scope,
+                    "lifecycle": e["lifecycle_name"],
+                    "privileges": e["privilege_names"],
+                })),
+            }
+        },
+        |after| {
+            // The re-read must list the target AID still present (SET STATUS
+            // does not delete it; only its lifecycle state changes).
+            if req.aid.is_empty() {
+                registry_complete(after)
+            } else {
+                registry_entry(after, &aid_hex).is_some()
+            }
+        },
     )
 }
 
@@ -11433,6 +11710,152 @@ mod crs_tests {
         let mut ok = write_card(&format!("{}9000", listing()), "9000", "9000");
         let r = crs_set_status(&mut ok, true, &request(APP2, true), &auth(&good), false).unwrap();
         assert!(r.data.get("error").is_none(), "{:?}", r.data);
+    }
+
+    // ---- SET STATUS (INS F0) ------------------------------------------------
+
+    #[test]
+    fn set_status_command_builds_the_right_apdu() {
+        // GP Card Spec v2.3.1 11.5.2.3.3: 80 F0 <scope> <state> [Lc <AID>].
+        // ISD scope (0x80), CARD_LOCKED (0x7F): no AID, case 1.
+        let c = set_status_command(
+            SetStatusScope::Isd,
+            SetStatusTarget::Isd(IsdState::Locked),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(c.encode().unwrap(), [0x80, 0xF0, 0x80, 0x7F]);
+        // ISD INITIALIZED (0x07) and SECURED (0x0F) unlock values.
+        let c = set_status_command(
+            SetStatusScope::Isd,
+            SetStatusTarget::Isd(IsdState::Secured),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(c.encode().unwrap(), [0x80, 0xF0, 0x80, 0x0F]);
+        // Application lock (0x40, P2 0x80) with an AID: 80 F0 40 80 07 <AID>.
+        let aid = hex::decode("A0000000620001").unwrap();
+        let c = set_status_command(
+            SetStatusScope::AppOrSsd,
+            SetStatusTarget::App(AppLock::Locked),
+            &aid,
+        )
+        .unwrap();
+        assert_eq!(c.encode().unwrap(), {
+            let mut e = vec![0x80, 0xF0, 0x40, 0x80, 0x07];
+            e.extend_from_slice(&aid);
+            e
+        });
+        // Application unlock (P2 0x00).
+        let c = set_status_command(
+            SetStatusScope::AppOrSsd,
+            SetStatusTarget::App(AppLock::Unlocked),
+            &aid,
+        )
+        .unwrap();
+        assert_eq!(c.encode().unwrap()[..4], [0x80, 0xF0, 0x40, 0x00]);
+        // Security domain and its associated applications (P1 0x60).
+        let c = set_status_command(
+            SetStatusScope::IsdAndAssocApps,
+            SetStatusTarget::App(AppLock::Locked),
+            &aid,
+        )
+        .unwrap();
+        assert_eq!(c.encode().unwrap()[..4], [0x80, 0xF0, 0x60, 0x80]);
+        // All SET STATUS is a GP command: INS F0, never a read.
+        assert_eq!(c.header().instruction(), 0xF0);
+    }
+
+    #[test]
+    fn set_status_refuses_a_state_from_the_wrong_scope() {
+        let aid = hex::decode("A0000000620001").unwrap();
+        // Lock/unlock is an application state: refused for the ISD.
+        assert!(matches!(
+            set_status_command(
+                SetStatusScope::Isd,
+                SetStatusTarget::App(AppLock::Locked),
+                &[]
+            ),
+            Err(BuildError::StatusScope {
+                scope: "isd",
+                state: "lock"
+            })
+        ));
+        // TERMINATED is an ISD state: refused for an application scope.
+        assert!(matches!(
+            set_status_command(
+                SetStatusScope::AppOrSsd,
+                SetStatusTarget::Isd(IsdState::Terminated),
+                &aid
+            ),
+            Err(BuildError::StatusScope {
+                scope: "app_or_ssd",
+                state: "terminated"
+            })
+        ));
+        assert!(matches!(
+            set_status_command(
+                SetStatusScope::IsdAndAssocApps,
+                SetStatusTarget::Isd(IsdState::Locked),
+                &aid
+            ),
+            Err(BuildError::StatusScope { .. })
+        ));
+    }
+
+    #[test]
+    fn set_status_refuses_bad_aid_and_isd_with_aid() {
+        // AID too short for app scope.
+        assert!(matches!(
+            set_status_command(
+                SetStatusScope::AppOrSsd,
+                SetStatusTarget::App(AppLock::Locked),
+                &[0x01, 0x02]
+            ),
+            Err(BuildError::Aid { .. })
+        ));
+        // AID too long for app scope (>16 bytes).
+        let long_aid = vec![0x01; 17];
+        assert!(matches!(
+            set_status_command(
+                SetStatusScope::AppOrSsd,
+                SetStatusTarget::App(AppLock::Locked),
+                &long_aid
+            ),
+            Err(BuildError::Aid { .. })
+        ));
+        // ISD scope must not carry an AID.
+        assert!(matches!(
+            set_status_command(
+                SetStatusScope::Isd,
+                SetStatusTarget::Isd(IsdState::Locked),
+                &[0x01, 0x02, 0x03, 0x04, 0x05]
+            ),
+            Err(BuildError::Field { .. })
+        ));
+    }
+
+    #[test]
+    fn set_status_dry_run_sends_nothing() {
+        let aid = hex::decode("A0000000620001").unwrap();
+        let req = SetStatusRequest {
+            scope: SetStatusScope::AppOrSsd,
+            target: SetStatusTarget::App(AppLock::Locked),
+            aid,
+        };
+        let d = set_status_dry_run(&req).unwrap();
+        assert_eq!(d["card_touched"], false);
+        assert_eq!(d["dry_run"], true);
+        assert_eq!(d["sent"], false);
+        assert_eq!(d["operation"], "set_status");
+        assert_eq!(d["target"]["scope"], "app_or_ssd");
+        assert_eq!(d["target"]["status"], "lock");
+        assert_eq!(d["target"]["aid"], "A0000000620001");
+        // The plan APDU is 80 F0 40 80 07 AID.
+        assert_eq!(
+            d["plan"]["apdus"][0]["apdu"].as_str().unwrap(),
+            "80F0408007A0000000620001"
+        );
     }
     #[cfg(test)]
     mod create_sd_tests {
