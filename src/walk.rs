@@ -561,6 +561,15 @@ pub struct Options {
     /// this option is false, those identifiers are skipped without probing.
     /// When true, they are probed like any other identifier.
     pub reserved_file_ids: bool,
+    /// Stop probing a directory once the children found are all the children
+    /// its 2G-format SELECT response reports (TS 51.011 clause 9.2.1: byte 15
+    /// child DFs, byte 16 EFs).
+    ///
+    /// Only a 2G-format MF or DF response with a consistent length byte and at
+    /// least one non-zero count is used. Anything else, including every 3GPP
+    /// FCP (TLV) response, leaves the probe unchanged, so the flag never stops
+    /// early on doubtful data.
+    pub break_after_count_match: bool,
 }
 
 impl Default for Options {
@@ -572,6 +581,7 @@ impl Default for Options {
             limits: Limits::default(),
             session: session::Policy::default(),
             reserved_file_ids: false,
+            break_after_count_match: false,
         }
     }
 }
@@ -1371,8 +1381,12 @@ pub fn walk<S: CardSession + ?Sized>(
     }
 
     let mut builder = Builder::new(options, dialect);
+    let root_counts = selection
+        .child_counts
+        .filter(|_| options.break_after_count_match);
     let root_id = builder.push(root.clone(), selection.state, selection.notes);
     let mut root_frame = Frame::new(root_id, root, vec![FileId::MASTER_FILE], options);
+    root_frame.expected = root_counts;
     // Applications are listed in EF.DIR and are walked before the master file's
     // other children: the node budget is spent in order, and a real card's
     // USIM/ISIM files are not reachable any other way (see `applications`).
@@ -1430,6 +1444,9 @@ pub fn walk<S: CardSession + ?Sized>(
         let selection = select(session, options, dialect, &child_path, &mut current_adf)?;
         frame.observe(&selection);
         let within_depth = child_path.depth() <= options.limits.max_depth;
+        let child_counts = selection
+            .child_counts
+            .filter(|_| options.break_after_count_match);
 
         let mut notes = selection.notes;
         // Only a file the card actually selected has an identity to repeat.
@@ -1447,6 +1464,27 @@ pub fn walk<S: CardSession + ?Sized>(
             });
         }
         let kind = selection.state.kind();
+        // A file under this directory that the card selected, and is not an
+        // answer repeating an ancestor, counts toward the directory's reported
+        // children. Application children (no identifier) are not its children.
+        let counted = next.is_some()
+            && selection.state.is_selected()
+            && !notes
+                .iter()
+                .any(|note| matches!(note, Note::RepeatedAncestor { .. }));
+        if counted {
+            match kind {
+                Some(Kind::Reported(FileKind::DedicatedFile)) => frame.found_dfs += 1,
+                Some(Kind::Reported(FileKind::ElementaryFile)) => frame.found_efs += 1,
+                _ => {}
+            }
+            // The card said how many it holds, and they are all found: the
+            // identifiers still to try cannot name another child (TS 51.011
+            // clause 9.2.1), so stop probing this directory.
+            if frame.counts_met() {
+                frame.remaining = Vec::new().into_iter();
+            }
+        }
         let child = builder.push(child_path.clone(), selection.state, notes);
         builder.link(frame.dir, child);
         if !within_depth {
@@ -1474,7 +1512,9 @@ pub fn walk<S: CardSession + ?Sized>(
         ancestors.extend(next);
         stack.push(frame);
         builder.expanded();
-        stack.push(Frame::new(child, child_path, ancestors, options));
+        let mut child_frame = Frame::new(child, child_path, ancestors, options);
+        child_frame.expected = child_counts;
+        stack.push(child_frame);
     }
 
     Ok(builder.into_tree())
@@ -1505,6 +1545,59 @@ struct Selection {
     status: Option<StatusWord>,
     /// Anything about the exchange itself a caller should know.
     notes: Vec<Note>,
+    /// The child counts a 2G-format DF or MF response reports, when it does.
+    child_counts: Option<ChildCounts>,
+}
+
+/// The child DFs and EFs a 2G-format directory response says it holds
+/// (TS 51.011 clause 9.2.1, GSM 11.11 clause 9.2.1), counted directly under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChildCounts {
+    dfs: u8,
+    efs: u8,
+}
+
+/// Whether `body` is a 2G-format (GSM 11.11) SELECT response for a file, not a
+/// 3GPP FCP template. TS 51.011 clause 9.2.1: bytes 1-2 are RFU, bytes 3-4 the
+/// memory size, bytes 5-6 the file identifier, byte 7 the type (01 MF, 02 DF,
+/// 04 EF), and byte 13 the length of the GSM data that follows it. A response
+/// that does not have that shape, including a 15-byte-or-shorter one, is not
+/// read as 2G at all.
+fn gsm_format(body: &[u8]) -> bool {
+    body.len() >= 16
+        && body[..2] == [0x00, 0x00]
+        && matches!(body[6], 0x01 | 0x02 | 0x04)
+        && usize::from(body[12]) == body.len() - 13
+}
+
+/// The kind a 2G-format response reports, when it is one. Without this a 2G DF
+/// would read as having no descriptor and never be walked into.
+fn gsm_kind(path: &Path, body: &[u8]) -> Option<Kind> {
+    if !gsm_format(body) {
+        return None;
+    }
+    Some(if path.is_master_file() {
+        Kind::MasterFile
+    } else {
+        match body[6] {
+            0x02 => Kind::Reported(FileKind::DedicatedFile),
+            0x04 => Kind::Reported(FileKind::ElementaryFile),
+            _ => Kind::Unreported,
+        }
+    })
+}
+
+/// The child counts of a 2G-format MF or DF response (TS 51.011 clause 9.2.1):
+/// byte 15 is the number of child DFs and byte 16 the number of EFs, which are
+/// `body[14]` and `body[15]` counting from zero. `None` for anything that is
+/// not a 2G directory response, and for counts that are both zero, which says
+/// nothing a walk should stop on.
+fn gsm_child_counts(body: &[u8]) -> Option<ChildCounts> {
+    if !gsm_format(body) || body[6] == 0x04 {
+        return None;
+    }
+    let (dfs, efs) = (body[14], body[15]);
+    (dfs != 0 || efs != 0).then_some(ChildCounts { dfs, efs })
 }
 
 /// Runs one SELECT and reads the answer.
@@ -1638,8 +1731,10 @@ fn classify(
         notes.push(Note::IncompleteSelection { stop });
     }
 
+    let mut child_counts = None;
     let state = match status {
         Some(status) if status.is_normal_processing() => {
+            child_counts = gsm_child_counts(exchange.data());
             let (kind, capabilities) =
                 read_capabilities(path, exchange.data(), dialect, &mut notes);
             NodeState::Selected {
@@ -1663,6 +1758,7 @@ fn classify(
         state,
         status,
         notes,
+        child_counts,
     }
 }
 
@@ -1679,6 +1775,9 @@ fn read_capabilities(
     dialect: &TagSet,
     notes: &mut Vec<Note>,
 ) -> (Kind, Capabilities) {
+    if let Some(kind) = gsm_kind(path, body) {
+        return (kind, Capabilities::default());
+    }
     let template = match fcp::Template::parse(body, dialect) {
         Ok(template) => template,
         Err(error) => {
@@ -1839,9 +1938,22 @@ struct Frame {
     selected: usize,
     probed: usize,
     stopped_by: Option<Limit>,
+    /// The child counts this directory's own SELECT reported, when the walk
+    /// was asked to break on them (`break_after_count_match`).
+    expected: Option<ChildCounts>,
+    found_dfs: usize,
+    found_efs: usize,
 }
 
 impl Frame {
+    /// Whether the children found so far are all the card said it holds, so
+    /// the remaining identifiers need no probe.
+    fn counts_met(&self) -> bool {
+        self.expected.is_some_and(|counts| {
+            self.found_dfs >= usize::from(counts.dfs) && self.found_efs >= usize::from(counts.efs)
+        })
+    }
+
     fn new(dir: NodeId, path: Path, ancestors: Vec<FileId>, options: &Options) -> Self {
         let (candidates, truncated) = options
             .candidates
@@ -1861,6 +1973,9 @@ impl Frame {
             selected: 0,
             probed: 0,
             stopped_by: truncated.then_some(Limit::Children),
+            expected: None,
+            found_dfs: 0,
+            found_efs: 0,
         }
     }
 
@@ -2401,6 +2516,196 @@ mod tests {
     /// The paths of a slice of nodes, in pre-order.
     fn paths_of(nodes: &[Node]) -> Vec<String> {
         nodes.iter().map(|node| node.path().to_string()).collect()
+    }
+
+    /// A 2G-format (GSM 11.11) DF response, 22 bytes as TS 51.011 clause 9.2.1
+    /// lays it out: byte 15 is the child DF count and byte 16 the EF count.
+    fn gsm_df_response(child_dfs: u8, child_efs: u8) -> Vec<u8> {
+        vec![
+            0x00, 0x00, // 1-2 RFU
+            0x00, 0x40, // 3-4 memory size
+            0x7F, 0x20, // 5-6 file identifier
+            0x02, // 7 type: DF
+            0x00, // 8 RFU
+            0x00, 0x00, 0x00,      // 9-11 access conditions
+            0x01,      // 12 file status
+            0x09,      // 13 length of the GSM data that follows (22 - 13)
+            0x38,      // 14 characteristics
+            child_dfs, // 15 number of child DFs
+            child_efs, // 16 number of EFs
+            0x02,      // 17 number of CHVs
+            0x00, 0x00, 0x00, 0x00, 0x00, // 18-22 RFU and ADM
+        ]
+    }
+
+    impl FakeCard {
+        /// Adds a directory whose SELECT answers with a 2G-format body, not a
+        /// TLV template.
+        fn with_gsm(mut self, path: &str, body: Vec<u8>) -> Self {
+            self.files.insert(
+                path_segments(path),
+                Held {
+                    fcp: body,
+                    refusal: None,
+                },
+            );
+            self
+        }
+
+        /// How many SELECT commands named `path` (below the master file) in
+        /// path form, the way the walk sends them.
+        fn selects_of(&self, path: &str) -> usize {
+            let body = path_segments(path);
+            self.with_instruction(0xA4)
+                .iter()
+                .filter(|command| command.get(2) == Some(&0x08) && command.ends_with(&body))
+                .count()
+        }
+    }
+
+    #[test]
+    fn gsm_2g_df_response_reports_two_dfs_and_five_efs() {
+        let body = gsm_df_response(0x02, 0x05);
+        assert_eq!(
+            gsm_child_counts(&body),
+            Some(ChildCounts { dfs: 2, efs: 5 })
+        );
+        assert_eq!(
+            gsm_kind(&path_of("3F00/7F20"), &body),
+            Some(Kind::Reported(FileKind::DedicatedFile))
+        );
+    }
+
+    #[test]
+    fn gsm_child_counts_are_taken_only_from_a_2g_directory_response() {
+        // A 3GPP FCP template is not a 2G response, whatever its bytes say.
+        let fcp_df = fcp(id("7F20"), DIRECTORY_DESCRIPTOR, None);
+        assert_eq!(gsm_child_counts(&fcp_df), None);
+        // An EF (type 04) is not a directory: no child counts.
+        let mut ef = gsm_df_response(0x01, 0x01);
+        ef[6] = 0x04;
+        assert_eq!(gsm_child_counts(&ef), None);
+        // Fifteen bytes is too short to hold byte 16.
+        assert_eq!(gsm_child_counts(&gsm_df_response(0x01, 0x01)[..15]), None);
+        // A length byte that does not match the body is doubtful.
+        let mut inconsistent = gsm_df_response(0x01, 0x01);
+        inconsistent[12] = 0x0A;
+        assert_eq!(gsm_child_counts(&inconsistent), None);
+        // Zero and zero says nothing to stop on.
+        assert_eq!(gsm_child_counts(&gsm_df_response(0x00, 0x00)), None);
+        // Zero DFs with EFs is a real answer.
+        assert_eq!(
+            gsm_child_counts(&gsm_df_response(0x00, 0x03)),
+            Some(ChildCounts { dfs: 0, efs: 3 })
+        );
+    }
+
+    /// `3F00/7F20` is a 2G DF holding one DF (`5F10`) and one EF (`6F07`).
+    /// The candidates tried under the master file are `7F20` and then the
+    /// children's identifiers, which the walk tries under `7F20` in order:
+    /// `5F10`, `6F07`, `6F40`, `6F41`. The last two are not on the card.
+    fn gsm_df_card(counts: (u8, u8)) -> FakeCard {
+        FakeCard::default()
+            .with("3F00", fcp(FileId::MASTER_FILE, DIRECTORY_DESCRIPTOR, None))
+            .with_gsm("3F00/7F20", gsm_df_response(counts.0, counts.1))
+            .with(
+                "3F00/7F20/5F10",
+                fcp(id("5F10"), DIRECTORY_DESCRIPTOR, None),
+            )
+            .with(
+                "3F00/7F20/6F07",
+                fcp(id("6F07"), TRANSPARENT_DESCRIPTOR, Some(10)),
+            )
+    }
+
+    fn gsm_df_candidates() -> Options {
+        options_for(&["7F20", "5F10", "6F07", "6F40", "6F41"])
+    }
+
+    #[test]
+    fn break_stops_probing_a_2g_df_once_its_reported_children_are_found() {
+        let mut with_flag = gsm_df_card((1, 1));
+        let flagged = walk(
+            &mut with_flag,
+            &dialect(),
+            &Options {
+                break_after_count_match: true,
+                ..gsm_df_candidates()
+            },
+        )
+        .expect("the walk completes");
+
+        let mut without_flag = gsm_df_card((1, 1));
+        let plain =
+            walk(&mut without_flag, &dialect(), &gsm_df_candidates()).expect("the walk completes");
+
+        // The 2G response was read as a directory, so its children were walked.
+        assert!(flagged.contains(&path_of("3F00/7F20/5F10")));
+        assert!(flagged.contains(&path_of("3F00/7F20/6F07")));
+
+        // With the flag, 6F07 (the second child) completes the count, so 6F40
+        // and 6F41 are never asked for. Without it they are.
+        assert_eq!(with_flag.selects_of("7F20/6F40"), 0);
+        assert_eq!(with_flag.selects_of("7F20/6F41"), 0);
+        assert!(without_flag.selects_of("7F20/6F40") > 0);
+        assert!(without_flag.selects_of("7F20/6F41") > 0);
+        assert!(with_flag.sent.len() < without_flag.sent.len());
+
+        // Same files either way.
+        let found = |tree: &Tree| -> Vec<String> {
+            tree.selected()
+                .map(|node| node.path().to_string())
+                .collect()
+        };
+        assert_eq!(found(&flagged), found(&plain));
+    }
+
+    #[test]
+    fn break_does_not_stop_a_2g_df_whose_reported_counts_are_not_yet_met() {
+        // The card says it holds three EFs. Only one is on the card, so the
+        // remaining candidates still have to be probed.
+        let mut card = gsm_df_card((0, 3));
+        walk(
+            &mut card,
+            &dialect(),
+            &Options {
+                break_after_count_match: true,
+                ..gsm_df_candidates()
+            },
+        )
+        .expect("the walk completes");
+        assert!(card.selects_of("7F20/6F40") > 0);
+        assert!(card.selects_of("7F20/6F41") > 0);
+    }
+
+    #[test]
+    fn break_ignores_a_directory_whose_response_is_not_2g_format() {
+        // The same DF, answered with a 3GPP FCP template and no counts.
+        let build = || {
+            FakeCard::default()
+                .with("3F00", fcp(FileId::MASTER_FILE, DIRECTORY_DESCRIPTOR, None))
+                .with("3F00/7F20", fcp(id("7F20"), DIRECTORY_DESCRIPTOR, None))
+                .with(
+                    "3F00/7F20/6F07",
+                    fcp(id("6F07"), TRANSPARENT_DESCRIPTOR, Some(10)),
+                )
+        };
+        let mut flagged_card = build();
+        walk(
+            &mut flagged_card,
+            &dialect(),
+            &Options {
+                break_after_count_match: true,
+                ..gsm_df_candidates()
+            },
+        )
+        .expect("the walk completes");
+        let mut plain_card = build();
+        walk(&mut plain_card, &dialect(), &gsm_df_candidates()).expect("the walk completes");
+
+        // Nothing is stopped: every candidate is probed both ways.
+        assert_eq!(flagged_card.sent.len(), plain_card.sent.len());
+        assert!(flagged_card.selects_of("7F20/6F41") > 0);
     }
 
     // ----------------------------------------------------------------- shape
