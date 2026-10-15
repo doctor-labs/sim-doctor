@@ -19,6 +19,7 @@ All notable changes to this project are documented here. The format follows
 - `verify_adm` card-shell command (VERIFY of ADM1..ADM5, default ADM1, key reference 0A..0E); `--pin-is-hex` asserts the source holds the ADM key as `hex:` and is refused before sending on a mismatch. Dry run unless --yes (#194).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
+- `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).
 - EXT1-EXT8 records decode to additional digits or subaddress and the next-record chain (#175).
 - EF.ARR records decode to access rules: operations and the PIN/ADM condition (#172).
 - EF.MWIS, EF.MBI, EF.CFIS and EF.SMSR decode to their fields instead of hex (#173).
