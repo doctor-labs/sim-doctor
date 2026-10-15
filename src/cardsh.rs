@@ -1886,6 +1886,20 @@ impl Shell {
         })
     }
 
+    /// `prescan_pin --mode verify|disable|skip`: the pre-scan PIN step (SIMTester `-vp`, `-dp`, `-sp`).
+    /// `verify` and `disable` are the `verify_chv` and `disable_chv` commands, so they keep their
+    /// dry run, `--yes`, tries check and one-attempt rules. `skip` sends nothing.
+    fn cmd_prescan_pin(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        match args.get_one::<String>("mode").map(String::as_str) {
+            Some("disable") => self.cmd_disable_chv(args),
+            Some("skip") => Ok(Reply::ok(
+                "skip: no PIN command sent; the scan reads what the card allows without verifying a PIN".to_string(),
+                json!({ "sent": false, "mode": "skip" }),
+            )),
+            _ => self.cmd_verify_chv(args),
+        }
+    }
+
     fn cmd_verify_chv(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let target = key_target(args)?;
         let value = self.secret(&target.secret)?;
@@ -3177,6 +3191,18 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("prescan_pin")
+                .about("Pre-scan PIN step, as SIMTester's -vp/-dp/-sp: --mode verify (VERIFY the PIN, -vp), disable (DISABLE the PIN, -dp) or skip (send nothing, -sp). verify and disable are a dry run unless --yes. WARNING: a wrong PIN costs a try and can block the key; disable changes the PIN state on the card")
+                .arg(Arg::new("mode").long("mode").value_name("MODE").value_parser(["verify", "disable", "skip"]).default_value("verify").help("verify (default), disable, or skip"))
+                .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
+                .arg(Arg::new("universal").long("universal").action(clap::ArgAction::SetTrue).help("the universal PIN (key reference 11)"))
+                .arg(Arg::new("adm_nr").long("adm-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=5)).help("administrative key N (key reference 0A..0E)"))
+                .arg(Arg::new("key_ref").long("key-ref").value_name("HEX").help("a raw key reference, one octet of hex"))
+                .group(clap::ArgGroup::new("which").args(["pin_nr", "universal", "adm_nr", "key_ref"]))
+                .arg(Arg::new("allow_last").long("allow-last-attempt").action(clap::ArgAction::SetTrue).help("send even when only one try is left (a wrong value then blocks the key)"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("terminate_df")
                 .about("TERMINATE DF: deactivate the selected DF. DESTRUCTIVE: can permanently disable it; a dry run unless --yes")
                 .arg(yes_arg()),
@@ -3656,6 +3682,7 @@ impl Shell {
             "change_chv" => self.cmd_change_chv(args),
             "enable_chv" => self.cmd_enable_chv(args),
             "disable_chv" => self.cmd_disable_chv(args),
+            "prescan_pin" => self.cmd_prescan_pin(args),
             "terminate_df" => self.cmd_terminate_df(args),
             "terminate_ef" => self.cmd_terminate_ef(args),
             "terminate_card_usage" => self.cmd_terminate_card_usage(args),
@@ -5501,6 +5528,60 @@ mod tests {
         assert!(!is_read_only(0x24));
         assert!(!is_read_only(0x26));
         assert!(!is_read_only(0x28));
+    }
+
+    #[test]
+    fn prescan_pin_modes_are_dry_runs_unless_yes_and_skip_sends_nothing() {
+        // -vp is VERIFY (00 20), -dp is DISABLE CHV (00 26), -sp sends nothing.
+        let (mut sh, log) = shell_with("pin1=1234", false);
+        let r = sh.exec("prescan_pin");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(
+            r.text.contains("00 20 00 01 08 <PIN1 redacted>"),
+            "{}",
+            r.text
+        );
+        assert!(!shown(&r).contains("1234"), "{}", shown(&r));
+        let r = sh.exec("prescan_pin --mode disable");
+        assert!(r.ok && r.text.contains("00 26 00 01"), "{}", r.text);
+        let r = sh.exec("prescan_pin --mode skip");
+        assert!(
+            r.ok && r.data["sent"] == false && r.data["mode"] == "skip",
+            "{}",
+            r.text
+        );
+        assert!(
+            log.borrow().is_empty(),
+            "dry runs and skip reach the card with nothing"
+        );
+        // Skip needs no PIN source; verify does; an unknown mode is refused by the grammar.
+        let (mut sh, _) = shell_log();
+        assert!(sh.exec("prescan_pin --mode skip").ok);
+        assert!(!sh.exec("prescan_pin").ok, "verify needs a PIN source");
+        assert!(
+            !sh.exec("prescan_pin --mode nope").ok,
+            "an unknown mode is refused"
+        );
+    }
+
+    #[test]
+    fn prescan_pin_verify_and_disable_send_when_yes() {
+        let (mut sh, log) = shell_with("pin1=1234", true);
+        let r = sh.exec("prescan_pin");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["verified"], true);
+        assert!(log
+            .borrow()
+            .iter()
+            .any(|c| c.starts_with(&[0x00, 0x20, 0x00, 0x01, 0x08])));
+        assert!(!shown(&r).contains("1234"), "{}", shown(&r));
+        let _ = sh.exec("prescan_pin --mode disable");
+        assert!(
+            log.borrow()
+                .iter()
+                .any(|c| c.starts_with(&[0x00, 0x26, 0x00, 0x01])),
+            "DISABLE CHV was sent"
+        );
     }
 
     #[test]

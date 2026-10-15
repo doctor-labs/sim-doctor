@@ -72,6 +72,7 @@ All notable changes to this project are documented here. The format follows
   (INS 0x26, ISO/IEC 7816-4 7.5.5, 3GPP TS 31.102 7.1.3.2). A case 1 command with no data field, dry run unless `--yes`.
 - `card`: the `change_chv`, `enable_chv` and `disable_chv` shell commands join `verify_chv` and `unblock_chv` in warning that a
   wrong PIN or PUK costs a try and can block the key permanently (#192, #193).
+- `card`: `prescan_pin [--mode verify|disable|skip]` (#196): the pre-scan PIN step, as SIMTester's `-vp`, `-dp` and `-sp`. `verify` is `verify_chv` and `disable` is `disable_chv` (same key selectors, dry run unless `--yes`, tries asked first, one attempt); `skip` sends nothing. Scan itself stays read-only.
 - `card`: `authenticate [--rand] [--autn | --sqn N [--amf]] [--resync]` (#191): the UMTS AUTHENTICATE probe in the 3G context.
   Success (RES, CK, IK checked against the host's Milenage when `ki`/`opc` are given), synchronisation failure (AUTS opened:
   SQNms, MAC-S) and MAC failure are told apart; `--resync` sends once more with SQNms + 1. `aka` gains `autn` and `open_auts`.
