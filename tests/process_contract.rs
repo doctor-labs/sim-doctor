@@ -2454,6 +2454,30 @@ fn gp_writes_are_offline_dry_runs_and_need_yes_and_keys() {
         .as_str()
         .unwrap()
         .starts_with("80E60C00"));
+    let default_count = apdus.len();
+
+    // --bs cuts the load file into 10 byte LOAD blocks: a longer plan, first LOAD Lc 0A
+    // (the fixture CAP is under 240 bytes, so the default is one LOAD block)
+    let out = run(
+        &["gp", "install", "--load", cap_arg, "--bs", "10", "--json"],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let small = env.payload().data()["plan"]["apdus"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(small.len() > default_count);
+    assert!(small[1]["apdu"].as_str().unwrap().starts_with("80E800000A"));
+    // outside 1 to 247 (255 minus the 8-byte C-MAC) is refused by the parser before the CAP is read
+    for bs in ["0", "248", "256"] {
+        let out = run(
+            &["gp", "install", "--load", cap_arg, "--bs", bs],
+            Stdio::piped(),
+        );
+        assert_eq!(out.code(), 129, "--bs {bs}: {}", out.stderr);
+    }
 
     // --yes without keys, a key value on the command line, both key sources: usage errors
     for args in [

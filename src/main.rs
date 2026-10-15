@@ -896,6 +896,17 @@ enum GpAction {
         /// applet by default after reset, so it changes what the card runs first.
         #[arg(long)]
         make_default: bool,
+        /// Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut
+        /// into blocks of this size, so a smaller one sends more, shorter LOAD
+        /// commands. Changes only how the file is split: the bytes loaded are the
+        /// same. Shown in the dry run's APDUs.
+        #[arg(
+            long = "bs",
+            value_name = "BYTES",
+            default_value_t = 240,
+            value_parser = clap::value_parser!(u16).range(1..=247)
+        )]
+        block_size: u16,
         #[command(flatten)]
         dap: GpDapArgs,
         #[command(flatten)]
@@ -2174,6 +2185,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 params,
                 privileges,
                 make_default,
+                block_size,
                 dap,
                 write,
             } => {
@@ -2182,7 +2194,16 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     (true, Ok(p)) => gp::with_default_selected(&p).map_or(privileges, hex::encode),
                     _ => privileges,
                 };
-                run_gp_install(&load, module, app, &params, &privileges, &dap, &write)
+                run_gp_install(
+                    &load,
+                    module,
+                    app,
+                    &params,
+                    &privileges,
+                    usize::from(block_size),
+                    &dap,
+                    &write,
+                )
             }
             GpAction::PutKey {
                 new_key_version,
@@ -3137,12 +3158,14 @@ fn run_gp_delete_key(
 
 /// `sim-doctor gp install`: a dry run unless `--yes`, offline without keys. The
 /// CAP is read and checked, and every AID validated, before a reader is opened.
+#[allow(clippy::too_many_arguments)]
 fn run_gp_install(
     load: &std::path::Path,
     module: Option<String>,
     app: Option<String>,
     params: &str,
     privileges: &str,
+    block_size: usize,
     dap: &GpDapArgs,
     w: &GpWriteFlags,
 ) -> contract::ExitCode {
@@ -3216,6 +3239,7 @@ fn run_gp_install(
         privileges,
         params,
         dap,
+        block_size,
     };
     let keys = match load_gp_keys(&w.keys, w.json) {
         Ok(keys) => keys,
