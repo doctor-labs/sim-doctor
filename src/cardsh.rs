@@ -4312,6 +4312,70 @@ pub fn grammar() -> clap::Command {
                         .help("file containing one command per line"),
                 )
         )
+        .subcommand(
+            C::new("bulk_script")
+                .about("Run a script file against several cards in sequence (bulk provisioning); the next card must differ from the last; --cards bounds the run; --yes is needed for write commands and for the shell-command hooks (--pre-card-action, --on-stop-action), which run sh -c; capped at 1 MiB")
+                .arg(
+                    Arg::new("file")
+                        .required(true)
+                        .value_name("PATH")
+                        .value_parser(clap::value_parser!(std::path::PathBuf))
+                        .help("file containing one command per line"),
+                )
+                .arg(
+                    Arg::new("cards")
+                        .long("cards")
+                        .value_name("N")
+                        .default_value("1")
+                        .value_parser(clap::value_parser!(u32).range(1..=10_000))
+                        .help("most cards to process (1 to 10000); the run never goes past this"),
+                )
+                .arg(
+                    Arg::new("halt_on_error")
+                        .long("halt-on-error")
+                        .alias("halt_on_error")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("stop card handling if a script run fails"),
+                )
+                .arg(
+                    Arg::new("tries")
+                        .long("tries")
+                        .value_name("N")
+                        .default_value("2")
+                        .value_parser(clap::value_parser!(u32).range(1..=10))
+                        .help("how many tries before moving to the next card"),
+                )
+                .arg(
+                    Arg::new("poll_ms")
+                        .long("poll-ms")
+                        .value_name("MS")
+                        .default_value("500")
+                        .value_parser(clap::value_parser!(u64).range(1..=60_000))
+                        .help("how often to look for the next card"),
+                )
+                .arg(
+                    Arg::new("timeout_secs")
+                        .long("timeout-secs")
+                        .value_name("S")
+                        .default_value("30")
+                        .value_parser(clap::value_parser!(u64).range(0..=3600))
+                        .help("how long to wait for a different card before the run ends (no next card)"),
+                )
+                .arg(
+                    Arg::new("on_stop_action")
+                        .long("on-stop-action")
+                        .alias("on_stop_action")
+                        .value_name("CMD")
+                        .help("shell command (sh -c) to run when card handling stops; needs --yes; its exit code is reported"),
+                )
+                .arg(
+                    Arg::new("pre_card_action")
+                        .long("pre-card-action")
+                        .alias("pre_card_action")
+                        .value_name("CMD")
+                        .help("shell command (sh -c) to run before each card's script; needs --yes; if it fails the card counts as a failure and its script is skipped"),
+                )
+        )
 }
 
 /// The display label of a service table (for JSON and text).
@@ -4540,8 +4604,8 @@ impl Shell {
             }
         };
         let (name, args) = matches.subcommand().expect("subcommand_required");
-        // Add to history unless it's the history or run_script commands themselves
-        if name != "history" && name != "run_script" {
+        // Add to history unless it's the history, run_script or bulk_script commands themselves
+        if name != "history" && name != "run_script" && name != "bulk_script" {
             self.history.push(line.to_string());
             if self.history.len() > 1000 {
                 self.history.remove(0);
@@ -4557,6 +4621,7 @@ impl Shell {
             "reset" => self.cmd_reset(),
             "history" => self.cmd_history(args),
             "run_script" => self.cmd_run_script(args),
+            "bulk_script" => self.cmd_bulk_script(args),
             "equip" => self.cmd_equip(args),
             "status" => self.cmd_status(),
             "cardinfo" => self.cmd_cardinfo(),
@@ -5721,10 +5786,12 @@ impl Shell {
                 continue;
             }
             // A script may not start another script: that could recurse without end.
-            if trimmed.split_whitespace().next() == Some("run_script") {
+            let first = trimmed.split_whitespace().next();
+            if first == Some("run_script") || first == Some("bulk_script") {
                 return Err(CmdErr::new(format!(
-                    "error at line {}: run_script cannot be nested",
-                    n + 1
+                    "error at line {}: {} cannot be nested",
+                    n + 1,
+                    first.unwrap()
                 )));
             }
             let reply = self.exec(trimmed);
@@ -5741,6 +5808,213 @@ impl Shell {
             format!("executed {} commands", replies.len()),
             json!({ "count": replies.len() }),
         ))
+    }
+
+    /// `bulk_script FILE [--cards N] [--halt-on-error] [--tries N] [--poll-ms MS] [--timeout-secs S]
+    /// [--pre-card-action CMD] [--on-stop-action CMD]`
+    ///
+    /// Runs the script file on the equipped card, then waits for the next card and runs it again,
+    /// for at most `--cards` cards. The next card must differ from the card just processed
+    /// (ICCID when both sides can read it, else ATR), so one card is never processed twice in a
+    /// row. When no different card shows up within `--timeout-secs` the run ends with
+    /// `stop_reason` `no_next_card`.
+    ///
+    /// `--pre-card-action` runs once per card before its script; if it fails the card counts as a
+    /// failure and its script is skipped. `--on-stop-action` runs when the run ends. Both run
+    /// `sh -c` and need `--yes`; their exit codes go into the result data.
+    fn cmd_bulk_script(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let path = args
+            .get_one::<std::path::PathBuf>("file")
+            .expect("required");
+
+        // -- A regular file of at most 1 MiB, checked before reading (a FIFO would
+        // block, a huge file would be read whole).
+        let meta = std::fs::metadata(path)
+            .map_err(|e| CmdErr::new(format!("cannot read {}: {}", path.display(), e)))?;
+        if !meta.is_file() {
+            return Err(CmdErr::new(format!(
+                "{} is not a regular file",
+                path.display()
+            )));
+        }
+        if meta.len() > 1024 * 1024 {
+            return Err(CmdErr::new(format!(
+                "{} exceeds 1 MiB limit",
+                path.display()
+            )));
+        }
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| CmdErr::new(format!("cannot read {}: {}", path.display(), e)))?;
+
+        // Collect the non-comment, non-empty command lines (same rules as run_script).
+        // A bulk_script must not contain another script command: that would recurse.
+        let mut script_lines: Vec<String> = Vec::new();
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let first = trimmed.split_whitespace().next();
+            if first == Some("run_script") || first == Some("bulk_script") {
+                return Err(CmdErr::new(format!("{} cannot be nested", first.unwrap())));
+            }
+            script_lines.push(trimmed.to_owned());
+        }
+
+        let max_cards = args.get_one::<u32>("cards").copied().unwrap_or(1);
+        let halt_on_error = args.get_flag("halt_on_error");
+        let tries = args.get_one::<u32>("tries").copied().unwrap_or(1);
+        let poll = std::time::Duration::from_millis(
+            args.get_one::<u64>("poll_ms").copied().unwrap_or(500),
+        );
+        let timeout = std::time::Duration::from_secs(
+            args.get_one::<u64>("timeout_secs").copied().unwrap_or(30),
+        );
+        let pre_card_action = args
+            .get_one::<String>("pre_card_action")
+            .map(String::as_str);
+        let on_stop_action = args.get_one::<String>("on_stop_action").map(String::as_str);
+
+        // Shell-command hooks run only when the shell was started with --yes, like write commands.
+        if !self.may_change_card(args) {
+            let flag = if pre_card_action.is_some() {
+                Some("--pre-card-action")
+            } else if on_stop_action.is_some() {
+                Some("--on-stop-action")
+            } else {
+                None
+            };
+            if let Some(flag) = flag {
+                return Err(CmdErr::new(format!(
+                    "{flag} runs a shell command: it needs --yes (nothing was run)"
+                )));
+            }
+        }
+
+        // The profile of the currently equipped card, to re-equip the same way.
+        let profile = self
+            .card
+            .as_ref()
+            .map(|c| c.profile)
+            .unwrap_or(Profile::Uicc);
+
+        let mut prev = self.card_id();
+        let mut success_count: u32 = 0;
+        let mut fail_count: u32 = 0;
+        let mut pre_exits: Vec<Value> = Vec::new();
+        let mut stop_reason = "cards_limit";
+
+        for pass in 1..=max_cards {
+            if pass > 1 {
+                match self.next_card(profile, &prev, poll, timeout) {
+                    Some(id) => prev = id,
+                    None => {
+                        stop_reason = "no_next_card";
+                        break;
+                    }
+                }
+            }
+
+            let pre_failed = match pre_card_action {
+                Some(cmd) => {
+                    let exit = run_hook(cmd);
+                    pre_exits.push(json!({ "card": pass, "exit": exit }));
+                    exit != Some(0)
+                }
+                None => false,
+            };
+
+            // Run the script with up to `tries` attempts; a failed attempt stops that attempt only.
+            let card_ok = !pre_failed
+                && (0..tries).any(|_| script_lines.iter().all(|line| self.exec(line).ok));
+
+            if card_ok {
+                success_count += 1;
+                eprintln!(
+                    "sim-doctor: card {} success (success: {}, failure: {})",
+                    success_count + fail_count,
+                    success_count,
+                    fail_count
+                );
+            } else {
+                fail_count += 1;
+                eprintln!(
+                    "sim-doctor: card {} failure (success: {}, failure: {})",
+                    success_count + fail_count,
+                    success_count,
+                    fail_count
+                );
+                if halt_on_error {
+                    stop_reason = "halt_on_error";
+                    break;
+                }
+            }
+        }
+
+        let on_stop = on_stop_action.map(|cmd| {
+            let exit = run_hook(cmd);
+            if exit != Some(0) {
+                eprintln!("sim-doctor: --on-stop-action exited {exit:?}");
+            }
+            json!({ "exit": exit })
+        });
+
+        let why = match stop_reason {
+            "no_next_card" => "no next card (timed out waiting for a different card)",
+            "halt_on_error" => "halted on error",
+            _ => "reached --cards",
+        };
+        Ok(Reply::ok(
+            format!(
+                "bulk_script done: success {}, failure {}; stopped: {}",
+                success_count, fail_count, why
+            ),
+            json!({
+                "success": success_count,
+                "failure": fail_count,
+                "cards": success_count + fail_count,
+                "requested_cards": max_cards,
+                "stop_reason": stop_reason,
+                "pre_card_action": pre_exits,
+                "on_stop_action": on_stop.unwrap_or(Value::Null),
+            }),
+        ))
+    }
+
+    /// The ATR of the equipped card and its ICCID when it can be read (the selection is restored).
+    fn card_id(&mut self) -> CardId {
+        let atr = self.card.as_ref().and_then(|c| c.atr.clone());
+        CardId {
+            atr,
+            iccid: self.iccid().ok(),
+        }
+    }
+
+    /// Re-equips every `poll` until a card that is not `prev` is in the reader, or `timeout` has
+    /// passed. A missing card (the open fails) just means keep waiting.
+    fn next_card(
+        &mut self,
+        profile: Profile,
+        prev: &CardId,
+        poll: std::time::Duration,
+        timeout: std::time::Duration,
+    ) -> Option<CardId> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if let Some(mut card) = self.card.take() {
+                let _ = card.session.disconnect();
+            }
+            if self.equip(None, profile).is_ok() {
+                let id = self.card_id();
+                if is_other_card(&id, prev) {
+                    return Some(id);
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(poll);
+        }
     }
 }
 
@@ -5819,6 +6093,33 @@ fn decode_file(df: &DumpedFile) -> Option<Value> {
             .collect();
         Some(decode::decode_ef(kind, std.name, &recs))
     }
+}
+
+/// What tells one card from another: its ATR and its ICCID, each when it could be read.
+#[derive(Debug, Clone, Default)]
+struct CardId {
+    atr: Option<Vec<u8>>,
+    iccid: Option<String>,
+}
+
+/// Whether `new` is provably a different card from `prev`. The ICCID decides when both sides have
+/// one (the same ICCID is the same card whatever the ATR says); otherwise the ATR decides. When
+/// neither can be compared the card is not provably different, so it is not taken as a new card.
+fn is_other_card(new: &CardId, prev: &CardId) -> bool {
+    match (&new.iccid, &prev.iccid) {
+        (Some(a), Some(b)) => a != b,
+        _ => matches!((&new.atr, &prev.atr), (Some(a), Some(b)) if a != b),
+    }
+}
+
+/// Runs a shell-command hook; the exit code, or `None` if it could not run or a signal ended it.
+fn run_hook(cmd: &str) -> Option<i32> {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .status()
+        .ok()
+        .and_then(|s| s.code())
 }
 
 /// `9000 (normal processing)` or `no status word`.
@@ -5906,6 +6207,8 @@ pub(crate) mod testcard;
 mod tests {
     use super::testcard::*;
     use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn update_binary_and_record_build_the_right_apdu_and_are_gated() {
@@ -7722,6 +8025,310 @@ mod tests {
         assert_eq!(crate::cat::decode_event_name(0x09), Some("data available"));
         assert_eq!(crate::cat::decode_event_name(0x0A), Some("channel status"));
         assert_eq!(crate::cat::decode_event_name(0xFF), None);
+    }
+
+    /// A shell whose opener returns a fresh [`TestCard`] only `limit` times,
+    /// then fails with "no more cards" (simulating a card handler emptying).
+    /// The opener starts counting from 1, so `equip(None)` before any card is
+    /// the first call.
+    fn shell_with_limited_cards(limit: u32) -> (Shell, Rc<RefCell<Vec<Vec<u8>>>>) {
+        let log: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
+        let sent = log.clone();
+        let mut count: u32 = 0;
+        let mut sh = Shell::new(
+            Box::new(move |_| {
+                count += 1;
+                if count > limit {
+                    return Err("no more cards".to_string());
+                }
+                Ok((
+                    Box::new(usim_card(count, sent.clone())) as Box<dyn CardSession>,
+                    format!("test card {}", count),
+                    Some(vec![0x3B, 0x9F]),
+                ))
+            }),
+            Opts {
+                yes: false,
+                dialect: TagSet::ts_102_221(),
+                secrets: None,
+                card_key: None,
+            },
+        );
+        sh.equip(None, Profile::Uicc).unwrap();
+        (sh, log)
+    }
+
+    /// A test USIM whose ICCID ends in digit `n`, so each card of a run is a different card.
+    fn usim_card(n: u32, sent: Rc<RefCell<Vec<Vec<u8>>>>) -> TestCard {
+        let mut card = TestCard::usim();
+        for file in &mut card.files {
+            if file.path == [0x3F00, 0x2FE2] {
+                file.content[0][9] = 0x30 | (n as u8 & 0x0F);
+            }
+        }
+        card.sent = sent;
+        card
+    }
+
+    /// A shell whose opener always hands back the same card (same ATR, same ICCID).
+    fn shell_with_repeating_card() -> Shell {
+        let mut sh = Shell::new(
+            Box::new(move |_| {
+                Ok((
+                    Box::new(usim_card(1, Rc::default())) as Box<dyn CardSession>,
+                    "test card".to_string(),
+                    Some(vec![0x3B, 0x9F]),
+                ))
+            }),
+            Opts {
+                yes: false,
+                dialect: TagSet::ts_102_221(),
+                secrets: None,
+                card_key: None,
+            },
+        );
+        sh.equip(None, Profile::Uicc).unwrap();
+        sh
+    }
+
+    #[test]
+    fn bulk_script_default_run_is_one_pass() {
+        let (mut sh, _log) = shell_with_limited_cards(3);
+        sh.opts.yes = true;
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-default.txt");
+        std::fs::write(&script_path, "select 3F00").unwrap();
+
+        let r = sh.exec(&format!("bulk_script {}", script_path.display()));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["cards"], 1, "{}", r.text);
+        assert_eq!(r.data["stop_reason"], "cards_limit", "{}", r.text);
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_cards_n_runs_n_distinct_cards() {
+        let (mut sh, _log) = shell_with_limited_cards(3);
+        sh.opts.yes = true;
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-three.txt");
+        std::fs::write(&script_path, "select 3F00").unwrap();
+
+        let r = sh.exec(&format!(
+            "bulk_script --cards 3 --timeout-secs 0 {}",
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["success"], 3, "{}", r.text);
+        assert_eq!(r.data["stop_reason"], "cards_limit", "{}", r.text);
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_same_card_again_ends_with_no_next_card() {
+        let mut sh = shell_with_repeating_card();
+        sh.opts.yes = true;
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-same.txt");
+        std::fs::write(&script_path, "select 3F00").unwrap();
+
+        let r = sh.exec(&format!(
+            "bulk_script --cards 3 --timeout-secs 0 --poll-ms 1 {}",
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+        assert!(r.text.contains("no next card"), "{}", r.text);
+        assert_eq!(
+            r.data["success"], 1,
+            "the same card must not be processed twice: {}",
+            r.text
+        );
+        assert_eq!(r.data["stop_reason"], "no_next_card", "{}", r.text);
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_hooks_are_refused_without_yes() {
+        let (mut sh, _log) = shell_with_limited_cards(2);
+        let marker = std::env::temp_dir().join("sim-doctor-bulk-refused-marker.txt");
+        let _ = std::fs::remove_file(&marker);
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-refused.txt");
+        std::fs::write(&script_path, "select 3F00").unwrap();
+
+        let r = sh.exec(&format!(
+            "bulk_script --pre-card-action 'touch {}' {}",
+            marker.display(),
+            script_path.display()
+        ));
+        assert!(!r.ok, "{}", r.text);
+        assert!(r.text.contains("--pre-card-action"), "{}", r.text);
+        assert!(!marker.exists(), "the hook ran without --yes");
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_hooks_run_and_their_exit_codes_are_reported() {
+        let (mut sh, _log) = shell_with_limited_cards(2);
+        sh.opts.yes = true;
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-hooks.txt");
+        std::fs::write(&script_path, "select 3F00").unwrap();
+
+        let r = sh.exec(&format!(
+            "bulk_script --cards 2 --timeout-secs 0 --pre-card-action true --on-stop-action false {}",
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["success"], 2, "{}", r.text);
+        assert_eq!(r.data["pre_card_action"][0]["exit"], 0, "{}", r.text);
+        assert_eq!(r.data["pre_card_action"][1]["exit"], 0, "{}", r.text);
+        assert_eq!(r.data["on_stop_action"]["exit"], 1, "{}", r.text);
+
+        // A failing pre-card action counts the card as failed and its script is not run.
+        let (mut sh, log) = shell_with_limited_cards(2);
+        sh.opts.yes = true;
+        // The script selects EF 6F07, which nothing else in the run selects: it must never reach the card.
+        std::fs::write(&script_path, "select 6F07").unwrap();
+        let r = sh.exec(&format!(
+            "bulk_script --pre-card-action false {}",
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["failure"], 1, "{}", r.text);
+        assert_eq!(r.data["pre_card_action"][0]["exit"], 1, "{}", r.text);
+        assert!(
+            !log.borrow()
+                .iter()
+                .any(|c| c.windows(2).any(|w| w == [0x6F, 0x07])),
+            "the script ran after a failed pre-card action"
+        );
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_runs_a_script_on_each_card() {
+        let (mut sh, log) = shell_with_limited_cards(2);
+        sh.opts.yes = true;
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-test.txt");
+        std::fs::write(&script_path, "select 3F00\nstatus").unwrap();
+
+        let r = sh.exec(&format!("bulk_script --cards 2 {}", script_path.display()));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["success"], 2, "{}", r.text);
+        assert_eq!(r.data["failure"], 0, "{}", r.text);
+        assert_eq!(r.data["cards"], 2, "{}", r.text);
+
+        // Two cards, each ran select + status = 4 APDUs minimum
+        assert!(
+            log.borrow().len() >= 4,
+            "expected APDUs from two cards, got {}",
+            log.borrow().len()
+        );
+
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_halts_on_error() {
+        let (mut sh, _log) = shell_with_limited_cards(5);
+        sh.opts.yes = true;
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-halt.txt");
+        std::fs::write(&script_path, "select 3F00\nbogus_command").unwrap();
+
+        let r = sh.exec(&format!(
+            "bulk_script --halt-on-error {}",
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+        // First card fails (bogus_command), halt_on_error stops the loop.
+        assert_eq!(r.data["failure"], 1, "{}", r.text);
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_tries_retries_on_failure() {
+        let (mut sh, _log) = shell_with_limited_cards(5);
+        sh.opts.yes = true;
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-tries.txt");
+        std::fs::write(&script_path, "select 3F00\nbogus_command").unwrap();
+
+        // Without --halt_on_error, --tries 1 means one attempt, then move on.
+        // With 5 cards available, the script fails on each card (bogus_command),
+        // so all 5 cards are failures.
+        let r = sh.exec(&format!(
+            "bulk_script --cards 5 --tries 1 {}",
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["failure"], 5, "{}", r.text);
+        assert_eq!(r.data["success"], 0, "{}", r.text);
+
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_pre_and_on_stop_actions_run() {
+        let (mut sh, _log) = shell_with_limited_cards(2);
+        sh.opts.yes = true;
+
+        let pre_marker = std::env::temp_dir().join("sim-doctor-bulk-pre.txt");
+        let stop_marker = std::env::temp_dir().join("sim-doctor-bulk-stop.txt");
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-actions.txt");
+        std::fs::write(&script_path, "status").unwrap();
+
+        let _ = std::fs::remove_file(&pre_marker);
+        let _ = std::fs::remove_file(&stop_marker);
+
+        let r = sh.exec(&format!(
+            "bulk_script --pre_card_action 'touch {}' --on_stop_action 'touch {}' {}",
+            pre_marker.display(),
+            stop_marker.display(),
+            script_path.display()
+        ));
+        assert!(r.ok, "{}", r.text);
+
+        assert!(pre_marker.exists(), "pre_card_action should have run");
+        assert!(stop_marker.exists(), "on_stop_action should have run");
+
+        let _ = std::fs::remove_file(&pre_marker);
+        let _ = std::fs::remove_file(&stop_marker);
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_requires_yes_for_write_commands() {
+        let (mut sh, log) = shell_with_limited_cards(2);
+        // yes is false by default
+
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-write.txt");
+        std::fs::write(&script_path, "select 2FE2\nupdate_binary --data AABBCC").unwrap();
+
+        let r = sh.exec(&format!("bulk_script {}", script_path.display()));
+        assert!(r.ok, "{}", r.text);
+        // Without --yes, UPDATE BINARY should not reach the card.
+        assert!(
+            !log.borrow().iter().any(|c| c.get(1) == Some(&0xD6)),
+            "a write command was sent without --yes"
+        );
+
+        std::fs::remove_file(&script_path).ok();
+    }
+
+    #[test]
+    fn bulk_script_cannot_be_nested() {
+        let (mut sh, _log) = shell_with_limited_cards(2);
+        let script_path = std::env::temp_dir().join("sim-doctor-bulk-nested.txt");
+        std::fs::write(
+            &script_path,
+            format!("status\nbulk_script {}\n", script_path.display()),
+        )
+        .unwrap();
+        let r = sh.exec(&format!("bulk_script {}", script_path.display()));
+        assert!(!r.ok, "nested bulk_script must be refused");
+        assert!(r.text.contains("bulk_script"), "{}", r.text);
+        std::fs::remove_file(&script_path).ok();
     }
 }
 
