@@ -130,6 +130,7 @@ pub mod fuzz;
 pub mod gp;
 pub mod mcp;
 pub mod notif;
+pub mod ota_expanded;
 pub mod otacrypto;
 pub mod rules;
 pub mod saip;

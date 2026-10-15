@@ -31,7 +31,7 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules,
+    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, ota_expanded, otacrypto, rules,
     saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
@@ -266,6 +266,19 @@ enum Command {
     /// verified-but-out-of-validity.
     #[command(name = "esim-cert")]
     EsimCert(EsimCertArgs),
+    /// Offline OTA expanded-command and Proof-of-Response decoder, as pySim's OTA layer uses them.
+    /// No card and no reader: hex in, hex out.
+    ///
+    /// `ota-expanded encode` builds a Command Scripting template (TS 102 226 5.2.1) around one or
+    /// more C-APDUs, in the definite (tag AA) or the indefinite (AE 80 ... 00 00) length coding,
+    /// adding no Le and changing no C-APDU. `ota-expanded decode` reads a Response Scripting
+    /// template (5.2.2) of either coding, names every R-APDU, the Bad format, Immediate Action
+    /// and Script Chaining TLVs, and says whether the card truncated the response. `ota-expanded
+    /// por` reads a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or
+    /// without the SMS `02 71 00` user data header. Nothing is deciphered and no CC/RC is
+    /// verified: this command takes no key.
+    #[command(name = "ota-expanded")]
+    OtaExpanded(OtaExpandedArgs),
 
     /// APDU discovery and the OTA/SMS fuzz sweep.
     ///
@@ -1902,6 +1915,71 @@ impl From<OtaAlg> for otacrypto::Alg {
     }
 }
 
+/// Everything `sim-doctor ota-expanded` takes.
+#[derive(Args)]
+struct OtaExpandedArgs {
+    #[command(subcommand)]
+    action: OtaExpandedAction,
+}
+
+#[derive(Subcommand)]
+enum OtaExpandedAction {
+    /// Wrap one or more C-APDUs (hex each) in a Command Scripting template.
+    Encode {
+        /// The C-APDUs to script, hex (spaces and `0x` allowed), one per argument.
+        c_apdu: Vec<String>,
+        /// Use the indefinite length coding (tag AE 80 ... 00 00, TS 102 226 table 5.2a) instead
+        /// of the default definite one (tag AA, table 5.2). TS 102 226 recommends the indefinite
+        /// coding only for HTTPS and CoAP, not for SMS.
+        #[arg(long)]
+        indefinite: bool,
+        /// Emit one JSON envelope of kind "ota-expanded" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite.
+    Decode {
+        /// Hex of the template (spaces and `0x` allowed); stdin when omitted or "-".
+        hex: Option<String>,
+        /// Emit one JSON envelope of kind "ota-expanded" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or
+    /// without the SMS `02 71 00` user data header.
+    Por {
+        /// Hex of the Response Packet, or of `02 71 00` followed by it; stdin when omitted or "-".
+        hex: Option<String>,
+        /// Read the secure data as a compact (TS 102 226 5.1.2) or expanded (5.2.2) Remote
+        /// Application response.
+        #[arg(long, value_enum, default_value_t = RemoteFormatArg::Compact)]
+        remote_format: RemoteFormatArg,
+        /// Emit one JSON envelope of kind "ota-expanded" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// `--remote-format` accepts the two Remote Application structures of TS 102 226.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum RemoteFormatArg {
+    /// TS 102 226 clause 5.1.2.
+    #[value(name = "compact")]
+    Compact,
+    /// TS 102 226 clause 5.2.2, a Response Scripting template.
+    #[value(name = "expanded")]
+    Expanded,
+}
+
+impl From<RemoteFormatArg> for ota_expanded::RemoteFormat {
+    fn from(f: RemoteFormatArg) -> Self {
+        match f {
+            RemoteFormatArg::Compact => ota_expanded::RemoteFormat::Compact,
+            RemoteFormatArg::Expanded => ota_expanded::RemoteFormat::Expanded,
+        }
+    }
+}
+
 /// Everything `sim-doctor trace` takes.
 #[derive(Args)]
 struct TraceArgs {
@@ -2066,6 +2144,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 json,
             } => run_esim_cert_verify(&chain, &root, at.as_deref(), json),
         },
+        Command::OtaExpanded(args) => run_ota_expanded(args),
         Command::Sms(args) => match args.action {
             SmsAction::Decode { hex, tpdu, json } => run_sms_decode(&hex, tpdu, json),
         },
@@ -5309,6 +5388,145 @@ fn report_refusal(
     }
 
     contract::ExitCode::Findings
+}
+
+/// Runs `sim-doctor ota-expanded`: the offline Command Scripting template encoder, the Response
+/// Scripting template decoder and the Proof-of-Response Response Packet decoder.
+///
+/// The envelope kind is "ota-expanded" and its `data` carries `card_touched: false`, so an agent
+/// can tell from the document alone that nothing was sent. Every value that came off a card
+/// reaches the human table through `contract::sanitize`.
+///
+/// Exit codes: 0 on a completed encode or decode; 2 for input that is not hex, not the structure
+/// it claims to be, or a Response Packet whose own lengths disagree - a malformed template is an
+/// error, never a partial answer. `clap` itself answers 129 for a bad command line.
+fn run_ota_expanded(args: OtaExpandedArgs) -> contract::ExitCode {
+    const KIND: &str = "ota-expanded";
+
+    let (json, outcome): (bool, Result<(serde_json::Value, String), String>) = match args.action {
+        OtaExpandedAction::Encode {
+            c_apdu,
+            indefinite,
+            json,
+        } => {
+            let coding = if indefinite {
+                ota_expanded::LengthCoding::Indefinite
+            } else {
+                ota_expanded::LengthCoding::Definite
+            };
+            let parsed = c_apdu
+                .iter()
+                .map(|c| cat::parse_hex(c).map_err(|e| format!("`{c}`: {e}")))
+                .collect::<Result<Vec<Vec<u8>>, String>>();
+            (
+                json,
+                parsed.and_then(|apdus| {
+                    ota_expanded::command_scripting(&apdus, coding)
+                        .map(|script| (script.json(), script.render()))
+                        .map_err(|e| e.to_string())
+                }),
+            )
+        }
+        OtaExpandedAction::Decode { hex, json } => {
+            let parsed = read_ota_expanded_hex(hex.as_deref());
+            (
+                json,
+                parsed.and_then(|bytes| {
+                    ota_expanded::decode_response_scripting(&bytes)
+                        .map(|t| (t.json(), t.render()))
+                        .map_err(|e| e.to_string())
+                }),
+            )
+        }
+        OtaExpandedAction::Por {
+            hex,
+            remote_format,
+            json,
+        } => {
+            let format = remote_format.into();
+            let parsed = read_ota_expanded_hex(hex.as_deref());
+            (
+                json,
+                parsed.and_then(|bytes| {
+                    ota_expanded::decode_por(&bytes, format)
+                        .map(|p| (p.json(), p.render()))
+                        .map_err(|e| e.to_string())
+                }),
+            )
+        }
+    };
+
+    match outcome {
+        Err(message) => {
+            eprintln!("sim-doctor: {message}");
+            if json {
+                let data = serde_json::json!({ "card_touched": false, "error": message });
+                match contract::Envelope::new(KIND, contract::ExitCode::Error, &message, data)
+                    .to_json()
+                {
+                    Ok(line) => {
+                        let _ = emit_stdout(&line, "the ota-expanded error envelope");
+                    }
+                    Err(err) => eprintln!("sim-doctor: {err}"),
+                }
+            }
+            contract::ExitCode::Error
+        }
+        Ok((data, rendered)) => {
+            let written = if json {
+                match contract::Envelope::new(
+                    KIND,
+                    contract::ExitCode::Success,
+                    contract::OK_MESSAGE,
+                    data,
+                )
+                .to_json()
+                {
+                    Ok(line) => emit_stdout(&line, "the ota-expanded result"),
+                    Err(err) => Err(err.to_string()),
+                }
+            } else {
+                emit_stdout(&rendered, "the decoded OTA data")
+            };
+            match written {
+                Ok(()) => contract::ExitCode::Success,
+                Err(message) => {
+                    eprintln!("sim-doctor: {message}");
+                    contract::ExitCode::Error
+                }
+            }
+        }
+    }
+}
+
+/// The hex an `ota-expanded` decode or por verb was given: the argument, or stdin when it was
+/// omitted or is `-`. Whitespace, newlines and `0x` prefixes are ignored.
+fn read_ota_expanded_hex(hex: Option<&str>) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+
+    let text = match hex {
+        Some("-") | None => {
+            let mut buffer = Vec::new();
+            if let Err(err) = io::stdin()
+                .take(MAX_WHY_FILE_BYTES)
+                .read_to_end(&mut buffer)
+            {
+                return Err(format!("cannot read stdin: {err}"));
+            }
+            String::from_utf8_lossy(&buffer).into_owned()
+        }
+        Some(text) => text.to_owned(),
+    };
+    let joined: String = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() {
+        return Err("no OTA data given".to_owned());
+    }
+    cat::parse_hex(&joined)
 }
 
 #[cfg(test)]
