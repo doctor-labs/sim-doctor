@@ -2534,3 +2534,55 @@ fn euicc_challenge_without_a_reader_exit_1_with_one_lpa_envelope() {
         run.stdout
     );
 }
+
+/// `gp install --make-default` sets the Card Reset (Default Selected) bit, `0x04`
+/// in the first privilege byte, in the INSTALL [for install and make selectable]
+/// privileges (GP Card Spec v2.3.1 table 11-7; GlobalPlatformPro `CardReset`). It
+/// is still an offline dry run without `--yes`.
+#[test]
+fn gp_install_make_default_sets_the_default_selected_privilege() {
+    let _guard = spawn_lock();
+    let cap = write_test_cap("make-default");
+    let cap_arg = cap.to_str().unwrap();
+
+    let out = run(
+        &[
+            "gp",
+            "install",
+            "--load",
+            cap_arg,
+            "--make-default",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let data = env.payload().data();
+    assert_eq!(data["card_touched"], false);
+    assert_eq!(data["target"]["privileges"], "040000");
+    let last = data["plan"]["apdus"].as_array().unwrap().last().unwrap()["apdu"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(last.starts_with("80E60C00"), "{last}");
+    assert!(last.contains("0304000002C90000"), "{last}");
+
+    // a one-byte privilege field works the same way
+    let out = run(
+        &[
+            "gp",
+            "install",
+            "--load",
+            cap_arg,
+            "--make-default",
+            "--privileges",
+            "80",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    assert_eq!(env.payload().data()["target"]["privileges"], "84");
+}
