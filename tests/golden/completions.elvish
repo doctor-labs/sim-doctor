@@ -349,6 +349,9 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;trace'= {
             cand --json 'Emit one JSON envelope of kind "trace" on stdout'
+            cand --show-raw-apdu 'Also print each exchange''s raw command and response hex in the table'
+            cand --no-suppress-select 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace'
+            cand --no-suppress-status 'Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace'
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
         }

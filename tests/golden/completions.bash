@@ -3306,7 +3306,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__trace)
-            opts="-h --json --help"
+            opts="-h --json --show-raw-apdu --no-suppress-select --no-suppress-status --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

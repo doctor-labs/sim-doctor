@@ -1396,3 +1396,56 @@ fn get_identity_always_sends_without_yes_gate() {
     // The actual APDU format and command flow is tested in src/cardsh.rs unit tests.
     // See: get_identity_is_sent_without_yes_gate in src/cardsh.rs
 }
+
+/// `sim-doctor trace` over stdin: a SELECT, then a READ BINARY, no card.
+fn trace_stdin(args: &[&str]) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("trace")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the binary runs");
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(b"00a40004023f00\n9000\n00b0000002\n01029000\n")
+        .expect("the trace is written");
+    child.wait_with_output().expect("the binary finishes")
+}
+
+#[test]
+fn trace_hides_select_and_status_rows_by_default_and_the_flags_show_them() {
+    let plain = String::from_utf8_lossy(&trace_stdin(&[]).stdout).into_owned();
+    assert!(!plain.contains("SELECT"), "{plain}");
+    assert!(plain.contains("READ BINARY"), "{plain}");
+
+    let select =
+        String::from_utf8_lossy(&trace_stdin(&["--no-suppress-select"]).stdout).into_owned();
+    assert!(select.contains("SELECT"), "{select}");
+    assert!(select.contains("READ BINARY"), "{select}");
+}
+
+#[test]
+fn trace_show_raw_apdu_prints_the_hex_of_each_shown_row() {
+    let out =
+        String::from_utf8_lossy(&trace_stdin(&["--show-raw-apdu", "--no-suppress-select"]).stdout)
+            .into_owned();
+    assert!(out.contains("raw: 00A40004023F00 9000"), "{out}");
+    assert!(out.contains("raw: 00B0000002 01029000"), "{out}");
+}
+
+#[test]
+fn trace_json_keeps_every_exchange_whatever_the_display_flags() {
+    let out = trace_stdin(&["--json"]);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("one JSON envelope");
+    assert_eq!(v["payload"]["data"]["count"], 2, "{v}");
+    assert_eq!(
+        v["payload"]["data"]["exchanges"][0]["name"], "SELECT",
+        "{v}"
+    );
+}
