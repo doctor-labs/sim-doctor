@@ -711,6 +711,43 @@ fn std_ef_of(chan: &Chan) -> Option<names::StdEf> {
     names::find(&names::scopes_of(&chan.dir, chan.adf.as_deref()), fid)
 }
 
+/// Opens `decoded` in `$VISUAL` or `$EDITOR` (vi when neither is set) and returns the JSON saved.
+fn edit_in_editor(decoded: &Value) -> Result<Value, CmdErr> {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_owned());
+    let mut parts = editor.split_whitespace();
+    let program = parts.next().unwrap_or("vi");
+    let path = std::env::temp_dir().join(format!("sim-doctor-edit-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(decoded).unwrap_or_default(),
+    )
+    .map_err(|e| CmdErr::new(format!("cannot write {}: {e}", path.display())))?;
+    let status = std::process::Command::new(program)
+        .args(parts)
+        .arg(&path)
+        .status();
+    let text = std::fs::read_to_string(&path);
+    let _ = std::fs::remove_file(&path);
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            return Err(CmdErr::new(format!(
+                "the editor exited with {s}: nothing written"
+            )))
+        }
+        Err(e) => {
+            return Err(CmdErr::new(format!(
+                "cannot start the editor `{program}`: {e}"
+            )))
+        }
+    }
+    let text = text.map_err(|e| CmdErr::new(format!("cannot read the saved file: {e}")))?;
+    serde_json::from_str(&text)
+        .map_err(|e| CmdErr::new(format!("the saved content is not JSON: {e}")))
+}
+
 fn decoded_reply(std: Option<names::StdEf>, records: &[Vec<u8>], extra: Value) -> Reply {
     let (name, scope, kind) = std.map_or(("", "", "hex"), |e| (e.name, e.scope, e.kind));
     let fields = decode::decode_ef(kind, name, records);
@@ -2190,6 +2227,173 @@ impl Shell {
         Ok(decoded_reply(std, &records, json!({ "path": path })))
     }
 
+    /// `edit_record_decoded`: one record of the selected record EF as JSON, written back with UPDATE RECORD and read back.
+    fn cmd_edit_record_decoded(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let record = record_number(*args.get_one::<u16>("record").expect("required"))
+            .map_err(CmdErr::new)?;
+        let json_file = args.get_one::<String>("json_file").cloned();
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let (structure, rec_len) = {
+            let ef = card.ef()?;
+            (ef.structure, ef.record_length)
+        };
+        if structure.is_some_and(|st| st == "transparent") {
+            return Err(CmdErr::new(
+                "the selected file is transparent: use edit_decoded",
+            ));
+        }
+        let rec_len = rec_len
+            .ok_or_else(|| CmdErr::new("the record length is unknown: select the EF again"))?;
+        let std = std_ef_of(&card.chans[&card.channel]);
+        let name = std.map_or("", |e| e.name);
+        let current = card.read(0xB2, record, 0x04, u32::from(rec_len))?;
+        let decoded = decode::decode_ef(
+            std.map_or("hex", |e| e.kind),
+            name,
+            std::slice::from_ref(&current),
+        );
+        let edited = match json_file {
+            Some(path) => {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|e| CmdErr::new(format!("cannot read {path}: {e}")))?;
+                serde_json::from_str::<Value>(&text)
+                    .map_err(|e| CmdErr::new(format!("{path} is not JSON: {e}")))?
+            }
+            None => edit_in_editor(&decoded)?,
+        };
+        let encoded = encode_decoded(name, &edited).map_err(CmdErr::new)?;
+        let data = if name == "EF.MSISDN" {
+            merge_msisdn_record(encoded, &current).map_err(CmdErr::new)?
+        } else {
+            encoded
+        };
+        if data.len() != current.len() {
+            return Err(CmdErr::new(format!(
+                "the new content is {} octets, but the record is {}: a record cannot change size",
+                data.len(),
+                current.len()
+            )));
+        }
+        if data == current {
+            return Ok(Reply::ok(
+                "no change: the record already holds this content".to_owned(),
+                json!({ "ef": std.map(|e| e.name), "record": record, "sent": false, "changed": false }),
+            ));
+        }
+        let command = update_record_command(card.cla(), record, 0x04, &data);
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {} (UPDATE RECORD changes the card; add --yes to send)",
+                    hex_upper(&wire)
+                ),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let readback = card.read(0xB2, record, 0x04, u32::from(rec_len))?;
+        Ok(Reply::ok(
+            format!("UPDATE RECORD done: {}", sw_text(sw)),
+            json!({
+                "ef": std.map(|e| e.name),
+                "record": record,
+                "sent": true,
+                "changed": true,
+                "apdu": hex_upper(&wire),
+                "sw": sw.map(|s| s.to_string()),
+                "verified": readback == data,
+            }),
+        ))
+    }
+
+    /// `edit_decoded`: the selected transparent EF as JSON, written back with UPDATE BINARY and read back.
+    fn cmd_edit_decoded(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let send = self.may_change_card(args);
+        let json_file = args.get_one::<String>("json_file").cloned();
+        let card = self.equipped()?;
+        let (structure, size) = {
+            let ef = card.ef()?;
+            (ef.structure, ef.size)
+        };
+        if structure.is_some_and(|st| st != "transparent") {
+            return Err(CmdErr::new(format!(
+                "the selected file is {}: edit_decoded handles transparent EFs; use update_record",
+                structure.unwrap_or("record-structured")
+            )));
+        }
+        let size =
+            size.ok_or_else(|| CmdErr::new("the file size is unknown: select the EF again"))?;
+        let std = std_ef_of(&card.chans[&card.channel]);
+        let name = std.map_or("", |e| e.name);
+        let current = card.read_binary(0, size)?;
+        let decoded = decode::decode_ef(
+            std.map_or("hex", |e| e.kind),
+            name,
+            std::slice::from_ref(&current),
+        );
+        let edited = match json_file {
+            Some(path) => {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|e| CmdErr::new(format!("cannot read {path}: {e}")))?;
+                serde_json::from_str::<Value>(&text)
+                    .map_err(|e| CmdErr::new(format!("{path} is not JSON: {e}")))?
+            }
+            None => edit_in_editor(&decoded)?,
+        };
+        let data = encode_decoded(name, &edited).map_err(CmdErr::new)?;
+        let data = if name == "EF.FPLMN" {
+            fill_unused_plmns(data, current.len())
+        } else {
+            data
+        };
+        if data.len() != current.len() {
+            return Err(CmdErr::new(format!(
+                "the new content is {} octets, but the file is {}: a transparent file cannot change size",
+                data.len(),
+                current.len()
+            )));
+        }
+        if data == current {
+            return Ok(Reply::ok(
+                "no change: the EF already holds this content".to_owned(),
+                json!({ "ef": std.map(|e| e.name), "sent": false, "changed": false }),
+            ));
+        }
+        let command = update_binary_command(card.cla(), 0, &data);
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {} (UPDATE BINARY overwrites the EF's content; add --yes to send)",
+                    hex_upper(&wire)
+                ),
+                json!({ "ef": std.map(|e| e.name), "sent": false, "changed": true, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        if card.read_binary(0, size)? != data {
+            return Err(CmdErr::new(format!(
+                "UPDATE BINARY {}, but the read back does not match what was written",
+                sw_text(sw)
+            )));
+        }
+        Ok(Reply::ok(
+            format!("{name} written and read back: {}", sw_text(sw)),
+            json!({
+                "ef": std.map(|e| e.name),
+                "sent": true,
+                "changed": true,
+                "apdu": hex_upper(&wire),
+                "sw": sw.map(|s| s.to_string()),
+                "verified": true,
+            }),
+        ))
+    }
+
     fn cmd_read_binary(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let card = self.equipped()?;
         let ef = card.ef()?;
@@ -2701,6 +2905,312 @@ pub fn update_binary_command(cla: u8, offset: u16, data: &[u8]) -> apdu::Command
         apdu::Header::new(cla, 0xD6, (offset >> 8) as u8, offset as u8),
         data.to_vec(),
     )
+}
+
+/// Re-encodes the JSON that `edit_decoded` opens (the shape `read_binary_decoded` prints) to the
+/// file's octets. EF.ICCID takes `iccid` (and `digits`, which must agree); a file in its raw form
+/// takes `hex` alone; EF.IMSI takes `imsi`, EF.ACC `classes` and EF.FPLMN `plmns`. Any other kind is refused rather than guessed at: a wrong encoding writes
+/// wrong bytes to the card.
+pub fn encode_decoded(name: &str, fields: &Value) -> Result<Vec<u8>, String> {
+    let keys: Vec<&str> = fields
+        .as_object()
+        .map(|o| o.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    if let (["hex"], Some(hex)) = (keys.as_slice(), fields.get("hex").and_then(Value::as_str)) {
+        return parse_hex(hex);
+    }
+    if name == "EF.ICCID"
+        && keys.contains(&"iccid")
+        && keys.iter().all(|k| *k == "iccid" || *k == "digits")
+    {
+        let digits = fields
+            .get("iccid")
+            .and_then(Value::as_str)
+            .ok_or("EF.ICCID: \"iccid\" must be a string of digits")?;
+        if fields
+            .get("digits")
+            .is_some_and(|d| d.as_u64() != Some(digits.len() as u64))
+        {
+            return Err("EF.ICCID: \"digits\" does not match \"iccid\"".to_owned());
+        }
+        return encode_iccid(digits);
+    }
+    if name == "EF.IMSI"
+        && keys.contains(&"imsi")
+        && keys
+            .iter()
+            .all(|k| matches!(*k, "imsi" | "mcc_mnc" | "mnc_len_source"))
+    {
+        return encode_imsi(fields);
+    }
+    if name == "EF.FPLMN"
+        && keys.contains(&"plmns")
+        && keys.iter().all(|k| matches!(*k, "plmns" | "count"))
+    {
+        return encode_plmn_list(fields);
+    }
+    if name == "EF.MSISDN"
+        && keys.contains(&"numbers")
+        && keys
+            .iter()
+            .all(|k| matches!(*k, "numbers" | "used_records"))
+    {
+        return encode_msisdn_record(fields);
+    }
+    if name == "EF.MSISDN"
+        && keys.contains(&"numbers")
+        && keys
+            .iter()
+            .all(|k| matches!(*k, "numbers" | "used_records"))
+    {
+        return encode_msisdn_record(fields);
+    }
+    if name == "EF.ACC" && keys.as_slice() == ["classes"] {
+        return encode_acc(&fields["classes"]);
+    }
+    let label = if name.is_empty() { "this file" } else { name };
+    Err(format!(
+        "{label} has no JSON encoder for the fields {keys:?}: edit_decoded takes EF.ICCID (\"iccid\"), EF.IMSI (\"imsi\"), EF.ACC (\"classes\"), EF.FPLMN (\"plmns\") or a raw file (\"hex\" only); use update_binary for other files"
+    ))
+}
+
+/// EF.IMSI (TS 31.102 clause 4.2.2; the layout `decode_imsi` reads, checked against the EF_IMSI
+/// vectors of the ts_51_011 module in pySim): length octet, then the first digit with the odd flag
+/// 0x08 and IMSI type 001, then two digits per octet, low nibble first, `F`-padded. A 15-digit IMSI
+/// is nine octets. `mcc_mnc` (when it is the start of the IMSI) and `mnc_len_source` are accepted and
+/// derived, not stored.
+pub fn encode_imsi(fields: &Value) -> Result<Vec<u8>, String> {
+    let imsi = fields
+        .get("imsi")
+        .and_then(Value::as_str)
+        .filter(|s| (1..=15).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()))
+        .ok_or("EF.IMSI \"imsi\" takes 1 to 15 decimal digits")?;
+    if let Some(mcc_mnc) = fields.get("mcc_mnc").filter(|v| !v.is_null()) {
+        if !mcc_mnc
+            .as_str()
+            .is_some_and(|p| imsi.starts_with(p) && (5..=6).contains(&p.len()))
+        {
+            return Err(
+                "EF.IMSI \"mcc_mnc\" must be the 5 or 6 digit start of \"imsi\"".to_owned(),
+            );
+        }
+    }
+    let digits: Vec<u8> = imsi.bytes().map(|b| b - 48).collect();
+    let odd = digits.len() % 2 == 1;
+    let mut rest = digits[1..].to_vec();
+    if rest.len() % 2 == 1 {
+        rest.push(0xF);
+    }
+    let mut body = vec![(digits[0] << 4) | (u8::from(odd) << 3) | 0x01];
+    body.extend(rest.chunks(2).map(|p| (p[1] << 4) | p[0]));
+    let mut out = vec![body.len() as u8];
+    out.extend(body);
+    Ok(out)
+}
+
+/// EF.FPLMN (TS 31.102 clause 4.2.16; the PLMN layout `decode_plmn` reads, TS 24.008 10.5.1.13):
+/// three octets per PLMN, MCC then MNC, a two-digit MNC carrying `F` in its third digit. `plmns` is
+/// the array `read_binary_decoded` prints, with the access-technology keys left null. Unused slots
+/// are not in the JSON; `fill_unused_plmns` pads them back to the file size.
+pub fn encode_plmn_list(fields: &Value) -> Result<Vec<u8>, String> {
+    let list = fields
+        .get("plmns")
+        .and_then(Value::as_array)
+        .ok_or("EF.FPLMN \"plmns\" must be an array")?;
+    if fields
+        .get("count")
+        .is_some_and(|c| c.as_u64() != Some(list.len() as u64))
+    {
+        return Err("EF.FPLMN \"count\" does not match \"plmns\"".to_owned());
+    }
+    let mut out = Vec::with_capacity(3 * list.len());
+    for entry in list {
+        let obj = entry
+            .as_object()
+            .ok_or("EF.FPLMN entries are objects with \"mcc\" and \"mnc\"")?;
+        if obj
+            .keys()
+            .any(|k| !matches!(k.as_str(), "mcc" | "mnc" | "act" | "act_names"))
+            || obj.get("act").is_some_and(|a| !a.is_null())
+            || obj.get("act_names").is_some_and(|a| !a.is_null())
+        {
+            return Err("EF.FPLMN entries take \"mcc\" and \"mnc\"; the access technologies are not editable".to_owned());
+        }
+        let mcc = entry
+            .get("mcc")
+            .and_then(Value::as_str)
+            .filter(|s| s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()));
+        let mnc = entry
+            .get("mnc")
+            .and_then(Value::as_str)
+            .filter(|s| (2..=3).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()));
+        let (Some(mcc), Some(mnc)) = (mcc, mnc) else {
+            return Err("EF.FPLMN \"mcc\" is 3 digits and \"mnc\" is 2 or 3".to_owned());
+        };
+        let d = |s: &str, i: usize| s.as_bytes()[i] - 48;
+        let mnc3 = if mnc.len() == 3 { d(mnc, 2) } else { 0xF };
+        out.extend([
+            (d(mcc, 1) << 4) | d(mcc, 0),
+            (mnc3 << 4) | d(mcc, 2),
+            (d(mnc, 1) << 4) | d(mnc, 0),
+        ]);
+    }
+    Ok(out)
+}
+
+/// Pads a PLMN list up to the file size with unused slots (`FF FF FF`). Only whole slots are added;
+/// any other size is left for the length check to refuse.
+pub fn fill_unused_plmns(mut data: Vec<u8>, size: usize) -> Vec<u8> {
+    if data.len() < size && (size - data.len()) % 3 == 0 {
+        data.resize(size, 0xFF);
+    }
+    data
+}
+
+/// The record number of a READ or UPDATE RECORD: a one-octet P1, so 1 to 255. Checked before any card I/O.
+pub fn record_number(record: u16) -> Result<u8, String> {
+    u8::try_from(record)
+        .ok()
+        .filter(|n| *n >= 1)
+        .ok_or_else(|| format!("--record takes a record number from 1 to 255, not {record}"))
+}
+
+/// EF.MSISDN record (TS 31.102 clause 4.2.26 and TS 51.011 clause 10.5.5, the layout that
+/// decode_msisdn_record reads): the alpha identifier, then 14 octets: BCD length (the TON/NPI octet
+/// and the number octets), TON/NPI, ten octets of BCD number, capability id, extension id. Takes the
+/// shape read_record_decoded prints. An empty list is an unused record and encodes to nothing, and
+/// merge_msisdn_record fills it. The capability and extension ids are FF here and kept by the merge.
+pub fn encode_msisdn_record(fields: &Value) -> Result<Vec<u8>, String> {
+    let list = fields
+        .get("numbers")
+        .and_then(Value::as_array)
+        .ok_or("EF.MSISDN \"numbers\" must be an array")?;
+    if fields
+        .get("used_records")
+        .is_some_and(|n| n.as_u64() != Some(list.len() as u64))
+    {
+        return Err("EF.MSISDN \"used_records\" does not match \"numbers\"".to_owned());
+    }
+    let entry = match list.as_slice() {
+        [] => return Ok(Vec::new()),
+        [one] => one,
+        _ => return Err("EF.MSISDN holds one number per record".to_owned()),
+    };
+    if !entry.as_object().is_some_and(|o| {
+        o.keys()
+            .all(|k| matches!(k.as_str(), "alpha" | "ton_npi" | "digits" | "number"))
+    }) {
+        return Err(
+            "EF.MSISDN entries take \"alpha\", \"ton_npi\", \"number\" and \"digits\"".to_owned(),
+        );
+    }
+    let alpha = entry
+        .get("alpha")
+        .and_then(Value::as_str)
+        .filter(|a| a.bytes().all(|b| (0x20..=0x7E).contains(&b)))
+        .ok_or("EF.MSISDN \"alpha\" is printable ASCII")?;
+    let ton = entry
+        .get("ton_npi")
+        .and_then(Value::as_str)
+        .filter(|s| s.len() == 2)
+        .and_then(|s| u8::from_str_radix(s, 16).ok())
+        .ok_or("EF.MSISDN \"ton_npi\" is one hex octet, as printed")?;
+    let number = entry
+        .get("number")
+        .and_then(Value::as_str)
+        .ok_or("EF.MSISDN \"number\" is a string")?;
+    if entry
+        .get("digits")
+        .is_some_and(|d| d.as_u64() != Some(number.len() as u64))
+    {
+        return Err("EF.MSISDN \"digits\" does not match \"number\"".to_owned());
+    }
+    let mut nibbles = Vec::with_capacity(number.len() + 1);
+    for c in number.chars() {
+        nibbles.push(match c {
+            '0'..='9' => c as u8 - 48,
+            '*' => 0xA,
+            '#' => 0xB,
+            'p' => 0xC,
+            _ => return Err("EF.MSISDN \"number\" takes digits, star, hash and p".to_owned()),
+        });
+    }
+    if nibbles.len() > 20 {
+        return Err("EF.MSISDN takes at most 20 digits".to_owned());
+    }
+    if nibbles.len() % 2 == 1 {
+        nibbles.push(0xF);
+    }
+    let bcd: Vec<u8> = nibbles.chunks(2).map(|p| (p[1] << 4) | p[0]).collect();
+    let mut tail = vec![(bcd.len() + 1) as u8, ton];
+    tail.extend(bcd);
+    tail.resize(12, 0xFF);
+    tail.extend([0xFF, 0xFF]);
+    let mut out = alpha.as_bytes().to_vec();
+    out.extend(tail);
+    Ok(out)
+}
+
+/// Makes an encoded EF.MSISDN record the length of the current record. The alpha identifier is
+/// FF-padded to fill the record, and the capability and extension ids (the last two octets) are kept
+/// from the current record, so an extension link is not cut. An empty encoding is an unused record.
+/// Refused when the current alpha is UCS-2 or not printable ASCII: the decoder shows those as text
+/// that cannot be written back unchanged.
+pub fn merge_msisdn_record(encoded: Vec<u8>, current: &[u8]) -> Result<Vec<u8>, String> {
+    let alpha_len = current
+        .len()
+        .checked_sub(14)
+        .ok_or("an EF.MSISDN record is at least 14 octets")?;
+    let used = &current[..alpha_len];
+    let used = &used[..used.iter().position(|b| *b == 0xFF).unwrap_or(alpha_len)];
+    if used.first().is_some_and(|b| (0x80..=0x82).contains(b))
+        || !used.iter().all(|b| (0x20..=0x7E).contains(b))
+    {
+        return Err("the record alpha is UCS-2 or not printable ASCII: edit_record_decoded cannot write it back unchanged".to_owned());
+    }
+    if encoded.is_empty() {
+        return Ok(vec![0xFF; current.len()]);
+    }
+    let Some(at) = encoded.len().checked_sub(14) else {
+        return Ok(encoded);
+    };
+    let (alpha, tail) = encoded.split_at(at);
+    if alpha.len() > alpha_len {
+        return Ok(encoded);
+    }
+    let mut out = alpha.to_vec();
+    out.resize(alpha_len, 0xFF);
+    out.extend_from_slice(&tail[..12]);
+    out.extend_from_slice(&current[alpha_len + 12..]);
+    Ok(out)
+}
+
+/// EF.ACC: two octets, bit c set for access class c, so class 15 is octet 1 b8 and class 0 is
+/// octet 2 b1 (the layout `decode_acc` reads). `classes` is the JSON array of class numbers.
+pub fn encode_acc(classes: &Value) -> Result<Vec<u8>, String> {
+    let list = classes
+        .as_array()
+        .ok_or("EF.ACC \"classes\" must be an array of class numbers 0 to 15")?;
+    let mut word: u16 = 0;
+    for c in list {
+        let c = c
+            .as_u64()
+            .filter(|c| *c < 16)
+            .ok_or("EF.ACC \"classes\" must hold class numbers 0 to 15")?;
+        word |= 1 << c;
+    }
+    Ok(word.to_be_bytes().to_vec())
+}
+
+/// EF.ICCID (ETSI TS 102 221 clause 13.2): ten octets, two digits per octet with the nibbles
+/// swapped (low nibble first), padded with `F` after the last digit.
+pub fn encode_iccid(digits: &str) -> Result<Vec<u8>, String> {
+    if digits.is_empty() || digits.len() > 20 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("EF.ICCID takes 1 to 20 decimal digits".to_owned());
+    }
+    let mut nibbles: Vec<u8> = digits.bytes().map(|b| b - b'0').collect();
+    nibbles.resize(20, 0xF);
+    Ok(nibbles.chunks(2).map(|p| (p[1] << 4) | p[0]).collect())
 }
 
 /// UPDATE RECORD of `record` with `data`, mode `mode` (0x04 = absolute),
@@ -3246,6 +3756,13 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("edit_record_decoded")
+                .about("Edit one record of the selected record-structured EF as JSON and write it back with UPDATE RECORD, then read it back. Supports EF.MSISDN; the capability and extension ids of the record are kept. A dry run unless --yes. WARNING: this permanently overwrites the record, and a wrong number can break the card")
+                .arg(Arg::new("record").long("record").value_name("N").required(true).value_parser(clap::value_parser!(u16).range(1..=255)))
+                .arg(Arg::new("json_file").long("json-file").value_name("PATH").help("the edited JSON; without it the editor opens on the decoded JSON"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("read_records")
                 .about("READ RECORD of every record (or --from .. --to) of the selected record EF")
                 .arg(Arg::new("from").long("from").value_name("N").default_value("1").value_parser(clap::value_parser!(u8).range(1..=254)))
@@ -3258,6 +3775,12 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("record").required(true).value_name("N").value_parser(clap::value_parser!(u8).range(1..=254))),
         )
         .subcommand(C::new("read_records_decoded").about("Read every record of the selected EF and decode them by its standard name"))
+        .subcommand(
+            C::new("edit_decoded")
+                .about("Edit the selected transparent EF as JSON and write it back: the decoded fields open in $EDITOR (or --json-file PATH is read), are re-encoded and sent as UPDATE BINARY, then read back. Supports EF.ICCID and raw files (\"hex\"); the size cannot change. A dry run unless --yes. WARNING: this permanently overwrites the EF's content, and a wrong value can break the card")
+                .arg(Arg::new("json_file").long("json-file").value_name("PATH").help("the edited JSON; without it $EDITOR opens on the decoded JSON"))
+                .arg(yes_arg()),
+        )
         .subcommand(
             C::new("decode")
                 .about("Decode HEX as the standard file NAME, offline (no card needed): decode EF.IMSI 0809...")
@@ -3856,6 +4379,8 @@ impl Shell {
                 *args.get_one::<u8>("record").expect("required"),
             )),
             "read_records_decoded" => self.cmd_read_decoded(Which::All),
+            "edit_decoded" => self.cmd_edit_decoded(args),
+            "edit_record_decoded" => self.cmd_edit_record_decoded(args),
             "decode" => cmd_decode(args),
             "decode_hex" => self.cmd_decode_hex(args),
             "files" => Ok(cmd_files(
@@ -6684,5 +7209,277 @@ mod file_management_tests {
             !data.is_empty() || r.data["sw"] == "9000",
             "Should have identity data or SW 9000"
         );
+    }
+
+    #[test]
+    fn edit_decoded_encodes_iccid_and_raw_files_and_refuses_the_rest() {
+        // EF.ICCID (TS 102 221 13.2): the decode test's vector, so encode and decode agree.
+        assert_eq!(
+            encode_iccid("8999991234567890123").unwrap(),
+            vec![0x98, 0x99, 0x99, 0x21, 0x43, 0x65, 0x87, 0x09, 0x21, 0xF3]
+        );
+        assert!(encode_iccid("").is_err() && encode_iccid("12a4").is_err());
+        assert!(encode_iccid(&"1".repeat(21)).is_err());
+        // the decoded shape round-trips; a `digits` that disagrees is refused
+        let v = json!({ "digits": 19, "iccid": "8999991234567890123" });
+        assert_eq!(encode_decoded("EF.ICCID", &v).unwrap().len(), 10);
+        assert!(encode_decoded(
+            "EF.ICCID",
+            &json!({ "digits": 4, "iccid": "8999991234567890123" })
+        )
+        .is_err());
+        // a raw file is edited as its hex
+        assert_eq!(
+            encode_decoded("", &json!({ "hex": "0A0B" })).unwrap(),
+            vec![0x0A, 0x0B]
+        );
+        // mixed keys (a `hex` next to a decoded field) and kinds with no encoder are refused, not guessed
+        assert!(encode_decoded("", &json!({ "hex": "0A", "value": 3 })).is_err());
+    }
+
+    #[test]
+    fn edit_decoded_is_a_dry_run_until_yes_and_reads_the_write_back() {
+        let (mut sh, log) = shell_with("", false);
+        assert!(sh.exec("select 3F00/2FE2").ok);
+        let path =
+            std::env::temp_dir().join(format!("sim-doctor-test-edit-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"iccid":"89999912345678901234"}"#).unwrap();
+        let file = path.to_str().unwrap();
+        let r = sh.exec(&format!("edit_decoded --json-file {file}"));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["sent"], false);
+        assert!(
+            r.text.contains("00D600000A98999921436587092143") && r.text.contains("--yes"),
+            "{}",
+            r.text
+        );
+        let writes = |log: &std::cell::RefCell<Vec<Vec<u8>>>| {
+            log.borrow().iter().filter(|c| c[1] == 0xD6).count()
+        };
+        assert_eq!(writes(&log), 0, "a dry run sends no UPDATE BINARY");
+        let r = sh.exec(&format!("edit_decoded --yes --json-file {file}"));
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["verified"], true);
+        assert_eq!(
+            sh.exec("read_binary_decoded").data["decoded"]["iccid"],
+            "89999912345678901234"
+        );
+        // the same content again is no change, and nothing is sent
+        let before = writes(&log);
+        let r = sh.exec(&format!("edit_decoded --yes --json-file {file}"));
+        assert_eq!(r.data["changed"], false);
+        assert_eq!(writes(&log), before, "no UPDATE BINARY for an unchanged EF");
+        let _ = std::fs::remove_file(&path);
+    }
+    #[test]
+    fn edit_decoded_encodes_acc_and_round_trips_its_decoder() {
+        // EF.ACC bit layout, as pySim EF_ACC test vectors read it: "0100" is ACC8, "0001" ACC0
+        assert_eq!(
+            encode_decoded("EF.ACC", &json!({ "classes": [8] })).unwrap(),
+            vec![0x01, 0x00]
+        );
+        assert_eq!(
+            encode_decoded("EF.ACC", &json!({ "classes": [0] })).unwrap(),
+            vec![0x00, 0x01]
+        );
+        assert_eq!(
+            encode_decoded("EF.ACC", &json!({ "classes": [15, 0, 0] })).unwrap(),
+            vec![0x80, 0x01]
+        );
+        assert_eq!(
+            encode_decoded("EF.ACC", &json!({ "classes": [] })).unwrap(),
+            vec![0x00, 0x00]
+        );
+        // every encoding decodes back to the classes it was given
+        for classes in [vec![], vec![0u8], vec![8, 15], vec![1, 2, 3, 15]] {
+            let v = json!({ "classes": classes });
+            let bytes = encode_decoded("EF.ACC", &v).unwrap();
+            assert_eq!(json!(crate::ef::decode_acc(&bytes).unwrap()), v["classes"]);
+        }
+        // a class outside 0 to 15, or a non-array, is refused before anything is sent
+        assert!(encode_decoded("EF.ACC", &json!({ "classes": [16] })).is_err());
+        assert!(encode_decoded("EF.ACC", &json!({ "classes": "8" })).is_err());
+    }
+
+    #[test]
+    fn edit_decoded_encodes_imsi_and_refuses_bad_digits() {
+        // 15 digits: nine octets, length 08, first digit with the odd flag 0x08 and type 001
+        let bytes = encode_decoded("EF.IMSI", &json!({ "imsi": "001010123456789" })).unwrap();
+        assert_eq!(
+            bytes,
+            vec![0x08, 0x09, 0x10, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98]
+        );
+        assert_eq!(
+            crate::ef::decode_imsi(&bytes).unwrap().as_str(),
+            "001010123456789"
+        );
+        // 14 digits: even count, its last nibble is F padding, and it still fills nine octets
+        let even = encode_decoded("EF.IMSI", &json!({ "imsi": "00101012345678" })).unwrap();
+        assert_eq!(even.len(), 9);
+        assert_eq!(even[8] >> 4, 0xF);
+        assert_eq!(
+            crate::ef::decode_imsi(&even).unwrap().as_str(),
+            "00101012345678"
+        );
+        // refused: a non-digit, empty, more than 15 digits, an mcc_mnc that is not the start of the IMSI
+        assert!(encode_decoded("EF.IMSI", &json!({ "imsi": "00101012345678a" })).is_err());
+        assert!(encode_decoded("EF.IMSI", &json!({ "imsi": "" })).is_err());
+        assert!(encode_decoded("EF.IMSI", &json!({ "imsi": "1".repeat(16) })).is_err());
+        assert!(encode_decoded(
+            "EF.IMSI",
+            &json!({ "imsi": "001010123456789", "mcc_mnc": "00102" })
+        )
+        .is_err());
+        // the derived keys read_binary_decoded prints are accepted when they agree
+        assert!(encode_decoded(
+            "EF.IMSI",
+            &json!({ "imsi": "001010123456789", "mcc_mnc": "00101", "mnc_len_source": "EF.AD" })
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn edit_decoded_encodes_fplmn_and_round_trips_its_decoder() {
+        // TS 24.008 10.5.1.13 layout: MCC 001 with a two-digit MNC 01 is 00 F1 10; MCC 310 MNC 260 is 13 00 62
+        assert_eq!(
+            encode_decoded(
+                "EF.FPLMN",
+                &json!({ "plmns": [{ "mcc": "001", "mnc": "01" }] })
+            )
+            .unwrap(),
+            vec![0x00, 0xF1, 0x10]
+        );
+        let v = json!({ "count": 2, "plmns": [
+            { "mcc": "310", "mnc": "260", "act": null, "act_names": null },
+            { "mcc": "001", "mnc": "01" }
+        ] });
+        let bytes = encode_decoded("EF.FPLMN", &v).unwrap();
+        assert_eq!(bytes, vec![0x13, 0x00, 0x62, 0x00, 0xF1, 0x10]);
+        let back = crate::ef::decode_plmn_list(&bytes, 3).unwrap();
+        assert_eq!(back.len(), 2);
+        assert_eq!(
+            (back[0].plmn.mcc.as_str(), back[0].plmn.mnc.as_str()),
+            ("310", "260")
+        );
+        assert_eq!(
+            (back[1].plmn.mcc.as_str(), back[1].plmn.mnc.as_str()),
+            ("001", "01")
+        );
+        // refused: a short MNC, a non-digit MCC, a count that disagrees, an access technology that is not null
+        assert!(encode_decoded(
+            "EF.FPLMN",
+            &json!({ "plmns": [{ "mcc": "001", "mnc": "1" }] })
+        )
+        .is_err());
+        assert!(encode_decoded(
+            "EF.FPLMN",
+            &json!({ "plmns": [{ "mcc": "00a", "mnc": "01" }] })
+        )
+        .is_err());
+        assert!(encode_decoded(
+            "EF.FPLMN",
+            &json!({ "count": 2, "plmns": [{ "mcc": "001", "mnc": "01" }] })
+        )
+        .is_err());
+        assert!(encode_decoded(
+            "EF.FPLMN",
+            &json!({ "plmns": [{ "mcc": "001", "mnc": "01", "act": "0080" }] })
+        )
+        .is_err());
+        // an empty list is an empty value; the edit fills the unused slots up to the file size
+        assert_eq!(
+            encode_decoded("EF.FPLMN", &json!({ "plmns": [] })).unwrap(),
+            Vec::<u8>::new()
+        );
+        assert_eq!(
+            fill_unused_plmns(vec![0x00, 0xF1, 0x10], 12),
+            [vec![0x00, 0xF1, 0x10], vec![0xFF; 9]].concat()
+        );
+        // a size that is not a whole number of PLMN slots is left for the length check to refuse
+        assert_eq!(fill_unused_plmns(vec![0x00, 0xF1, 0x10], 10).len(), 3);
+    }
+
+    #[test]
+    fn edit_record_decoded_encodes_msisdn_and_keeps_the_ids() {
+        // Ann and 0123456789 at TON 81: BCD length 06, then the five BCD octets, FF padding and the two ids
+        let v = json!({ "used_records": 1, "numbers": [{ "alpha": "Ann", "ton_npi": "81", "digits": 10, "number": "0123456789" }] });
+        let enc = encode_decoded("EF.MSISDN", &v).unwrap();
+        assert_eq!(
+            enc,
+            vec![
+                0x41, 0x6E, 0x6E, 0x06, 0x81, 0x10, 0x32, 0x54, 0x76, 0x98, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF, 0xFF
+            ]
+        );
+        let back = crate::ef::decode_msisdn_record(&enc).unwrap().unwrap();
+        assert_eq!(
+            (back.alpha.as_str(), back.number.as_str(), back.ton_npi),
+            ("Ann", "0123456789", 0x81)
+        );
+        // an unused record has no numbers and encodes to nothing
+        assert_eq!(
+            encode_decoded("EF.MSISDN", &json!({ "used_records": 0, "numbers": [] })).unwrap(),
+            Vec::<u8>::new()
+        );
+        // refused: two numbers, a non-ASCII alpha, a TON that is not one hex octet, a non-digit
+        let one = v["numbers"][0].clone();
+        assert!(encode_decoded("EF.MSISDN", &json!({ "numbers": [one.clone(), one] })).is_err());
+        assert!(encode_decoded(
+            "EF.MSISDN",
+            &json!({ "numbers": [{ "alpha": "A\u{e9}", "ton_npi": "81", "number": "1" }] })
+        )
+        .is_err());
+        assert!(encode_decoded(
+            "EF.MSISDN",
+            &json!({ "numbers": [{ "alpha": "", "ton_npi": "8", "number": "1" }] })
+        )
+        .is_err());
+        assert!(encode_decoded(
+            "EF.MSISDN",
+            &json!({ "numbers": [{ "alpha": "", "ton_npi": "81", "number": "12x" }] })
+        )
+        .is_err());
+        // the merge keeps the record length, the capability and extension ids, and pads the alpha with FF
+        let mut current = vec![0xFF; 28];
+        current[27] = 0x03;
+        let merged = merge_msisdn_record(enc.clone(), &current).unwrap();
+        assert_eq!(merged.len(), 28);
+        assert_eq!(&merged[..3], &[0x41, 0x6E, 0x6E]);
+        assert_eq!(merged[27], 0x03);
+        let back = crate::ef::decode_msisdn_record(&merged).unwrap().unwrap();
+        assert_eq!(
+            (back.alpha.as_str(), back.number.as_str()),
+            ("Ann", "0123456789")
+        );
+        // an unused record fills with FF; a UCS-2 alpha is refused rather than overwritten
+        assert_eq!(
+            merge_msisdn_record(Vec::new(), &current).unwrap(),
+            vec![0xFF; 28]
+        );
+        let mut ucs2 = current.clone();
+        ucs2[0] = 0x80;
+        assert!(merge_msisdn_record(enc, &ucs2).is_err());
+    }
+
+    #[test]
+    fn record_numbers_are_one_octet_and_refused_before_any_card_io() {
+        // the table: 0 and anything past one octet are refused, 1 and 255 are the ends of the range
+        for (n, ok) in [
+            (0u16, false),
+            (1, true),
+            (255, true),
+            (256, false),
+            (65535, false),
+        ] {
+            assert_eq!(record_number(n).is_ok(), ok, "record {n}");
+        }
+        // through the shell, no APDU is sent for a refused number
+        let (mut sh, log) = shell_with("", false);
+        for n in [0u16, 256, 65535] {
+            let before = log.borrow().len();
+            let r = sh.exec(&format!("edit_record_decoded --record {n}"));
+            assert!(!r.ok, "record {n}: {}", r.text);
+            assert_eq!(log.borrow().len(), before, "record {n} sent an APDU");
+        }
     }
 }
