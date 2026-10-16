@@ -105,12 +105,25 @@ impl PcscSession {
     /// the card in it cannot be opened, and [`Error::Driver`] for any other
     /// refusal from the PC/SC layer.
     pub fn open(reader: &ReaderName) -> Result<Self, Error> {
+        Self::open_with(reader, share_mode(false))
+    }
+
+    /// Connects to the card in `reader` with an explicit share mode. Use
+    /// [`share_mode`] to turn a command-line flag into one; [`Self::open`] is
+    /// the shared default.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::open`]. An exclusive request against a card another
+    /// process already holds is refused by the PC/SC layer as a sharing
+    /// violation, which is reported as [`Error::ReaderUnavailable`].
+    pub fn open_with(reader: &ReaderName, share: ShareMode) -> Result<Self, Error> {
         let context = Context::establish(Scope::System).map_err(|_| Error::ContextUnavailable)?;
         let system_name = CString::new(reader.as_str()).map_err(|_| Error::ReaderUnavailable {
             reader: reader.clone(),
         })?;
         let card = context
-            .connect(&system_name, ShareMode::Shared, Protocols::T0)
+            .connect(&system_name, share, Protocols::T0)
             .map_err(|error| classify_connect(error, reader))?;
         Ok(Self {
             reader: reader.clone(),
@@ -224,6 +237,17 @@ impl CardSession for PcscSession {
                 Err(failure)
             }
         }
+    }
+}
+
+/// The PC/SC share mode for a connection: shared unless exclusive access was
+/// asked for (`card -X`, GlobalPlatformPro's `OPT_PCSC_EXCLUSIVE`). Pure, so the
+/// flag-to-mode choice is tested without a reader.
+pub fn share_mode(exclusive: bool) -> ShareMode {
+    if exclusive {
+        ShareMode::Exclusive
+    } else {
+        ShareMode::Shared
     }
 }
 
@@ -360,5 +384,13 @@ mod tests {
             matches!(&mapped, Error::Transmit { detail, .. } if !detail.is_empty()),
             "expected a Transmit error carrying detail, got {mapped:?}"
         );
+    }
+
+    #[test]
+    fn share_mode_is_shared_unless_exclusive_is_asked_for() {
+        // Opt-in only (issue #221): the default stays shared. Exclusive maps to
+        // SCARD_SHARE_EXCLUSIVE (0x0001 in pcsc-sys winscard.h).
+        assert_eq!(share_mode(false), ShareMode::Shared);
+        assert_eq!(share_mode(true), ShareMode::Exclusive);
     }
 }

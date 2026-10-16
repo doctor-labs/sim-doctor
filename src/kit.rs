@@ -194,7 +194,7 @@ impl SimDoctor {
             self.refuse(&scan::Failure::new(kind, err.to_string()))
         };
         let (mut session, reader, atr) =
-            open_scan_session(args.reader.as_deref()).map_err(|f| self.refuse(&f))?;
+            open_scan_session(args.reader.as_deref(), false).map_err(|f| self.refuse(&f))?;
         let session: &mut dyn CardSession = &mut *session;
 
         let options = walk::Options {

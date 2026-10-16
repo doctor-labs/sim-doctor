@@ -34,7 +34,7 @@ use sim_doctor::{
     apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules,
     saip, scan, session, sms, tar, trace,
     transport::{
-        pcsc::{Pcsc, PcscSession},
+        pcsc::{share_mode, Pcsc, PcscSession},
         replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
     },
     ts48,
@@ -2304,7 +2304,10 @@ type ScanSession = (Box<dyn CardSession>, ReaderName, Option<Vec<u8>>);
 /// Opens the card session `scan` reads: its reader name, the ATR when the
 /// transport can say, and the session itself (wrapped in the record log when
 /// `SIM_DOCTOR_RECORD` is set).
-fn open_scan_session(requested: Option<&str>) -> Result<ScanSession, scan::Failure> {
+fn open_scan_session(
+    requested: Option<&str>,
+    exclusive: bool,
+) -> Result<ScanSession, scan::Failure> {
     #[cfg(feature = "test-seams")]
     if let Some(path) = env::var_os(REPLAY_ENV) {
         let log = std::fs::read_to_string(&path)
@@ -2317,7 +2320,7 @@ fn open_scan_session(requested: Option<&str>) -> Result<ScanSession, scan::Failu
     let readers = Pcsc::readers()
         .map_err(|err| scan::Failure::new("context-unavailable", err.to_string()))?;
     let reader = pick_reader(&readers, requested)?.clone();
-    let session = PcscSession::open(&reader).map_err(|err| {
+    let session = PcscSession::open_with(&reader, share_mode(exclusive)).map_err(|err| {
         let kind = match err {
             TransportError::NoCard { .. } => "no-card",
             _ => "reader-unavailable",

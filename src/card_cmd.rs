@@ -57,6 +57,10 @@ pub struct CardShellArgs {
     /// --fields. Keep it chmod 600.
     #[arg(long, value_name = "PATH")]
     key_file: Option<std::path::PathBuf>,
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this shell is open. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
 
     /// Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...).
     /// Without it they print what they would send and the card is not touched by them.
@@ -127,8 +131,10 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
         }
     };
     let dump_secrets = args.dump_secrets;
+    let exclusive = args.exclusive;
     let opener: cardsh::Opener = Box::new(move |requested| {
-        let (session, reader, atr) = super::open_scan_session(requested).map_err(|f| f.message)?;
+        let (session, reader, atr) =
+            super::open_scan_session(requested, exclusive).map_err(|f| f.message)?;
         let session: Box<dyn CardSession> = match &dump {
             Some(file) => {
                 let file = file.try_clone().map_err(|err| err.to_string())?;
