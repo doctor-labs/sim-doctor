@@ -3805,6 +3805,12 @@ impl Shell {
         if let (Some(rl), Some(n)) = (file.record_length, file.records) {
             text.push_str(&format!("\n  records: {n} records of {rl} bytes"));
         }
+        // Access conditions: decode the security attributes the SELECT response
+        // already carried (8C compact, AB expanded, 8B referenced to EF.ARR).
+        let access = access_text_of(&file.fcp, &self.opts.dialect);
+        if let Some(ref access_text) = access {
+            text.push_str(&format!("\n  access conditions: {access_text}"));
+        }
 
         let data = json!({
             "path": path,
@@ -3814,6 +3820,7 @@ impl Shell {
             "size": file.size,
             "record_length": file.record_length,
             "records": file.records,
+            "access_conditions": access,
             "fcp": file.fcp,
         });
         Ok(Reply::ok(text, data))
@@ -4308,6 +4315,14 @@ pub fn read_fcp(body: &[u8], dialect: &TagSet) -> FileInfo {
         }
     }
     info
+}
+
+/// The access-condition text for a selected file's stored FCP hex, decoding the
+/// security attributes the SELECT response carried (8C, 8B, AB) as
+/// [`crate::access::fcp_access_text`] does. Offline: sends nothing.
+pub fn access_text_of(fcp_hex: &str, dialect: &TagSet) -> Option<String> {
+    let bytes = parse_hex(fcp_hex).ok()?;
+    crate::access::fcp_access_text(&bytes, dialect)
 }
 
 pub mod decode;
