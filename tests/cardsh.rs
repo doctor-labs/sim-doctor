@@ -1341,3 +1341,50 @@ fn update_imsi_plmn_is_listed_and_refuses_a_bad_plmn_before_touching_the_card() 
     );
     assert!(text.contains("5 or 6"), "{text}");
 }
+
+#[test]
+fn verify_adm_is_a_dry_run_by_default_and_refuses_a_hex_form_mismatch_before_sending() {
+    // An empty replay log: nothing may reach the card. The source holds ADM1 as digits.
+    let empty = std::env::temp_dir().join("cardsh-adm-empty.jsonl");
+    std::fs::write(&empty, "").unwrap();
+    let secrets = "adm1=77777777; adm2=hex:3737373737373737";
+    let run = |script: &str| {
+        Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+            .args([
+                "card",
+                "--json",
+                "--chv-env",
+                "SIMDOC_TEST_CHV",
+                "-c",
+                script,
+            ])
+            .env("SIM_DOCTOR_TEST_REPLAY", &empty)
+            .env("SIMDOC_TEST_CHV", secrets)
+            .output()
+            .unwrap()
+    };
+
+    // The default ADM1 is a dry run: the masked APDU names key reference 0A, the value is not shown.
+    let out = run("verify_adm");
+    assert_eq!(out.status.code(), Some(0));
+    let r = lines(&out);
+    assert_eq!(r[0]["data"]["sent"], false);
+    assert_eq!(r[0]["data"]["key_reference"], "0A");
+    let all = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(!all.contains("77777777"), "{all}");
+
+    // --pin-is-hex on a digits entry is refused with a sentence, and the ADM2 hex entry needs the flag.
+    let out = run("verify_adm --pin-is-hex; verify_adm --adm-type ADM2");
+    assert_eq!(out.status.code(), Some(1));
+    let r = lines(&out);
+    assert!(r[0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("drop --pin-is-hex"));
+    assert!(r[1]["error"].as_str().unwrap().contains("add --pin-is-hex"));
+
+    // A key outside ADM1..ADM5 is a usage error, not a card command.
+    let out = run("verify_adm --adm-type ADM9");
+    assert_ne!(out.status.code(), Some(0));
+    assert!(lines(&out).is_empty() || !String::from_utf8_lossy(&out.stdout).contains("0A"));
+}

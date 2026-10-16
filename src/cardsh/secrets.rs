@@ -35,6 +35,8 @@ struct Entry {
     iccid: Option<String>,
     name: String,
     value: Vec<u8>,
+    /// Written as `hex:` (true) or as decimal digits (false).
+    hex: bool,
 }
 
 /// The parsed secrets.
@@ -49,11 +51,12 @@ impl fmt::Debug for Secrets {
     }
 }
 
-fn value(text: &str) -> Result<Vec<u8>, String> {
+/// The octets of a value, and whether it was written as `hex:`.
+fn value(text: &str) -> Result<(Vec<u8>, bool), String> {
     if let Some(h) = text.strip_prefix("hex:") {
         let b = hex::decode(h).map_err(|_| "a hex: value is not hex".to_owned())?;
         return if (1..=32).contains(&b.len()) {
-            Ok(b)
+            Ok((b, true))
         } else {
             Err("a hex: value is 1 to 32 octets".to_owned())
         };
@@ -63,7 +66,7 @@ fn value(text: &str) -> Result<Vec<u8>, String> {
     }
     let mut out = vec![0xFF; 8];
     out[..text.len()].copy_from_slice(text.as_bytes());
-    Ok(out)
+    Ok((out, false))
 }
 
 impl Secrets {
@@ -95,10 +98,12 @@ impl Secrets {
                     "unknown name (pinN, pukN, admN, universal, upuk, new-pinN, key-XX)",
                 ));
             }
+            let (value, hex) = value(val.trim()).map_err(|e| bad(&e))?;
             entries.push(Entry {
                 iccid,
                 name,
-                value: value(val.trim()).map_err(|e| bad(&e))?,
+                value,
+                hex,
             });
         }
         Ok(Self { entries })
@@ -143,19 +148,25 @@ impl Secrets {
     /// The value for `name` on the card with `iccid` (when known): an entry bound to that ICCID wins
     /// over an unbound one.
     pub fn get(&self, name: &str, iccid: Option<&str>) -> Option<Vec<u8>> {
+        self.entry(name, iccid).map(|e| e.value.clone())
+    }
+
+    /// Whether the value `get` would pick was written as `hex:`.
+    pub fn is_hex(&self, name: &str, iccid: Option<&str>) -> Option<bool> {
+        self.entry(name, iccid).map(|e| e.hex)
+    }
+
+    fn entry(&self, name: &str, iccid: Option<&str>) -> Option<&Entry> {
         let name = name.to_ascii_lowercase();
         let pick = |bound: bool| {
-            self.entries
-                .iter()
-                .find(|e| {
-                    e.name == name
-                        && (if bound {
-                            e.iccid.as_deref() == iccid && iccid.is_some()
-                        } else {
-                            e.iccid.is_none()
-                        })
-                })
-                .map(|e| e.value.clone())
+            self.entries.iter().find(|e| {
+                e.name == name
+                    && (if bound {
+                        e.iccid.as_deref() == iccid && iccid.is_some()
+                    } else {
+                        e.iccid.is_none()
+                    })
+            })
         };
         pick(true).or_else(|| pick(false))
     }
