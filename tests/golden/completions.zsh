@@ -973,6 +973,16 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(challenge)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (notifications)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
@@ -1142,6 +1152,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (profiles)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(challenge)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1562,6 +1576,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(challenge)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (notifications)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__euicc__subcmd__notifications_commands" \
@@ -1766,6 +1784,7 @@ _sim-doctor__subcmd__euicc_commands() {
     local commands; commands=(
 'info:EID, EUICCInfo1 and EUICCInfo2 (lpac \`chip info\`)' \
 'profiles:Installed profiles\: ICCID, state, class, nickname, provider, name (lpac \`profile list\`)' \
+'challenge:GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7)\: the 16-byte challenge a profile download signs over (pySim \`get_euicc_challenge\`). Read-only' \
 'notifications:Pending notification metadata (lpac \`notification list\`); \`dump\` and \`replay\` below; \`notifications remove <seq>\` removes one' \
 'nickname:Set a profile'\''s nickname (lpac \`profile nickname\`). A write\: a dry run unless \`--yes\`, never exposed over MCP' \
 'enable:Enable a profile (lpac \`profile enable\`, ES10c EnableProfile with REFRESH). A dry run unless \`--yes\`\: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP' \
@@ -1775,6 +1794,11 @@ _sim-doctor__subcmd__euicc_commands() {
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__challenge_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__challenge_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc challenge commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__delete_commands() {
@@ -1796,6 +1820,7 @@ _sim-doctor__subcmd__euicc__subcmd__help_commands() {
     local commands; commands=(
 'info:EID, EUICCInfo1 and EUICCInfo2 (lpac \`chip info\`)' \
 'profiles:Installed profiles\: ICCID, state, class, nickname, provider, name (lpac \`profile list\`)' \
+'challenge:GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7)\: the 16-byte challenge a profile download signs over (pySim \`get_euicc_challenge\`). Read-only' \
 'notifications:Pending notification metadata (lpac \`notification list\`); \`dump\` and \`replay\` below; \`notifications remove <seq>\` removes one' \
 'nickname:Set a profile'\''s nickname (lpac \`profile nickname\`). A write\: a dry run unless \`--yes\`, never exposed over MCP' \
 'enable:Enable a profile (lpac \`profile enable\`, ES10c EnableProfile with REFRESH). A dry run unless \`--yes\`\: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP' \
@@ -1805,6 +1830,11 @@ _sim-doctor__subcmd__euicc__subcmd__help_commands() {
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__challenge_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__challenge_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help challenge commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__delete_commands() {
@@ -2249,6 +2279,7 @@ _sim-doctor__subcmd__help__subcmd__euicc_commands() {
     local commands; commands=(
 'info:EID, EUICCInfo1 and EUICCInfo2 (lpac \`chip info\`)' \
 'profiles:Installed profiles\: ICCID, state, class, nickname, provider, name (lpac \`profile list\`)' \
+'challenge:GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7)\: the 16-byte challenge a profile download signs over (pySim \`get_euicc_challenge\`). Read-only' \
 'notifications:Pending notification metadata (lpac \`notification list\`); \`dump\` and \`replay\` below; \`notifications remove <seq>\` removes one' \
 'nickname:Set a profile'\''s nickname (lpac \`profile nickname\`). A write\: a dry run unless \`--yes\`, never exposed over MCP' \
 'enable:Enable a profile (lpac \`profile enable\`, ES10c EnableProfile with REFRESH). A dry run unless \`--yes\`\: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP' \
@@ -2257,6 +2288,11 @@ _sim-doctor__subcmd__help__subcmd__euicc_commands() {
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
     )
     _describe -t commands 'sim-doctor help euicc commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__challenge_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__challenge_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc challenge commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__delete_commands() {

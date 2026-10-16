@@ -115,6 +115,9 @@ _sim__doctor() {
             sim__doctor__subcmd__esim__subcmd__cert__subcmd__help,verify)
                 cmd="sim__doctor__subcmd__esim__subcmd__cert__subcmd__help__subcmd__verify"
                 ;;
+            sim__doctor__subcmd__euicc,challenge)
+                cmd="sim__doctor__subcmd__euicc__subcmd__challenge"
+                ;;
             sim__doctor__subcmd__euicc,delete)
                 cmd="sim__doctor__subcmd__euicc__subcmd__delete"
                 ;;
@@ -141,6 +144,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__euicc,reset)
                 cmd="sim__doctor__subcmd__euicc__subcmd__reset"
+                ;;
+            sim__doctor__subcmd__euicc__subcmd__help,challenge)
+                cmd="sim__doctor__subcmd__euicc__subcmd__help__subcmd__challenge"
                 ;;
             sim__doctor__subcmd__euicc__subcmd__help,delete)
                 cmd="sim__doctor__subcmd__euicc__subcmd__help__subcmd__delete"
@@ -375,6 +381,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__esim__subcmd__cert,verify)
                 cmd="sim__doctor__subcmd__help__subcmd__esim__subcmd__cert__subcmd__verify"
+                ;;
+            sim__doctor__subcmd__help__subcmd__euicc,challenge)
+                cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__challenge"
                 ;;
             sim__doctor__subcmd__help__subcmd__euicc,delete)
                 cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__delete"
@@ -886,12 +895,38 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__euicc)
-            opts="-h --help info profiles notifications nickname enable disable delete reset help"
+            opts="-h --help info profiles challenge notifications nickname enable disable delete reset help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__euicc__subcmd__challenge)
+            opts="-h --reader --json --aid --max-segment --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --aid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --max-segment)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -978,8 +1013,22 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__euicc__subcmd__help)
-            opts="info profiles notifications nickname enable disable delete reset help"
+            opts="info profiles challenge notifications nickname enable disable delete reset help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__euicc__subcmd__help__subcmd__challenge)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2310,8 +2359,22 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__euicc)
-            opts="info profiles notifications nickname enable disable delete reset"
+            opts="info profiles challenge notifications nickname enable disable delete reset"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__euicc__subcmd__challenge)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
