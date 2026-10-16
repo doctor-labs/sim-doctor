@@ -31,8 +31,8 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules, saip,
-    scan, session, sms, tar, trace,
+    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules,
+    saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{Pcsc, PcscSession},
         replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
@@ -243,6 +243,23 @@ enum Command {
     /// No card and no reader: pure crypto over hex given on the command line.
     #[command(name = "ota-crypto")]
     OtaCrypto(OtaCryptoArgs),
+
+    /// Verify an eSIM certificate chain offline, up to a CI root you supply.
+    ///
+    /// Checks each certificate's signature under the next certificate in the chain (the last one under
+    /// --root), that each issuer name matches, and reports every certificate's validity period and KeyUsage.
+    /// Input is PEM with CERTIFICATE blocks or concatenated DER, leaf first; each file is capped at 1 MiB and
+    /// must be a regular file. Touches no card and no network.
+    ///
+    /// Only ecdsa-with-SHA256 over NIST P-256 is verified. A brainpool certificate (GSMA CIs often use
+    /// BrainpoolP256r1) or an RSA one is reported as unsupported, never as verified, so a chain that uses one
+    /// fails the verdict until a verifier for that algorithm is added.
+    ///
+    /// Exit 0 only when every signature verifies and every certificate is inside its validity period at the
+    /// check time. A chain that verifies but is expired or not yet valid exits 1 with verdict
+    /// verified-but-out-of-validity.
+    #[command(name = "esim-cert")]
+    EsimCert(EsimCertArgs),
 
     /// APDU discovery and the OTA/SMS fuzz sweep.
     ///
@@ -1476,6 +1493,31 @@ enum CatAction {
     },
 }
 
+/// Everything `sim-doctor esim-cert` takes.
+#[derive(Args)]
+struct EsimCertArgs {
+    #[command(subcommand)]
+    action: EsimCertAction,
+}
+
+#[derive(Subcommand)]
+enum EsimCertAction {
+    /// Verify a certificate chain (leaf first) up to a CI root.
+    Verify {
+        /// The chain file: PEM with CERTIFICATE blocks, or concatenated DER, leaf first.
+        chain: String,
+        /// The CI root you trust: a file holding exactly one certificate, PEM or DER.
+        #[arg(long)]
+        root: String,
+        /// Check validity at this UTC time, YYYYMMDDHHMMSS, instead of now.
+        #[arg(long, value_name = "YYYYMMDDHHMMSS")]
+        at: Option<String>,
+        /// Emit one JSON envelope of kind "esim-cert" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Everything `sim-doctor ota-crypto` takes.
 #[derive(Args)]
 struct OtaCryptoArgs {
@@ -1725,6 +1767,14 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             CatAction::Decode { hex, json } => run_cat_decode(&hex, json),
         },
         Command::OtaCrypto(args) => run_otacrypto(args),
+        Command::EsimCert(args) => match args.action {
+            EsimCertAction::Verify {
+                chain,
+                root,
+                at,
+                json,
+            } => run_esim_cert_verify(&chain, &root, at.as_deref(), json),
+        },
         Command::Sms(args) => match args.action {
             SmsAction::Decode { hex, tpdu, json } => run_sms_decode(&hex, tpdu, json),
         },
@@ -3257,6 +3307,105 @@ fn run_cat_decode(args: &[String], json: bool) -> contract::ExitCode {
 /// match (still a delivered answer, so `valid` is `false`); 2 for bad hex, a
 /// wrong key length, a wrong IV length or data that is not a whole number of
 /// blocks - the same refusal shape [`run_cat_decode`] uses.
+/// `sim-doctor esim-cert verify`: offline chain check. Reads two files, touches no card.
+fn run_esim_cert_verify(
+    chain: &str,
+    root: &str,
+    at: Option<&str>,
+    json: bool,
+) -> contract::ExitCode {
+    const KIND: &str = "esim-cert";
+    let refuse = |m: String| report_refusal(KIND, &m, serde_json::json!({ "error": m }), json);
+    let now = match at {
+        None => cert::now_stamp(),
+        Some(t) if t.len() == 14 && t.bytes().all(|b| b.is_ascii_digit()) => t.to_owned(),
+        Some(t) => return refuse(format!("--at `{t}` is not YYYYMMDDHHMMSS")),
+    };
+    let load = |path: &str| {
+        cert::read_regular_file(std::path::Path::new(path))
+            .and_then(|bytes| cert::parse_chain(&bytes).map_err(|e| format!("{path}: {e}")))
+    };
+    let chain_certs = match load(chain) {
+        Ok(certs) => certs,
+        Err(m) => return refuse(m),
+    };
+    let root_cert = match load(root) {
+        Ok(mut certs) if certs.len() == 1 => certs.remove(0),
+        Ok(certs) => {
+            return refuse(format!(
+                "--root must hold exactly one certificate, found {}",
+                certs.len()
+            ))
+        }
+        Err(m) => return refuse(m),
+    };
+    let report = match cert::verify_chain(&chain_certs, &root_cert, &now) {
+        Ok(report) => report,
+        Err(e) => return refuse(e.to_string()),
+    };
+    let verdict = cert::verdict(&report);
+    let code = match verdict {
+        cert::Verdict::Verified => contract::ExitCode::Success,
+        _ => contract::ExitCode::Findings,
+    };
+    let data = cert::to_json(&report, &root_cert, &now);
+    let text = if json {
+        let message = if code == contract::ExitCode::Success {
+            contract::OK_MESSAGE
+        } else {
+            verdict.as_str()
+        };
+        match contract::Envelope::new(KIND, code, message, data).to_json() {
+            Ok(line) => line,
+            Err(err) => return refuse(err.to_string()),
+        }
+    } else {
+        let mut lines = Vec::new();
+        for c in &report.certs {
+            lines.push(format!(
+                "[{}] serial {} sha256 {} valid {} to {} ({}) signature {} issuer {}",
+                c.index,
+                c.serial,
+                &c.fingerprint[..16],
+                c.not_before,
+                c.not_after,
+                match c.validity {
+                    cert::Validity::Valid => "in period",
+                    cert::Validity::NotYetValid => "NOT YET VALID",
+                    cert::Validity::Expired => "EXPIRED",
+                },
+                match c.signature {
+                    cert::SignatureCheck::Valid => "valid",
+                    cert::SignatureCheck::Invalid => "INVALID",
+                    cert::SignatureCheck::Unsupported(_) => "unsupported",
+                },
+                if c.issuer_name_matches {
+                    "ok"
+                } else {
+                    "MISMATCH"
+                },
+            ));
+        }
+        for f in cert::findings(&report) {
+            lines.push(format!(
+                "{}: {}",
+                f["severity"].as_str().unwrap_or(""),
+                f["message"].as_str().unwrap_or("")
+            ));
+        }
+        lines.push(format!(
+            "verdict: {} (at {now}, CI root {})",
+            verdict.as_str(),
+            &root_cert.fingerprint[..16]
+        ));
+        lines.join("\n")
+    };
+    match emit_stdout(&text, "the esim-cert report") {
+        Ok(()) => code,
+        Err(message) => refuse(message),
+    }
+}
+
 fn run_otacrypto(args: OtaCryptoArgs) -> contract::ExitCode {
     const KIND: &str = "ota-crypto";
 

@@ -799,6 +799,58 @@ esac
     ;;
 esac
 ;;
+(esim-cert)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__esim-cert_commands" \
+"*::: :->esim-cert" \
+&& ret=0
+
+    case $state in
+    (esim-cert)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-esim-cert-command-$line[1]:"
+        case $line[1] in
+            (verify)
+_arguments "${_arguments_options[@]}" : \
+'--root=[The CI root you trust\: a file holding exactly one certificate, PEM or DER]:ROOT:_default' \
+'--at=[Check validity at this UTC time, YYYYMMDDHHMMSS, instead of now]:YYYYMMDDHHMMSS:_default' \
+'--json[Emit one JSON envelope of kind "esim-cert" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':chain -- The chain file\: PEM with CERTIFICATE blocks, or concatenated DER, leaf first:_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__esim-cert__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-esim-cert-help-command-$line[1]:"
+        case $line[1] in
+            (verify)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -1437,6 +1489,26 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(esim-cert)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__esim-cert_commands" \
+"*::: :->esim-cert" \
+&& ret=0
+
+    case $state in
+    (esim-cert)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-esim-cert-command-$line[1]:"
+        case $line[1] in
+            (verify)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__fuzz_commands" \
@@ -1573,6 +1645,7 @@ _sim-doctor_commands() {
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
 'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
+'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -1651,6 +1724,37 @@ _sim-doctor__subcmd__ci__subcmd__install_commands() {
 _sim-doctor__subcmd__completions_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor completions commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__esim-cert_commands] )) ||
+_sim-doctor__subcmd__esim-cert_commands() {
+    local commands; commands=(
+'verify:Verify a certificate chain (leaf first) up to a CI root' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor esim-cert commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__esim-cert__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__esim-cert__subcmd__help_commands() {
+    local commands; commands=(
+'verify:Verify a certificate chain (leaf first) up to a CI root' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor esim-cert help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__esim-cert__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__esim-cert__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor esim-cert help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__esim-cert__subcmd__help__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__esim-cert__subcmd__help__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor esim-cert help verify commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__esim-cert__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__esim-cert__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor esim-cert verify commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc_commands] )) ||
 _sim-doctor__subcmd__euicc_commands() {
@@ -2081,6 +2185,7 @@ _sim-doctor__subcmd__help_commands() {
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
 'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
+'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -2121,6 +2226,18 @@ _sim-doctor__subcmd__help__subcmd__ci__subcmd__install_commands() {
 _sim-doctor__subcmd__help__subcmd__completions_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help completions commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__esim-cert_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__esim-cert_commands() {
+    local commands; commands=(
+'verify:Verify a certificate chain (leaf first) up to a CI root' \
+    )
+    _describe -t commands 'sim-doctor help esim-cert commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__esim-cert__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__esim-cert__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help esim-cert verify commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__euicc_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__euicc_commands() {

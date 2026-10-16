@@ -114,6 +114,7 @@ pub mod bpp;
 pub mod cap;
 pub mod cardsh;
 pub mod cat;
+pub mod cert;
 pub mod ci;
 pub mod contract;
 pub mod der;
@@ -179,6 +180,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: der::NAME,
         owns: "Strict DER for certificates: minimal lengths, definite form, a different type from tlv.",
         depends_on: &[],
+    },
+    ModuleInfo {
+        name: cert::NAME,
+        owns: "Offline eSIM certificate and CI chain verification: X.509 fields, ECDSA P-256 signature checks up to a supplied root, validity and KeyUsage reports; brainpool and RSA are reported unsupported.",
+        depends_on: &[der::NAME],
     },
     ModuleInfo {
         name: apdu::NAME,

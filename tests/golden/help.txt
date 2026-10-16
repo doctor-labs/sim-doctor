@@ -23,6 +23,7 @@ Commands:
   sms          `sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing
   saip         `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing
   ota-crypto   Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them. No card and no reader: pure crypto over hex given on the command line
+  esim-cert    Verify an eSIM certificate chain offline, up to a CI root you supply
   fuzz         APDU discovery and the OTA/SMS fuzz sweep
   euicc        eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
   card         A pySim-shell style shell over the card: select files, read them, send APDUs
@@ -559,6 +560,32 @@ Options:
       --mac <HEX>  The expected MAC as hex; its length sets the MAC length
       --json       
   -h, --help       Print help (see more with '--help')
+
+$ sim-doctor esim-cert -h [exit 0]
+Verify an eSIM certificate chain offline, up to a CI root you supply
+
+Usage: sim-doctor esim-cert <COMMAND>
+
+Commands:
+  verify  Verify a certificate chain (leaf first) up to a CI root
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help (see more with '--help')
+
+$ sim-doctor esim-cert verify -h [exit 0]
+Verify a certificate chain (leaf first) up to a CI root
+
+Usage: sim-doctor esim-cert verify [OPTIONS] --root <ROOT> <CHAIN>
+
+Arguments:
+  <CHAIN>  The chain file: PEM with CERTIFICATE blocks, or concatenated DER, leaf first
+
+Options:
+      --root <ROOT>          The CI root you trust: a file holding exactly one certificate, PEM or DER
+      --at <YYYYMMDDHHMMSS>  Check validity at this UTC time, YYYYMMDDHHMMSS, instead of now
+      --json                 Emit one JSON envelope of kind "esim-cert" on stdout
+  -h, --help                 Print help
 
 $ sim-doctor fuzz -h [exit 0]
 APDU discovery and the OTA/SMS fuzz sweep
