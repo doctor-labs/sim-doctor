@@ -534,6 +534,9 @@ esac
 (trace)
 _arguments "${_arguments_options[@]}" : \
 '--json[Emit one JSON envelope of kind "trace" on stdout]' \
+'--show-raw-apdu[Also print each exchange'\''s raw command and response hex in the table]' \
+'--no-suppress-select[Keep SELECT rows in the table. They are hidden by default, as in pySim-trace]' \
+'--no-suppress-status[Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '::file -- A trace file; stdin when omitted or "-":_default' \

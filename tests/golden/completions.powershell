@@ -404,6 +404,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;trace' {
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "trace" on stdout')
+            [CompletionResult]::new('--show-raw-apdu', '--show-raw-apdu', [CompletionResultType]::ParameterName, 'Also print each exchange''s raw command and response hex in the table')
+            [CompletionResult]::new('--no-suppress-select', '--no-suppress-select', [CompletionResultType]::ParameterName, 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace')
+            [CompletionResult]::new('--no-suppress-status', '--no-suppress-status', [CompletionResultType]::ParameterName, 'Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
