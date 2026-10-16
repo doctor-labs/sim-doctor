@@ -1517,6 +1517,46 @@ impl Shell {
         ))
     }
 
+    /// GET IDENTITY (TS 31.102 7.5): INS 0x78, CLA | 0x80, case 2 with Le.
+    /// Returns the SUCI/identity from the selected application. Does not change the card.
+    fn cmd_get_identity(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let card = self.equipped()?;
+        let cla = card.cla() | 0x80;
+        // TS 31.102 7.5.2: CLA 8X, INS 78, P1 00, P2 = identity context (01 SUCI, 02 SUCI 5G NSWO;
+        // other values reserved), Le 00. The reply is a SUCI TLV (tag A1).
+        let p2 = if args.get_flag("nswo-context") {
+            0x02
+        } else {
+            0x01
+        };
+        let command = Command::case2(
+            apdu::Header::new(cla, 0x78, 0x00, p2),
+            apdu::Le::Short(0x00),
+        );
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        let hex_wire = hex_upper(&wire);
+
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let data = ex.data();
+        let data_hex = hex_upper(data);
+
+        let mut text = format!("sw {}", sw_text(sw));
+        if !data.is_empty() {
+            text.push_str(&format!("\ndata {data_hex}"));
+        }
+
+        Ok(Reply::ok(
+            text,
+            json!({
+                "sent": true,
+                "apdu": hex_wire,
+                "sw": sw.map(|s| s.to_string()),
+                "data": data_hex,
+            }),
+        ))
+    }
+
     /// Sends SET DATA (0xDB), P2 = `p2` (0x80 first block), in short-Lc fragments.
     /// Returns the last exchange's status; `sent` collects every APDU wire bytes.
     fn set_data_chunks(&mut self, first_tag: u8, tlv: &[u8], _warn: &str) -> CmdResult {
@@ -2632,8 +2672,8 @@ fn yes_arg() -> clap::Arg {
 }
 
 /// The instructions the shell sends without `--yes`: they read the card or change only the session
-/// (SELECT, READ BINARY, READ RECORD, GET RESPONSE, STATUS, GET DATA, MANAGE CHANNEL).
-pub const READ_ONLY_INS: [u8; 8] = [0xA4, 0xB0, 0xB2, 0xC0, 0xF2, 0xCA, 0xCB, 0x70];
+/// (SELECT, READ BINARY, READ RECORD, GET RESPONSE, STATUS, GET DATA, MANAGE CHANNEL, GET IDENTITY).
+pub const READ_ONLY_INS: [u8; 9] = [0xA4, 0xB0, 0xB2, 0xC0, 0xF2, 0xCA, 0xCB, 0x70, 0x78];
 
 /// Whether `ins` is one of [`READ_ONLY_INS`].
 pub fn is_read_only(ins: u8) -> bool {
@@ -3259,6 +3299,11 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("tag").required(true).value_name("TAG").help("BER-TLV tag, one octet of hex (e.g. 2F or 0x2F)"))
         )
         .subcommand(
+            C::new("get_identity")
+                .about("GET IDENTITY (TS 31.102 7.5): returns the SUCI computed by the USIM (identity context SUCI, or 5G NSWO with --nswo-context). Does not change the card")
+                .arg(Arg::new("nswo-context").long("nswo-context").action(clap::ArgAction::SetTrue).help("use the SUCI 5G NSWO identity context (P2 02) instead of SUCI (P2 01)")),
+        )
+        .subcommand(
             C::new("quit")
                 .visible_aliases(["exit", "eof"])
                 .about("Leave the shell"),
@@ -3583,6 +3628,7 @@ impl Shell {
             "fsdump" => self.cmd_fsdump(args),
             "retrieve_tags" => self.cmd_retrieve_tags(args),
             "retrieve_data" => self.cmd_retrieve_data(args),
+            "get_identity" => self.cmd_get_identity(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
             "select_path" => {
                 self.cmd_select(&path_arg(args.get_one::<String>("path").expect("required")))
@@ -6147,5 +6193,37 @@ mod file_management_tests {
         let r = sh.exec("delete_file 6f99");
         assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
         assert_eq!(log.borrow()[0], [0x00, 0xE4, 0x00, 0x00, 0x02, 0x6F, 0x99]);
+    }
+
+    #[test]
+    fn get_identity_is_sent_without_yes_gate() {
+        // GET IDENTITY is a read-only command, so it's always sent (no --yes gate)
+        let (mut sh, log) = shell_log();
+        sh.exec("select ADF.USIM");
+        let r = sh.exec("get_identity");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(
+            r.data["sent"], true,
+            "GET IDENTITY should always be sent (read-only, no --yes gate)"
+        );
+        // TS 31.102 7.5.2: CLA 80 (basic channel), INS 78, P1 00, P2 01 (SUCI context), Le 00.
+        let apdu = r.data["apdu"].as_str().unwrap();
+        assert_eq!(apdu, "8078000100", "SUCI context");
+        let r = sh.exec("get_identity --nswo-context");
+        assert_eq!(
+            r.data["apdu"].as_str().unwrap(),
+            "8078000200",
+            "5G NSWO context"
+        );
+        // Verify the command was logged
+        let sent = log.borrow().clone();
+        let get_id = sent.iter().find(|c| c[1] == 0x78);
+        assert!(get_id.is_some(), "GET IDENTITY command should be in log");
+        // The response should have data and status word
+        let data = r.data["data"].as_str().unwrap();
+        assert!(
+            !data.is_empty() || r.data["sw"] == "9000",
+            "Should have identity data or SW 9000"
+        );
     }
 }

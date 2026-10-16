@@ -35,6 +35,7 @@ All notable changes to this project are documented here. The format follows
 - `card` shell: `history` command prints the command history, numbered from 1; `--json` returns the array as JSON.
 - `card` shell: `run_script FILE` executes commands from a file, one per line; `#` starts a comment; capped at 1 MiB; write commands are dry runs unless `--yes` is provided.
 - `desc`: reports the selected file's access conditions, decoded from the security attributes the SELECT response already carried (8C compact, AB expanded, 8B referenced to EF.ARR), as readable text like `READ: PIN1, UPDATE: ADM1` and as a JSON `access_conditions` field, as in pySim (#170).
+- `card` shell: `get_identity` (TS 31.102 4.2.2): returns the SUCI/identity from the selected application. This read-only command is not gated by `--yes` and prints the APDU wire bytes (#179).
 - `card`: a pySim-shell style shell over the card (#155). It keeps the equipped card, the logical channel and the
   selected file between commands; interactive, `-c "a; b"`, `--script FILE` and `--json` (one record per command).
   `equip`, `status`, `open_channel`, `close_channel`, `channel`, `quit`, `history`, `run_script`. Reads are sent; commands that change the card are
