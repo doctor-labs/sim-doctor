@@ -907,6 +907,14 @@ pub const FIXTURES: &[(&str, bool, &str)] = &[
         false,
         "fsdump; fsdump --filename EF.ICCID; export --filename EF.ICCID",
     ),
+    (
+        // RETRIEVE DATA (read-only: sent without --yes). The BER-TLV EF 6F5A holds
+        // tags 2F (aa bb cc) and 30 (11 22); tag 31 is absent and fails.
+        "cardsh_retrieve.jsonl",
+        false,
+        "select 3F00/ADF:A0000000871002/6F5A; retrieve_tags; retrieve_data 2F; \
+         retrieve_data 30; retrieve_data 5C; retrieve_data 31",
+    ),
 ];
 
 fn fixture_path(name: &str) -> std::path::PathBuf {

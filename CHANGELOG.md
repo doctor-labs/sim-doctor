@@ -79,6 +79,10 @@ All notable changes to this project are documented here. The format follows
   DEACTIVATE FILE (`00 04`) by two-octet file identifier, with the file ID carried in the data field (P1 = 0x00, P2 = 0x00)
   per TS 31.101 clause 11.1; both are gated behind `--yes` like the other card-changing commands, a dry run prints the exact
   APDU, and the change to the file's lifecycle state persists until reversed.
+- `card` shell: `retrieve_tags` and `retrieve_data TAG` (#177): read-only BER-TLV reads of the selected EF via RETRIEVE DATA
+  (0xCB) per ETSI TS 102 221 11.3.1. `retrieve_tags` lists the tag octets present (the 0x5C tag list); `retrieve_data`
+  returns the value of one tag. Both are read-only, so the command is always sent and takes no `--yes`; a tag the card does
+  not hold is reported as a refusal (`6A 82`), and the selected file must be an EF first.
 
 ## [0.4.0]
 

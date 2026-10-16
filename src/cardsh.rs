@@ -1445,7 +1445,7 @@ impl Shell {
         let send = self.may_change_card(args);
         let card = self.equipped()?;
         let _ = card.ef()?;
-        let cla = card.cla();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
         let path = card.chans[&card.channel].path();
         if !send {
             let probe = Self::retrieve_data_bytes(0x5C);
@@ -1465,6 +1465,42 @@ impl Shell {
         Ok(Reply::ok(
             format!("deleted {count} tags from {}", path),
             json!({ "sent": true, "deleted": count, "tags": tags.iter().map(|t| format!("{t:02X}")).collect::<Vec<_>>(), "path": path }),
+        ))
+    }
+
+    /// RETRIEVE DATA (TS 102 221 11.3.1, tag 0x5C): list the BER-TLV tags
+    /// present in the selected EF. Read-only: the exchange is always sent.
+    fn cmd_retrieve_tags(&mut self, _args: &clap::ArgMatches) -> CmdResult {
+        let card = self.equipped()?;
+        let _ = card.ef()?;
+        let path = card.chans[&card.channel].path();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
+        let tags = self.retrieve_data_tags(cla)?;
+        Ok(Reply::ok(
+            format!(
+                "tags in {}: {}",
+                path,
+                tags.iter()
+                    .map(|t| format!("{t:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            json!({ "tags": tags.iter().map(|t| format!("{t:02X}")).collect::<Vec<_>>(), "path": path }),
+        ))
+    }
+
+    /// RETRIEVE DATA (TS 102 221 11.3.1, one tag): return the value of one
+    /// BER-TLV object of the selected EF. Read-only: the exchange is always sent.
+    fn cmd_retrieve_data(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let tag = Self::parse_tag(args.get_one::<String>("tag").expect("required"))?;
+        let card = self.equipped()?;
+        let _ = card.ef()?;
+        let path = card.chans[&card.channel].path();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
+        let value = self.retrieve_data_tag(cla, tag)?;
+        Ok(Reply::ok(
+            format!("tag {tag:02X} in {}: {}", path, hex_upper(&value)),
+            json!({ "tag": format!("{tag:02X}"), "value": hex_upper(&value), "path": path }),
         ))
     }
 
@@ -1492,7 +1528,7 @@ impl Shell {
         sent: &mut Vec<session::Exchange>,
     ) -> Result<(), CmdErr> {
         let card = self.equipped()?;
-        let cla = card.cla();
+        let cla = card.cla() | 0x80; // RETRIEVE/SET DATA are proprietary-class (CLA 8X), TS 102 221 table 10.5
         let command = Command::case3(apdu::Header::new(cla, 0xDB, 0x00, p2), data.to_vec());
         let ex = card.send(&command)?;
         sent.push(ex);
@@ -1525,6 +1561,50 @@ impl Shell {
             )));
         }
         Ok(body[2..].to_vec())
+    }
+
+    /// Sends RETRIEVE DATA (0xCB) for one tag and returns its value bytes.
+    /// The reply is a BER-TLV object: the tag, its length, then the value.
+    fn retrieve_data_tag(&mut self, cla: u8, tag: u8) -> Result<Vec<u8>, CmdErr> {
+        let command = Command::case4(
+            apdu::Header::new(cla, 0xCB, 0x00, 0x80),
+            vec![tag],
+            apdu::Le::Short(0x00),
+        );
+        let card = self.equipped()?;
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        if !sw.is_some_and(StatusWord::is_normal_processing) {
+            return Err(CmdErr::new(format!(
+                "RETRIEVE DATA ({tag:02X}) refused: {}",
+                sw_text(sw)
+            )));
+        }
+        // Response: tag {length octets} {value...}
+        let body = ex.data();
+        let [head, rest @ ..] = body else {
+            return Err(CmdErr::new(format!(
+                "unexpected RETRIEVE DATA response: {}",
+                hex_upper(body)
+            )));
+        };
+        if *head != tag {
+            return Err(CmdErr::new(format!(
+                "the card answered for tag {head:02X}, not {tag:02X}: {}",
+                hex_upper(body)
+            )));
+        }
+        let (len, n) = crate::tlv::Length::decode(rest).map_err(|e| CmdErr::new(format!("{e}")))?;
+        let value = &rest[n..n + len.value() as usize];
+        if rest.len() < n + len.value() as usize {
+            return Err(CmdErr::new(format!(
+                "the card's length field wants {} value octets but only {} remain: {}",
+                len.value(),
+                rest.len() - n,
+                hex_upper(body)
+            )));
+        }
+        Ok(value.to_vec())
     }
 
     /// Builds the wire bytes of a SET DATA command (for dry-run display). Only
@@ -2852,6 +2932,15 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("retrieve_tags")
+                .about("RETRIEVE DATA (TS 102 221 11.3.1, tag 0x5C): list the BER-TLV tags present in the selected EF. Read-only: the command is always sent")
+        )
+        .subcommand(
+            C::new("retrieve_data")
+                .about("RETRIEVE DATA (TS 102 221 11.3.1): return the value of one BER-TLV tag of the selected EF. Read-only: the command is always sent")
+                .arg(Arg::new("tag").required(true).value_name("TAG").help("BER-TLV tag, one octet of hex (e.g. 2F or 0x2F)"))
+        )
+        .subcommand(
             C::new("quit")
                 .visible_aliases(["exit", "eof"])
                 .about("Leave the shell"),
@@ -3145,6 +3234,8 @@ impl Shell {
             "delete_all" => self.cmd_delete_all(args),
             "export" => self.cmd_export(args),
             "fsdump" => self.cmd_fsdump(args),
+            "retrieve_tags" => self.cmd_retrieve_tags(args),
+            "retrieve_data" => self.cmd_retrieve_data(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
             "select_path" => {
                 self.cmd_select(&path_arg(args.get_one::<String>("path").expect("required")))
@@ -4840,7 +4931,7 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(
             sent[0],
-            [0x00, 0xDB, 0x00, 0x80, 0x05, 0x2F, 0x03, 0xAA, 0xBB, 0xCC],
+            [0x80, 0xDB, 0x00, 0x80, 0x05, 0x2F, 0x03, 0xAA, 0xBB, 0xCC],
             "CLA 00 on basic channel, INS 0xDB, P1 0x00, P2 0x80 first block"
         );
     }
@@ -4864,7 +4955,7 @@ mod tests {
         assert_eq!(sent.len(), 1, "only the SET DATA delete");
         assert_eq!(
             sent[0],
-            [0x00, 0xDB, 0x00, 0x80, 0x01, 0x30],
+            [0x80, 0xDB, 0x00, 0x80, 0x01, 0x30],
             "DELETE DATA: tag-only fragment"
         );
     }
@@ -4893,10 +4984,10 @@ mod tests {
         assert_eq!(deletes.len(), 2);
         assert!(deletes
             .iter()
-            .any(|c| c == &[0x00, 0xDB, 0x00, 0x80, 0x01, 0x2F]));
+            .any(|c| c == &[0x80, 0xDB, 0x00, 0x80, 0x01, 0x2F]));
         assert!(deletes
             .iter()
-            .any(|c| c == &[0x00, 0xDB, 0x00, 0x80, 0x01, 0x30]));
+            .any(|c| c == &[0x80, 0xDB, 0x00, 0x80, 0x01, 0x30]));
     }
 
     #[test]
@@ -5078,5 +5169,48 @@ mod tests {
         assert_eq!(r.data["profile"], "uicc");
         assert_eq!(sh.channel(), Some(0));
         assert_eq!(sh.pwd(), "3F00");
+    }
+
+    #[test]
+    fn retrieve_tags_lists_the_tags_present_and_is_sent_without_yes() {
+        let (mut sh, log) = shell_log();
+        assert!(
+            sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok,
+            "select the BER-TLV EF"
+        );
+        log.borrow_mut().clear();
+        // Read-only: RETRIEVE DATA (0xCB, already in READ_ONLY_INS) is sent
+        // without --yes; the reply is a 5C TLV holding the tag octets.
+        let r = sh.exec("retrieve_tags");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["tags"], json!(["2F", "30"]));
+        assert!(r.text.contains("2F 30"), "{}", r.text);
+        let sent = log.borrow().clone();
+        assert_eq!(sent.len(), 1, "exactly one exchange: {:?}", sent);
+        assert_eq!(sent[0], [0x80, 0xCB, 0x00, 0x80, 0x01, 0x5C, 0x00]);
+    }
+
+    #[test]
+    fn retrieve_data_returns_the_value_of_one_tag() {
+        let (mut sh, log) = shell_log();
+        assert!(sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok);
+        log.borrow_mut().clear();
+        let r = sh.exec("retrieve_data 2F");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["value"], "AABBCC");
+        assert!(r.text.contains("AABBCC"), "{}", r.text);
+        // Absent tag: the card's 6A 82 surfaces as an error.
+        log.borrow_mut().clear();
+        let r = sh.exec("retrieve_data 31");
+        assert!(!r.ok, "{}", r.text);
+        assert!(r.text.contains("refused"), "{}", r.text);
+    }
+
+    #[test]
+    fn retrieve_data_requires_a_tag_and_refuses_to_invent_one() {
+        let (mut sh, _) = shell_log();
+        assert!(sh.exec("select 3F00/ADF:A0000000871002/6F5A").ok);
+        assert!(!sh.exec("retrieve_data").ok, "the tag is required");
+        assert!(!sh.exec("retrieve_data AABB").ok, "two octets is not a tag");
     }
 }
