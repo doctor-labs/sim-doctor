@@ -2519,3 +2519,18 @@ fn gp_writes_are_offline_dry_runs_and_need_yes_and_keys() {
     assert_eq!(r.code(), 1);
     let _ = std::fs::remove_file(cap);
 }
+
+#[test]
+fn euicc_challenge_without_a_reader_exit_1_with_one_lpa_envelope() {
+    // Issue #228. The new GetEUICCChallenge subcommand follows the same
+    // no-reader contract as info, profiles and notifications.
+    let run = run_piped(&["euicc", "challenge", "--json", "--reader", NO_SUCH_READER]);
+    assert_eq!(run.code(), 1, "euicc challenge: {}", run.stderr);
+    let envelope = assert_exactly_one_envelope(&run.stdout, contract::ExitCode::Findings);
+    assert_eq!(envelope.kind(), "lpa");
+    assert!(
+        envelope.payload().data()["error"]["kind"].is_string(),
+        "{}",
+        run.stdout
+    );
+}

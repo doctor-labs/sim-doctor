@@ -553,6 +553,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --help 'Print help (see more with ''--help'')'
             cand info 'EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)'
             cand profiles 'Installed profiles: ICCID, state, class, nickname, provider, name (lpac `profile list`)'
+            cand challenge 'GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7): the 16-byte challenge a profile download signs over (pySim `get_euicc_challenge`). Read-only'
             cand notifications 'Pending notification metadata (lpac `notification list`); `dump` and `replay` below; `notifications remove <seq>` removes one'
             cand nickname 'Set a profile''s nickname (lpac `profile nickname`). A write: a dry run unless `--yes`, never exposed over MCP'
             cand enable 'Enable a profile (lpac `profile enable`, ES10c EnableProfile with REFRESH). A dry run unless `--yes`: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP'
@@ -570,6 +571,14 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --help 'Print help'
         }
         &'sim-doctor;euicc;profiles'= {
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --aid 'ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)'
+            cand --max-segment 'Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks'
+            cand --json 'Emit one lpac envelope on stdout, and nothing else'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;euicc;challenge'= {
             cand --reader 'The reader to use, matched against the driver''s own name'
             cand --aid 'ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)'
             cand --max-segment 'Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks'
@@ -682,6 +691,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;euicc;help'= {
             cand info 'EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)'
             cand profiles 'Installed profiles: ICCID, state, class, nickname, provider, name (lpac `profile list`)'
+            cand challenge 'GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7): the 16-byte challenge a profile download signs over (pySim `get_euicc_challenge`). Read-only'
             cand notifications 'Pending notification metadata (lpac `notification list`); `dump` and `replay` below; `notifications remove <seq>` removes one'
             cand nickname 'Set a profile''s nickname (lpac `profile nickname`). A write: a dry run unless `--yes`, never exposed over MCP'
             cand enable 'Enable a profile (lpac `profile enable`, ES10c EnableProfile with REFRESH). A dry run unless `--yes`: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP'
@@ -693,6 +703,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;euicc;help;info'= {
         }
         &'sim-doctor;euicc;help;profiles'= {
+        }
+        &'sim-doctor;euicc;help;challenge'= {
         }
         &'sim-doctor;euicc;help;notifications'= {
             cand remove 'Remove a notification from the eUICC''s list (lpac `notification remove`, ES10b RemoveNotificationFromList). A dry run unless `--yes`: a removed notification is never sent to the operator''s server. Never exposed over MCP'
@@ -873,6 +885,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;euicc'= {
             cand info 'EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)'
             cand profiles 'Installed profiles: ICCID, state, class, nickname, provider, name (lpac `profile list`)'
+            cand challenge 'GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7): the 16-byte challenge a profile download signs over (pySim `get_euicc_challenge`). Read-only'
             cand notifications 'Pending notification metadata (lpac `notification list`); `dump` and `replay` below; `notifications remove <seq>` removes one'
             cand nickname 'Set a profile''s nickname (lpac `profile nickname`). A write: a dry run unless `--yes`, never exposed over MCP'
             cand enable 'Enable a profile (lpac `profile enable`, ES10c EnableProfile with REFRESH). A dry run unless `--yes`: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP'
@@ -883,6 +896,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;euicc;info'= {
         }
         &'sim-doctor;help;euicc;profiles'= {
+        }
+        &'sim-doctor;help;euicc;challenge'= {
         }
         &'sim-doctor;help;euicc;notifications'= {
             cand remove 'Remove a notification from the eUICC''s list (lpac `notification remove`, ES10b RemoveNotificationFromList). A dry run unless `--yes`: a removed notification is never sent to the operator''s server. Never exposed over MCP'

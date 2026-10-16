@@ -338,7 +338,7 @@ pub const MODULES: &[ModuleInfo] = &[
     },
     ModuleInfo {
         name: euicc::NAME,
-        owns: "Read-only eUICC queries: select the ISD-R on a logical channel and run GetEID, GetEuiccInfo1/2, GetProfilesInfo and ListNotification (metadata only) through es10; The writes are nickname (SetNickname), enable and disable (EnableProfile, DisableProfile with REFRESH), delete (DeleteProfile), reset (eUICCMemoryReset, needs the EID confirmed) and notification removal (RemoveNotificationFromList): each a dry run unless confirmed, verified by a re-read.",
+        owns: "Read-only eUICC queries: select the ISD-R on a logical channel and run GetEID, GetEuiccInfo1/2, GetProfilesInfo, ListNotification (metadata only) and GetEUICCChallenge through es10; The writes are nickname (SetNickname), enable and disable (EnableProfile, DisableProfile with REFRESH), delete (DeleteProfile), reset (eUICCMemoryReset, needs the EID confirmed) and notification removal (RemoveNotificationFromList): each a dry run unless confirmed, verified by a re-read.",
         depends_on: &[apdu::NAME, session::NAME, es10::NAME, ef::NAME, contract::NAME, transport::NAME],
     },
     ModuleInfo {

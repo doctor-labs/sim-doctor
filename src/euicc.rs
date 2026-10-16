@@ -62,6 +62,9 @@ pub enum Query {
     Profiles,
     /// ListNotification metadata (lpac `notification list`).
     Notifications,
+    /// GetEUICCChallenge, the 16 random bytes an SM-DP+ signs over (SGP.22 v2.5
+    /// §5.7.7; pySim `get_euicc_challenge`). Reads nothing from the profiles.
+    Challenge,
 }
 
 impl Query {
@@ -71,6 +74,7 @@ impl Query {
             Self::Info => "info",
             Self::Profiles => "profiles",
             Self::Notifications => "notifications",
+            Self::Challenge => "challenge",
         }
     }
 }
@@ -315,6 +319,14 @@ fn read_query(ask: &mut Ask<'_>, query: Query) -> Result<Value, Failure> {
                 .iter()
                 .map(notification_json)
                 .collect();
+        }
+        Query::Challenge => {
+            let challenge = es10::decode_get_euicc_challenge(&ask(
+                "GetEUICCChallenge",
+                es10::get_euicc_challenge_request(),
+            )?)
+            .map_err(|e| bad("GetEUICCChallenge", e))?;
+            data["challenge"] = json!(hex::encode_upper(challenge.challenge));
         }
     }
     Ok(data)
@@ -1360,6 +1372,9 @@ pub fn to_human(query: Query, data: &Value) -> String {
                 );
             }
         }
+        Query::Challenge => {
+            out += &format!("challenge: {}\n", text(&data["challenge"]));
+        }
     }
     out
 }
@@ -2053,6 +2068,39 @@ mod tests {
         assert_eq!(n["iccid"], ICCID);
         assert_eq!(n["address"], "smdp.example.org");
         assert!(to_human(Query::Notifications, &data).contains("install"));
+    }
+
+    #[test]
+    fn challenge_sends_bf2e_and_reports_the_sixteen_bytes() {
+        // GetEUICCChallenge (SGP.22 v2.5 §5.7.7): request `BF2E00`, response
+        // `BF2E 12 80 10 <challenge>`.
+        let mut card = script(
+            "9000",
+            &[(
+                es10::get_euicc_challenge_request(),
+                ok("BF2E12 8010 A0A1A2A3A4A5A6A7A8A9AAABACADAEAF"),
+            )],
+        );
+        let data = run(&mut card, &ISDR_AID, Query::Challenge).unwrap();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(data["challenge"], "A0A1A2A3A4A5A6A7A8A9AAABACADAEAF");
+        assert_eq!(data["channel"], json!({ "number": 1, "closed": true }));
+        assert_eq!(
+            to_human(Query::Challenge, &data),
+            "challenge: A0A1A2A3A4A5A6A7A8A9AAABACADAEAF\n"
+        );
+        assert_eq!(Query::Challenge.name(), "challenge");
+    }
+
+    #[test]
+    fn a_malformed_challenge_is_a_decode_failure() {
+        let mut card = script(
+            "9000",
+            &[(es10::get_euicc_challenge_request(), ok("BF2E03 800100"))],
+        );
+        let failure = run(&mut card, &ISDR_AID, Query::Challenge).unwrap_err();
+        assert_eq!(failure.kind, "decode-failed");
+        assert_eq!(failure.data["function"], "GetEUICCChallenge");
     }
 
     #[test]

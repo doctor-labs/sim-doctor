@@ -312,6 +312,9 @@ enum EuiccAction {
     Info(EuiccFlags),
     /// Installed profiles: ICCID, state, class, nickname, provider, name (lpac `profile list`).
     Profiles(EuiccFlags),
+    /// GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7): the 16-byte challenge a
+    /// profile download signs over (pySim `get_euicc_challenge`). Read-only.
+    Challenge(EuiccFlags),
     /// Pending notification metadata (lpac `notification list`); `dump` and `replay` below;
     /// `notifications remove <seq>` removes one.
     Notifications(NotificationsArgs),
@@ -1906,6 +1909,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
             EuiccAction::Profiles(f) => run_euicc(euicc::Query::Profiles, &f),
+            EuiccAction::Challenge(f) => run_euicc(euicc::Query::Challenge, &f),
             EuiccAction::Notifications(n) => match n.action {
                 None => run_euicc(euicc::Query::Notifications, &n.flags),
                 Some(NotificationAction::Remove(a)) => run_euicc_remove(&a),
