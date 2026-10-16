@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - `card` shell: `echo STRING...` (print a string, no card interaction), `version` (print tool name and version, no card interaction), and `reset` (warm-reset the card by re-opening the session on the same reader and profile; no `--yes` needed) (#165).
+- `export` and `fsdump` card-shell commands (#160): read-only dumps of the files in the current DF. `fsdump --json` prints a JSON object `{name, atr, files:[{path, fid, name, structure, size, record_count, data_hex, decoded, records, sw}]}` per EF/DF; `export [--filename F]` prints a pySim-shell import script (`select NAME` then `update_binary/update_record --data HEX`). Both never send a write APDU.
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - EXT1-EXT8 records decode to additional digits or subaddress and the next-record chain (#175).

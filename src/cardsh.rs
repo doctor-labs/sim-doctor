@@ -2852,6 +2852,16 @@ pub fn grammar() -> clap::Command {
                 .visible_aliases(["exit", "eof"])
                 .about("Leave the shell"),
         )
+        .subcommand(
+            C::new("export")
+                .about("Print a pySim-shell import script of the files in the current DF: select <name>, then update_binary/update_record. READ-ONLY: prints a script, never sends a write APDU")
+                .arg(Arg::new("filename").long("filename").value_name("NAME").help("only export a specific file (by name or path; default: all files in the current DF)"))
+        )
+        .subcommand(
+            C::new("fsdump")
+                .about("Dump the files of the current DF as JSON: metadata, contents and decoded fields. READ-ONLY: reads files and prints JSON, never writes")
+                .arg(Arg::new("filename").long("filename").value_name("NAME").help("only dump a specific file (by name or path; default: all files in the current DF)"))
+        )
 }
 
 /// The display label of a service table (for JSON and text).
@@ -3122,6 +3132,8 @@ impl Shell {
             "set_data" => self.cmd_set_data(args),
             "delete_data" => self.cmd_delete_data(args),
             "delete_all" => self.cmd_delete_all(args),
+            "export" => self.cmd_export(args),
+            "fsdump" => self.cmd_fsdump(args),
             "select" => self.cmd_select(args.get_one::<String>("target").expect("required")),
             "select_path" => {
                 self.cmd_select(&path_arg(args.get_one::<String>("path").expect("required")))
@@ -3672,6 +3684,221 @@ impl Shell {
         }
     }
 
+    /// `export [--filename F]`: print a pySim-shell import script (`select NAME`,
+    /// then `update_binary <hex>` or `update_record <N> <hex>`) for the files of the
+    /// current DF. READ-ONLY: outputs a script, never sends a write APDU.
+    fn cmd_export(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let target = args.get_one::<String>("filename").map(String::as_str);
+        let (files, _atr) = self.export_fsdump_internal(target)?;
+        let mut lines = Vec::new();
+        for f in &files {
+            if f.structure.as_deref() == Some("directory") {
+                continue;
+            }
+            lines.push(format!("select {}", f.name));
+            if let Some(hex) = &f.data_hex {
+                match f.structure.as_deref() {
+                    Some("transparent") | Some("unknown") | None => {
+                        lines.push(format!("update_binary --data {}", hex));
+                    }
+                    _ => {
+                        for (n, rec) in &f.records {
+                            lines.push(format!("update_record {} --data {}", n, rec));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Reply::ok(
+            lines.join("\n"),
+            json!({ "files": files.iter().map(|f| f.to_json()).collect::<Vec<_>>(), "count": files.len() }),
+        ))
+    }
+
+    /// `fsdump [--filename F]`: dump the files of the current DF as JSON.
+    /// READ-ONLY: reads files and prints JSON, never writes.
+    fn cmd_fsdump(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let target = args.get_one::<String>("filename").map(String::as_str);
+        let (files, atr) = self.export_fsdump_internal(target)?;
+        let file_vals: Vec<Value> = files.iter().map(|f| f.to_json()).collect();
+        let result = json!({ "name": "sim-doctor", "atr": atr, "files": file_vals });
+        let text = serde_json::to_string(&result).unwrap();
+        Ok(Reply::ok(text, result))
+    }
+
+    /// Walks the EF (and DF) entries of the current DF, selects each, reads it and
+    /// returns one [`DumpedFile`] per entry: readable files carry `data_hex` and
+    /// optionally `decoded`; unreadable files carry `sw` and no data. The original
+    /// selection is restored afterwards.
+    ///
+    /// `target`, when given, is matched against the file's name or its `scope/FID`
+    /// path (case-insensitive). Only matching entries are returned.
+    fn export_fsdump_internal(
+        &mut self,
+        target: Option<&str>,
+    ) -> Result<(Vec<DumpedFile>, Option<String>), CmdErr> {
+        const MAX_FILES: usize = 256;
+        const MAX_BYTES: usize = 0x100_000; // 1 MiB
+                                            // Save the current selection and work from the MF, so the walk starts from a
+                                            // known directory regardless of where the operator happened to be.
+        let dialect = self.opts.dialect.clone();
+        let card = self.equipped()?;
+        let saved = card.chans[&card.channel].clone();
+        // Select MF to anchor the walk.
+        let info = card.select(&SelectBy::Fid(FileId::MASTER_FILE), &dialect)?;
+        card.land(&SelectBy::Fid(FileId::MASTER_FILE), info);
+
+        let card = self.equipped()?;
+        let chan = &card.chans[&card.channel];
+        let scope = names::scopes_of(&chan.dir, chan.adf.as_deref())
+            .first()
+            .copied()
+            .unwrap_or("MF");
+
+        // Directory entries whose parent is the current scope are DFs.
+        let dir_entries: Vec<(&'static str, u16)> = names::DIRS
+            .iter()
+            .filter(|(_, _, p)| *p == scope)
+            .map(|(n, f, _)| (*n, *f))
+            .collect();
+        let mut files: Vec<DumpedFile> = Vec::new();
+        let mut total_bytes: usize = 0;
+
+        for ef in names::all().filter(|e| e.scope == scope) {
+            if files.len() >= MAX_FILES {
+                break;
+            }
+            let path_str = format!("{}/{}", scope, ef.fid);
+            if let Some(t) = target {
+                if !path_str.eq_ignore_ascii_case(t) && !ef.name.eq_ignore_ascii_case(t) {
+                    continue;
+                }
+            }
+
+            // Select the file by its identifier.
+            let fid = ef.fid;
+            let mut df = DumpedFile {
+                path: path_str,
+                fid: Some(ef.fid.to_string()),
+                name: ef.name.to_owned(),
+                description: ef.desc.to_owned(),
+                structure: None,
+                size: None,
+                record_count: None,
+                data_hex: None,
+                decoded: None,
+                records: Vec::new(),
+                sw: None,
+            };
+
+            let info = match self.equipped()?.select(&SelectBy::Fid(fid), &dialect) {
+                Ok(info) => {
+                    let info = self.equipped()?.land(&SelectBy::Fid(fid), info);
+                    df.structure = info.structure.map(str::to_owned);
+                    df.size = info.size;
+                    if !info.is_df {
+                        df.record_count = Some(info.records.unwrap_or(0) as usize);
+                    }
+                    info
+                }
+                Err(e) => {
+                    df.sw = e.data.get("sw").and_then(|v| v.as_str()).map(str::to_owned);
+                    files.push(df);
+                    continue;
+                }
+            };
+
+            if info.is_df {
+                files.push(df);
+                continue;
+            }
+
+            // Read the contents according to the structure.
+            let read_result = match info.structure {
+                Some("transparent") => {
+                    let len = info
+                        .size
+                        .unwrap_or(256)
+                        .min((MAX_BYTES - total_bytes) as u32);
+                    self.equipped()?.read_binary(0, len).map(ReadData::Binary)
+                }
+                Some("linear-fixed" | "cyclic" | "linear-variable") => {
+                    let rec_len = info.record_length.unwrap_or(256);
+                    let count = info.records.unwrap_or(0).min(MAX_FILES as u16);
+                    let mut ok = Vec::new();
+                    for n in 1..=count {
+                        if total_bytes + usize::from(rec_len) as usize > MAX_BYTES {
+                            break;
+                        }
+                        match self
+                            .equipped()?
+                            .read(0xB2, n as u8, 0x04, u32::from(rec_len))
+                        {
+                            Ok(d) => ok.push(d),
+                            Err(e) => {
+                                df.sw =
+                                    e.data.get("sw").and_then(|v| v.as_str()).map(str::to_owned);
+                                break;
+                            }
+                        }
+                    }
+                    df.record_count = Some(count as usize);
+                    Ok(ReadData::Records(ok))
+                }
+                _ => Err(CmdErr::new("unrecognised file structure")),
+            };
+
+            match read_result {
+                Ok(ReadData::Binary(data)) => {
+                    total_bytes += data.len();
+                    df.data_hex = Some(hex_upper(&data));
+                    if let Some(decoded) = decode_file(&df) {
+                        df.decoded = Some(decoded);
+                    }
+                }
+                Ok(ReadData::Records(recs)) => {
+                    for (i, data) in recs.into_iter().enumerate() {
+                        let n = (i + 1) as u8;
+                        total_bytes += data.len();
+                        df.records.push((n, hex_upper(&data)));
+                    }
+                    if let Some(decoded) = decode_file(&df) {
+                        df.decoded = Some(decoded);
+                    }
+                }
+                Err(e) => {
+                    df.sw = e.data.get("sw").and_then(|v| v.as_str()).map(str::to_owned);
+                }
+            }
+
+            files.push(df);
+        }
+
+        // Note the DFs of the current scope as entries without data.
+        for (name, fid) in &dir_entries {
+            let fid = FileId::from_bytes(fid.to_be_bytes());
+            files.push(DumpedFile {
+                path: format!("{}/{}", scope, fid),
+                fid: Some(fid.to_string()),
+                name: (*name).to_owned(),
+                description: String::new(),
+                structure: Some("directory".to_owned()),
+                size: None,
+                record_count: None,
+                data_hex: None,
+                decoded: None,
+                records: Vec::new(),
+                sw: None,
+            });
+        }
+
+        // Restore the original selection.
+        self.restore_selection(saved);
+
+        let atr = self.equipped()?.atr.as_deref().map(hex_upper);
+        Ok((files, atr))
+    }
+
     /// `decode_hex HEX...`: decode hex with the SELECTED file's decoder, offline (sends nothing).
     fn cmd_decode_hex(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let card = self.equipped()?;
@@ -3685,6 +3912,83 @@ impl Shell {
             .collect::<Result<Vec<_>, _>>()
             .map_err(CmdErr::new)?;
         Ok(decoded_reply(Some(std), &records, Value::Null))
+    }
+}
+
+/// One EF or DF as dumped by `export` / `fsdump`.
+struct DumpedFile {
+    path: String,
+    fid: Option<String>,
+    name: String,
+    description: String,
+    structure: Option<String>,
+    size: Option<u32>,
+    /// Number of records for a record-structured file.
+    record_count: Option<usize>,
+    data_hex: Option<String>,
+    decoded: Option<Value>,
+    /// (record number, hex) for each record read.
+    records: Vec<(u8, String)>,
+    /// The status word when the file could not be selected or read.
+    sw: Option<String>,
+}
+
+impl DumpedFile {
+    /// The JSON body of one `fsdump` entry.
+    fn to_json(&self) -> Value {
+        let mut v = json!({
+            "path": &self.path,
+            "fid": &self.fid,
+            "name": &self.name,
+            "description": &self.description,
+        });
+        if let Some(s) = &self.structure {
+            v["structure"] = json!(s);
+        }
+        v["size"] = json!(&self.size);
+        v["record_count"] = json!(&self.record_count);
+        if let Some(hex) = &self.data_hex {
+            v["data_hex"] = json!(hex);
+        }
+        if let Some(d) = &self.decoded {
+            v["decoded"] = d.clone();
+        }
+        if !self.records.is_empty() {
+            v["records"] = json!(self
+                .records
+                .iter()
+                .map(|(n, h)| json!({ "number": n, "data_hex": h }))
+                .collect::<Vec<_>>());
+        }
+        if let Some(sw) = &self.sw {
+            v["sw"] = json!(sw);
+        }
+        v
+    }
+}
+
+/// Which shape of content a read produced.
+enum ReadData {
+    Binary(Vec<u8>),
+    Records(Vec<Vec<u8>>),
+}
+
+/// Tries to decode a dumped file's content by its standard name; returns `None`
+/// when the file has no standard name or no decoder applies.
+fn decode_file(df: &DumpedFile) -> Option<Value> {
+    let std = names::all().find(|e| e.name.eq_ignore_ascii_case(&df.name))?;
+    let kind = std.kind;
+    if df.records.is_empty() {
+        let hex = df.data_hex.as_ref()?;
+        let bytes = hex::decode(hex).ok()?;
+        Some(decode::decode_ef(kind, std.name, &[bytes]))
+    } else {
+        let recs: Vec<Vec<u8>> = df
+            .records
+            .iter()
+            .filter_map(|(_, h)| hex::decode(h).ok())
+            .collect();
+        Some(decode::decode_ef(kind, std.name, &recs))
     }
 }
 

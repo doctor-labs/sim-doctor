@@ -900,6 +900,11 @@ pub const FIXTURES: &[(&str, bool, &str)] = &[
          authenticate --rand 23553cbe9637a89d218ae64dae47bf35 --sqn 50 --resync; \
          authenticate --rand 23553cbe9637a89d218ae64dae47bf35 --autn 00112233445566778899aabbccddeeff",
     ),
+    (
+        "cardsh_fsdump.jsonl",
+        false,
+        "fsdump; fsdump --filename EF.ICCID; export --filename EF.ICCID",
+    ),
 ];
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
