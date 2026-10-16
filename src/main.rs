@@ -1167,6 +1167,38 @@ enum CrsAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Move an object (an application, a load file or a key object) from one
+    /// Security Domain to another: INSTALL [for extradition], P1 10 (GlobalPlatform
+    /// Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed
+    /// by an INSTALL. CHANGES CARD CONTENT.
+    ///
+    /// The object is named with --aid, the domain it is in now with --from and the
+    /// destination with --to; both domains are named in the dry run so the plan
+    /// reads without a card. Same safeguards as delete and install: a dry run
+    /// unless --yes (offline without keys), one SCP03 authentication attempt, a
+    /// registry pre-read that refuses an object that is not in the source domain,
+    /// an object that already belongs to the destination, a destination the
+    /// registry does not list as a Security Domain and a source equal to the
+    /// destination, all with nothing sent, the command sent once and never retried,
+    /// and a registry re-read that must show the object owned by the destination
+    /// else verify-failed. Keys come from a file or an environment variable, never
+    /// the command line. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a verified move, 1 otherwise.
+    Move {
+        /// The AID of the object to move, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// The AID of the Security Domain the object is in now, 5 to 16 bytes of
+        /// hex. Checked against the object in the registry before anything is sent.
+        #[arg(long, value_name = "HEX")]
+        from: String,
+        /// The AID of the destination Security Domain, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        to: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
 }
 
 /// Which CPLC block `gp cplc-set` writes.
@@ -2657,6 +2689,12 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 write,
             } => run_gp_cplc_set(kind, &data, today, &write),
             GpAction::Personalize { aid, data, write } => run_gp_personalize(&aid, &data, &write),
+            GpAction::Move {
+                aid,
+                from,
+                to,
+                write,
+            } => run_gp_move(&aid, &from, &to, &write),
         },
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
@@ -6256,6 +6294,65 @@ fn read_ota_expanded_hex(hex: Option<&str>) -> Result<Vec<u8>, String> {
         return Err("no OTA data given".to_owned());
     }
     cat::parse_hex(&joined)
+}
+
+/// `sim-doctor gp move --aid A --from S --to D`: a dry run unless `--yes`,
+/// offline without keys. Every AID is validated and the two domains are compared
+/// before a reader is opened.
+fn run_gp_move(aid: &str, from: &str, to: &str, w: &GpWriteFlags) -> contract::ExitCode {
+    let (object, source, destination) = match (parse_aid(aid), parse_aid(from), parse_aid(to)) {
+        (Some(object), Some(source), Some(destination)) => (object, source, destination),
+        _ => {
+            return report_refusal(
+                "gp",
+                "--aid, --from and --to must each be 5 to 16 bytes of hex",
+                serde_json::json!({ "error": { "kind": "bad-aid" } }),
+                w.json,
+            )
+        }
+    };
+    if source == destination {
+        let both = hex::encode_upper(&source);
+        let message = format!(
+            "--from and --to are both {both}; there is nothing to move it between and nothing was sent"
+        );
+        return report_refusal(
+            "gp move",
+            &message,
+            serde_json::json!({ "error": { "kind": "same-domain", "message": message } }),
+            w.json,
+        );
+    }
+    let req = gp::MoveRequest {
+        object,
+        source,
+        destination,
+    };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::move_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp move", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp move",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::move_object(s, t, &req, &auth, w.yes),
+    )
 }
 
 #[cfg(test)]

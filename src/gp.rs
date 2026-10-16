@@ -5322,6 +5322,197 @@ pub fn cplc_set<S: CardSession + ?Sized>(
     Ok(report)
 }
 
+// ---------------------------------------------------------------------------
+// MOVE between Security Domains (issue #245)
+// ---------------------------------------------------------------------------
+
+/// Said in every `gp move` output, dry run or not.
+pub const MOVE_WARNING: &str = "a move is NOT a delete followed by an install: it is ONE command, INSTALL [for extradition] (80 E6 10 00), so there is no point in this sequence where the object is in neither domain, and no failure between a delete and an install can lose the application or the key - this sequence contains no DELETE and no separate INSTALL, and the card performs the move inside that one command. What cannot be undone is a move the card accepts and a destination that then refuses the object: the object leaves the source domain the moment the card answers 90 00, and that status word is the only confirmation the card gives. The registry is read again afterwards; read it with gp status before relying on the move.";
+
+/// Builds, and does not send, INSTALL [for extradition] (P1 `10`): `80 E6 10 00
+/// Lc <data> 00` with data = `LV(destination security domain AID) LV(load file
+/// AID) LV(object AID) LV(application AID) LV(install parameters)`, the empty
+/// fields left as a zero length byte. [V] The bytes and their order are what
+/// GlobalPlatformPro builds in `GlobalPlatformCookbook.extradite`, which is
+/// `lv(to, null, what, null, null)` and one `cmd(INS_INSTALL, 0x10, 0x00, data)`
+/// (nextgen/src/main/java/pro/javacard/gp/ng/GlobalPlatformCookbook.java:729-731,
+/// with `INS_INSTALL = 0xE6`), and which `gppro --move <AID> --to <AID>` sends on
+/// the already open secure channel (GPToolNG.java:510-511; the options at
+/// GPCommandLineInterface.java:136-137). [U] The field NAMES of GP Card Spec
+/// v2.3.1 11.5.2.3.4 Table 11-47 are not read here: the reference does not name
+/// them either, it only positions them.
+pub fn move_command(object: &[u8], destination: &[u8]) -> Result<Command, BuildError> {
+    aid_ok("object", object, false)?;
+    aid_ok("destination security domain", destination, false)?;
+    let mut data = Vec::new();
+    lv(&mut data, "destination security domain AID", destination)?;
+    lv(&mut data, "load file AID", &[])?;
+    lv(&mut data, "object AID", object)?;
+    lv(&mut data, "application AID", &[])?;
+    lv(&mut data, "install parameters", &[])?;
+    if data.len() > 0xFF {
+        return Err(BuildError::InstallTooLong(data.len()));
+    }
+    Ok(Command::case4(
+        Header::new(0x80, 0xE6, 0x10, 0x00),
+        data,
+        Le::Short(0),
+    ))
+}
+
+/// What `gp move` moves: one object from one Security Domain to another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoveRequest {
+    /// The AID of the object to move: an application, a load file or a key object.
+    pub object: Vec<u8>,
+    /// The Security Domain the object is in now.
+    pub source: Vec<u8>,
+    /// The Security Domain to move it to.
+    pub destination: Vec<u8>,
+}
+
+fn move_target(req: &MoveRequest) -> Value {
+    json!({
+        "object": hex_of(&req.object),
+        "source_domain": hex_of(&req.source),
+        "destination_domain": hex_of(&req.destination),
+    })
+}
+
+fn move_plan_steps(req: &MoveRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: "install_for_extradition",
+        command: move_command(&req.object, &req.destination)?,
+    }])
+}
+
+/// `gp move` without keys: the offline dry run. Sends nothing and does not touch
+/// a card. Both domains are named here, so the plan reads on its own.
+///
+/// # Errors
+///
+/// [`BuildError`] for an object or destination AID that is not 5 to 16 bytes.
+pub fn move_dry_run(req: &MoveRequest) -> Result<Value, BuildError> {
+    let plan = move_plan_steps(req)?;
+    let mut data = offline_dry_run(
+        "move",
+        move_target(req),
+        &plan,
+        "no keys were given, so the card was not contacted, neither domain was checked and the move was not verified; add --keys-file or --keys-env to read the registry, and --yes to send",
+    );
+    data["warning"] = json!(MOVE_WARNING);
+    Ok(data)
+}
+
+/// The registry entry that is a Security Domain with the AID `aid_hex`: the card
+/// lists one with the Security Domain privilege (GP 11.1.2, bit b8 of the first
+/// privilege byte).
+fn security_domain_entry<'a>(registry: &'a [Value], aid_hex: &str) -> Option<&'a Value> {
+    registry
+        .iter()
+        .flat_map(|s| s["entries"].as_array().into_iter().flatten())
+        .find(|e| {
+            e["aid"] == aid_hex
+                && e["privilege_names"]
+                    .as_array()
+                    .is_some_and(|p| p.iter().any(|n| n == "security_domain"))
+        })
+}
+
+/// `gp move --aid ... --from ... --to ...` over SCP03: authenticate once, GET
+/// STATUS, and refuse with nothing sent when the object is not in the source
+/// domain (`object-not-in-source`), already belongs to the destination
+/// (`object-already-in-destination`), the destination is not a Security Domain
+/// the registry lists (`destination-not-a-domain`), the two domains are the same
+/// (`same-domain`), or the registry cannot be read in full
+/// (`registry-unreadable`); a dry run unless `yes`; otherwise the single INSTALL
+/// [for extradition] MAC'd and sent once, every status word reported with its own
+/// kind and no retry, then a re-read that must show the object owned by the
+/// destination, else `verify-failed`.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn move_object<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &MoveRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let object = hex::encode_upper(&req.object);
+    let from = hex::encode_upper(&req.source);
+    let to = hex::encode_upper(&req.destination);
+    let mut report = write(
+        session,
+        trace,
+        auth,
+        yes,
+        "move",
+        move_target(req),
+        |_| move_plan_steps(req),
+        |registry| {
+            if from == to {
+                return Err((
+                    "same-domain",
+                    format!("the source and the destination Security Domain are both {from}; there is nothing to move it between and nothing was sent"),
+                ));
+            }
+            if !registry_complete(registry) {
+                return Err((
+                    "registry-unreadable",
+                    "the registry could not be read in full, so neither the object nor the destination can be confirmed; nothing was sent".into(),
+                ));
+            }
+            let Some((scope, entry)) = registry_entry(registry, &object) else {
+                return Err((
+                    "object-not-in-source",
+                    format!("{object} is not in the registry, so it is not in {from} to move; nothing was sent"),
+                ));
+            };
+            let owner = entry["associated_security_domain"]
+                .as_str()
+                .map(str::to_string);
+            if owner.as_deref() == Some(to.as_str()) {
+                return Err((
+                    "object-already-in-destination",
+                    format!("{object} already belongs to the destination Security Domain {to}; nothing was sent"),
+                ));
+            }
+            if let Some(o) = &owner {
+                if o != &from {
+                    return Err((
+                        "object-not-in-source",
+                        format!("{object} belongs to Security Domain {o}, not to {from}; nothing was sent"),
+                    ));
+                }
+            }
+            if security_domain_entry(registry, &to).is_none() {
+                return Err((
+                    "destination-not-a-domain",
+                    format!("{to} is not a Security Domain in the registry, so it cannot receive {object}; nothing was sent"),
+                ));
+            }
+            Ok(json!({
+                "present_in_source": true,
+                "scope": scope,
+                "lifecycle_name": entry["lifecycle_name"],
+                "privileges": entry["privilege_names"],
+                "object_security_domain": owner,
+                "source_domain": from,
+                "destination_domain": to,
+            }))
+        },
+        |after| {
+            registry_entry(after, &object)
+                .and_then(|(_, e)| e["associated_security_domain"].as_str())
+                == Some(to.as_str())
+        },
+    )?;
+    report.data["warning"] = json!(MOVE_WARNING);
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8037,6 +8228,250 @@ mod tests {
         let out = format!("{d}\n{}", render_text(&d)).to_lowercase();
         assert!(!out.contains(&DAP_KEY_HEX.to_lowercase()));
         assert!(out.contains(&DAP_LFDBH.to_lowercase()));
+    }
+
+    // ---- MOVE between Security Domains (issue #245) ---------------------
+    //
+    // The registry the source channel shows in these vectors carries the
+    // Associated Security Domain AID (tag CC) of the object, which is what
+    // decides whether the object is in the source domain and, after the move,
+    // whether it is in the destination one. A card that reports no CC for the
+    // object cannot be shown either way, so the tests that need the answer
+    // always give it.
+
+    const MOVE_DEST: &str = "A0000000620099";
+    const MOVE_SOURCE: &str = "A000000151000000";
+    const MOVE_THIRD: &str = "A0000000620077";
+    const PLAIN_EXTRADITE: &str = "80E610001307A00000006200990007A0000000620001000000";
+
+    fn mv_entry(aid: &str, life: &str, privs: &str, owner: &str) -> String {
+        tlv(
+            "E3",
+            &(tlv("4F", aid) + &tlv("9F70", life) + &tlv("C5", privs) + &tlv("CC", owner)),
+        )
+    }
+
+    fn move_req(object: &str, source: &str, destination: &str) -> MoveRequest {
+        MoveRequest {
+            object: hex::decode(object).unwrap(),
+            source: hex::decode(source).unwrap(),
+            destination: hex::decode(destination).unwrap(),
+        }
+    }
+
+    fn wire_seq(card: &SeqCard) -> Vec<&str> {
+        card.sent.iter().map(String::as_str).collect()
+    }
+
+    /// A card that answers the registry pre-read with the object owned by
+    /// `before` and the post-read with the object owned by `after`, and answers
+    /// 90 00 to the one INSTALL. `listed` is the object the registry holds.
+    fn move_card(listed: &str, before: &str, after: &str) -> SeqCard {
+        let gs = |owner: &str| {
+            mv_entry(listed, "07", "180000", owner)
+                + &mv_entry(MOVE_DEST, "0F", "800000", MOVE_SOURCE)
+        };
+        let pages = vec![
+            isd_entry() + "9000",
+            gs(before) + "9000",
+            "6A88".into(),
+            "6A88".into(),
+            isd_entry() + "9000",
+            gs(after) + "9000",
+            "6A88".into(),
+            "6A88".into(),
+        ];
+        SeqCard::new(&[
+            (SEL1, vec!["9000".into()]),
+            ("80CA00E000", vec![format!("{KEY_INFO_AES}9000")]),
+            (INIT_UPDATE, vec![format!("{INIT_UPDATE_RESP}9000")]),
+            (EXT_AUTH_01, vec!["9000".into()]),
+            ("84E6", vec!["9000".into()]),
+            ("84F2", pages),
+        ])
+    }
+
+    fn sent_e6(card: &SeqCard) -> Vec<String> {
+        card.sent
+            .iter()
+            .filter(|c| c.len() >= 4 && &c[2..4] == "E6")
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn move_install_for_extradition_is_byte_exact() {
+        let c = move_command(
+            &hex::decode(APP1).unwrap(),
+            &hex::decode(MOVE_DEST).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(hex::encode_upper(c.encode().unwrap()), PLAIN_EXTRADITE);
+        // INS E6, P1 10 (for extradition), P2 00 (GP 11.5.2.3.4, Table 11-47).
+        let wire = c.encode().unwrap();
+        assert_eq!(&wire[..4], [0x80, 0xE6, 0x10, 0x00]);
+        assert_eq!(wire[4] as usize, wire.len() - 6);
+        assert!(matches!(
+            move_command(&[1, 2, 3], &[0xA0; 5]),
+            Err(BuildError::Aid { .. })
+        ));
+        assert!(matches!(
+            move_command(&[0xA0; 8], &[1, 2, 3]),
+            Err(BuildError::Aid { .. })
+        ));
+    }
+
+    #[test]
+    fn move_sends_one_extradition_after_the_pre_read_and_in_order() {
+        let k = keys();
+        let mut card = move_card(APP1, MOVE_SOURCE, MOVE_DEST);
+        let r = move_object(
+            &mut card,
+            true,
+            &move_req(APP1, MOVE_SOURCE, MOVE_DEST),
+            &auth(&k),
+            true,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["result"]["verified"], true);
+        assert_eq!(r.data["result"]["steps"].as_array().unwrap().len(), 1);
+        assert_eq!(sent_e6(&card).len(), 1, "{:?}", card.sent);
+        // The wire order: SELECT, GET DATA key information, INITIALIZE UPDATE,
+        // EXTERNAL AUTHENTICATE, four GET STATUS (isd, applications, load files,
+        // load file modules), the one INSTALL, four more GET STATUS.
+        let w = wire_seq(&card);
+        assert_eq!(w.len(), 13, "{:?}", card.sent);
+        assert_eq!(&w[..4], &[SEL1, "80CA00E000", INIT_UPDATE, EXT_AUTH_01]);
+        assert_eq!(
+            w[4..8].iter().map(|c| &c[..8]).collect::<Vec<_>>(),
+            ["84F28002", "84F24002", "84F22002", "84F21002"]
+        );
+        assert_eq!(&w[8][..8], "84E61000");
+        assert!(w[9..].iter().all(|c| c.starts_with("84F2")), "{:?}", w);
+        assert_eq!(r.data["warning"], MOVE_WARNING);
+    }
+
+    #[test]
+    fn move_the_registry_does_not_confirm_is_verify_failed() {
+        let k = keys();
+        // The card answers 90 00 to the INSTALL and still shows the object in the
+        // source domain: that is verify-failed, not a success.
+        let mut card = move_card(APP1, MOVE_SOURCE, MOVE_SOURCE);
+        let r = move_object(
+            &mut card,
+            true,
+            &move_req(APP1, MOVE_SOURCE, MOVE_DEST),
+            &auth(&k),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["result"]["verified"], false);
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+    }
+
+    #[test]
+    fn move_refuses_with_nothing_sent_and_names_why() {
+        let k = keys();
+        let req = move_req(APP1, MOVE_SOURCE, MOVE_DEST);
+        // the object is not in the registry at all
+        let mut card = move_card(APP2, MOVE_SOURCE, MOVE_SOURCE);
+        let r = move_object(&mut card, true, &req, &auth(&k), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "object-not-in-source");
+        assert_eq!(r.data["sent"], false);
+        assert!(sent_e6(&card).is_empty(), "{:?}", card.sent);
+        // the object already belongs to the destination
+        let mut card = move_card(APP1, MOVE_DEST, MOVE_DEST);
+        let r = move_object(&mut card, true, &req, &auth(&k), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "object-already-in-destination");
+        assert!(sent_e6(&card).is_empty());
+        // the object is in a third Security Domain, not in the named source
+        let mut card = move_card(APP1, MOVE_THIRD, MOVE_THIRD);
+        let r = move_object(&mut card, true, &req, &auth(&k), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "object-not-in-source");
+        assert!(r.data["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains(MOVE_THIRD));
+        assert!(sent_e6(&card).is_empty());
+        // the destination is not a Security Domain the registry lists
+        let mut card = move_card(APP1, MOVE_SOURCE, MOVE_SOURCE);
+        let r = move_object(
+            &mut card,
+            true,
+            &move_req(APP1, MOVE_SOURCE, "A0000000620088"),
+            &auth(&k),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "destination-not-a-domain");
+        assert!(sent_e6(&card).is_empty());
+        // the two domains are the same
+        let mut card = move_card(APP1, MOVE_SOURCE, MOVE_SOURCE);
+        let r = move_object(
+            &mut card,
+            true,
+            &move_req(APP1, MOVE_SOURCE, MOVE_SOURCE),
+            &auth(&k),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "same-domain");
+        assert!(sent_e6(&card).is_empty());
+        // a registry that could not be read in full proves nothing either way
+        let mut card = SeqCard::new(&[
+            (SEL1, vec!["9000".into()]),
+            ("80CA00E000", vec![format!("{KEY_INFO_AES}9000")]),
+            (INIT_UPDATE, vec![format!("{INIT_UPDATE_RESP}9000")]),
+            (EXT_AUTH_01, vec!["9000".into()]),
+            ("84E6", vec!["9000".into()]),
+            (
+                "84F2",
+                vec!["6985".into(), "6985".into(), "6985".into(), "6985".into()],
+            ),
+        ]);
+        let r = move_object(&mut card, true, &req, &auth(&k), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "registry-unreadable");
+        assert!(sent_e6(&card).is_empty());
+    }
+
+    #[test]
+    fn move_with_keys_and_without_yes_sends_nothing() {
+        let k = keys();
+        let mut card = move_card(APP1, MOVE_SOURCE, MOVE_DEST);
+        let r = move_object(
+            &mut card,
+            true,
+            &move_req(APP1, MOVE_SOURCE, MOVE_DEST),
+            &auth(&k),
+            false,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["dry_run"], true);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["pre_read"]["source_domain"], MOVE_SOURCE);
+        assert_eq!(r.data["pre_read"]["destination_domain"], MOVE_DEST);
+        assert_eq!(r.data["pre_read"]["object_security_domain"], MOVE_SOURCE);
+        assert!(sent_e6(&card).is_empty(), "{:?}", card.sent);
+        assert_eq!(r.data["plan"]["apdus"][0]["apdu"], PLAIN_EXTRADITE);
+    }
+
+    #[test]
+    fn move_dry_run_is_offline_names_both_domains_and_warns() {
+        let d = move_dry_run(&move_req(APP1, MOVE_SOURCE, MOVE_DEST)).unwrap();
+        assert_eq!(d["card_touched"], false);
+        assert_eq!(d["target"]["object"], APP1);
+        assert_eq!(d["target"]["source_domain"], MOVE_SOURCE);
+        assert_eq!(d["target"]["destination_domain"], MOVE_DEST);
+        assert_eq!(d["plan"]["apdus"].as_array().unwrap().len(), 1);
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], PLAIN_EXTRADITE);
+        let text = render_text(&d);
+        assert!(text.contains(MOVE_SOURCE), "{text}");
+        assert!(text.contains(MOVE_DEST), "{text}");
+        assert!(text.contains("WARNING"), "{text}");
+        assert!(MOVE_WARNING.contains("no DELETE"), "{MOVE_WARNING}");
+        assert!(MOVE_WARNING.contains("lose the application or the key"));
     }
 
     // -- `gp release-scp` (issue #261) -------------------------------------
