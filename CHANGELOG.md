@@ -63,6 +63,13 @@ All notable changes to this project are documented here. The format follows
 - `sim-doctor gp move --aid A --from S --to D`: move an object between Security Domains with INSTALL [for extradition] (`80 E6 10 00`, GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), as GlobalPlatformPro `gppro --move/--to` does. One command, not a delete followed by an install: dry run unless `--yes`, offline without keys, both domains named in the plan, refusals with nothing sent, one SCP03 attempt, a registry re-read that must show the object in the destination (#245).
 - `sim-doctor keygen`: offline Ki, OPc, ICCID and IMSI for one card from an operator secret, as pySim-prog.py's `-z`/`-j` autogen (#277). Every byte is derived through HKDF-SHA256 (RFC 5869) from a secret read with `-z/--secret-file` or `--secret-env` - never from argv, the clock or a fixed seed; `-j N` makes card N of a batch reproducible, and without it a fresh OS salt is drawn per run and printed. OPc is milenage's AES-CMC over Ki (`aka::opc`); the ICCID is `89` + MCC/MNC + a body filling to 18 + a Luhn check digit, the IMSI is 15 digits. Sends no APDU.
 - PACE with the CAN: the PACE application selection, MSE:Set AT, the encrypted nonce, the generic mapping, the ephemeral ECDH and the authentication tokens, the SHA-256 key derivation function and the AES secure messaging channel that follows (wrap, unwrap, SSC). The CAN comes from a file or an environment variable and is never printed; PACE is authentication, not a write, so it is not behind `--yes`. Only secp256r1 of the four TR-03110 curves can be computed on, because this crate adds no P-384 or Brainpool package (#260).
+- `sim-doctor euicc store-data <HEX|-> [--yes]`: send one operator-supplied ES10x request to the
+  ISD-R as raw STORE DATA, the escape hatch for an ES10 function this tool does not implement.
+  Dry run by default (every block CLA/INS/P1/P2/Lc and its payload bytes are printed and
+  `card_touched` is false), `--yes` sends on the usual logical channel over the ISD-R, the
+  payload is bounded at 8192 bytes from hex or stdin, and the reassembled answer is reported
+  verbatim even when this tool cannot decode it. No keys are involved (not SCP03) and it is
+  never exposed over MCP (#230).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).
