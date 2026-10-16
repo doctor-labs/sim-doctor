@@ -33,6 +33,8 @@
 //! layer 1  backend     SIM_DOCTOR_HTTP / SIM_DOCTOR_CA_BUNDLE selection, after lpac
 //! layer 1  notif      dumped eUICC notifications read back from a file and replayed over ES9+ HandleNotification (dry run unless told to send)
 //! layer 1  sysmocom     AT-command drivers for the sysmocom SJA2, SJA5 and SJS1 over the transport seam
+//! layer 1  sysmocom     AT-command drivers for the sysmocom SJA2, SJA5 and SJS1 over the transport seam
+//! layer 1  legacy       the legacy magic-SIM, OpenCells, GrCard and sysmoSIMgr2 drivers: GSM-SIM APDUs over the sysmocom AT seam
 //! layer 1  tar         TAR scanning: the value space, the bounded ENVELOPE
 //!                probe, and the baseline a TAR is judged against
 //! layer 1  walk        the DF-tree walk: probe, descend, bound, report
@@ -134,6 +136,7 @@ pub mod fuzz;
 pub mod gp;
 pub mod gpcert;
 pub mod keygen;
+pub mod legacy;
 pub mod mcp;
 pub mod notif;
 pub mod ota_expanded;
@@ -153,6 +156,7 @@ pub mod sign;
 pub mod signals;
 pub mod skill;
 pub mod sms;
+pub mod sysmocom;
 pub mod sysmocom;
 pub mod tar;
 pub mod tlv;
@@ -287,6 +291,16 @@ pub const MODULES: &[ModuleInfo] = &[
         name: sysmocom::NAME,
         owns: "The AT-command driver for the sysmocom SJA2, SJA5 and SJS1: the AT lines, the ATR model tables, the probe, and each model's programming surface.",
         depends_on: &[transport::NAME],
+    },
+    ModuleInfo {
+        name: sysmocom::NAME,
+        owns: "The AT-command driver for the sysmocom SJA2, SJA5 and SJS1: the AT lines, the ATR model tables, the probe, and each model's programming surface.",
+        depends_on: &[transport::NAME],
+    },
+    ModuleInfo {
+        name: legacy::NAME,
+        owns: "The legacy magic-SIM, OpenCells, GrCard and sysmoSIMgr2 drivers over the sysmocom AT seam: the GSM-SIM APDU vocabulary (CLA A0, SELECT 0000, INS D6 and DC), each model identify signal, and each model programming surface.",
+        depends_on: &[sysmocom::NAME],
     },
     ModuleInfo {
         name: walk::NAME,
