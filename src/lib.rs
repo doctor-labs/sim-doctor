@@ -147,6 +147,7 @@ pub mod scp01;
 pub mod scp02;
 pub mod scp03;
 pub mod scp03t;
+pub mod scp11;
 pub mod session;
 pub mod sign;
 pub mod signals;
@@ -423,6 +424,12 @@ pub const MODULES: &[ModuleInfo] = &[
         name: cardsh::NAME,
         owns: "The card shell: a pySim-shell style command interpreter that keeps the equipped card, the logical channel and the selected file between commands; reads are sent, anything that changes the card is a dry run unless --yes.",
         depends_on: &[aka::NAME, apdu::NAME, fcp::NAME, fs::NAME, session::NAME, trace::NAME, transport::NAME],
+    },
+
+    ModuleInfo {
+        name: scp11::NAME,
+        owns: "The SCP11 a, b and c card commands (GET DATA, PERFORM SECURITY OPERATION, MUTUAL and INTERNAL AUTHENTICATE), the Control Reference Template, the ECKA and X9.63 key derivation, the receipt of Table 7-17 and the GP certificate chain, all as the off-card entity drives them.",
+        depends_on: &[scp03t::NAME],
     },
 ];
 
