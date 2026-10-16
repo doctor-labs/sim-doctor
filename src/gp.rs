@@ -11568,3 +11568,1028 @@ mod crs_tests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// GlobalPlatform receipts (Card Specification v2.3.1 appendix C.5, issue #247)
+// ---------------------------------------------------------------------------
+
+/// Which receipt a verification is about.
+///
+/// The kind does not change the construction - every receipt is a signature over
+/// `Confirmation Data || context` with the same receipt key (C.5) - it only says
+/// which AIDs the `context` carries and in what order (Tables C-11 to C-16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptKind {
+    /// C.5.1, Table C-11: Executable Load File AID, Security Domain AID.
+    Load,
+    /// C.5.2, Table C-12: Executable Load File AID, instance AID.
+    Install,
+    /// C.5.5, Table C-15: the deleted AID.
+    Delete,
+    /// C.5.3, Table C-13: old SD AID, application or ELF AID, new SD AID.
+    Extradite,
+    /// C.5.4, Table C-14: old SD AID, application AID, new SD AID (each may be
+    /// absent), length of Privileges, Privileges, length of Registry Update
+    /// Parameters, Registry Update Parameters.
+    RegistryUpdate,
+    /// C.5.6, Table C-16: Executable Load File AID, instance AID, SD AID.
+    Combined,
+}
+
+impl ReceiptKind {
+    /// The spelling used on the command line and in the report.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Load => "load",
+            Self::Install => "install",
+            Self::Delete => "delete",
+            Self::Extradite => "extradite",
+            Self::RegistryUpdate => "registry-update",
+            Self::Combined => "combined",
+        }
+    }
+
+    /// Every kind, in the order C.5.1 to C.5.6 name them. Used by the help text
+    /// and by the tests, so the two cannot drift.
+    #[must_use]
+    pub const fn all() -> [Self; 6] {
+        [
+            Self::Load,
+            Self::Install,
+            Self::Delete,
+            Self::Extradite,
+            Self::RegistryUpdate,
+            Self::Combined,
+        ]
+    }
+
+    /// Parses the command-line spelling.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::all().into_iter().find(|k| k.name() == text)
+    }
+}
+
+/// The AIDs (and, for a registry update receipt, the two variable-length
+/// fields) a receipt's `context` is built from.
+///
+/// `None` means the table makes that element conditional and the card left it
+/// out, which is a length byte of `00` - never a missing byte.
+#[derive(Debug, Default, Clone)]
+pub struct ReceiptContext {
+    /// Executable Load File AID (load, install, combined).
+    pub elf_aid: Option<Vec<u8>>,
+    /// Security Domain AID (load, combined).
+    pub sd_aid: Option<Vec<u8>>,
+    /// Instance AID (install, combined) or the application AID (registry update).
+    pub app_aid: Option<Vec<u8>>,
+    /// Old Security Domain AID (extradite, registry update).
+    pub from_aid: Option<Vec<u8>>,
+    /// New Security Domain AID (extradite, registry update).
+    pub to_aid: Option<Vec<u8>>,
+    /// The privileges being written (registry update, 0 to 3 bytes).
+    pub privileges: Option<Vec<u8>>,
+    /// The registry update parameters being written (registry update).
+    pub registry_params: Option<Vec<u8>>,
+}
+
+/// Shortest AID the receipt tables allow (Tables C-11 to C-16: 5 to 16).
+const AID_MIN: usize = 5;
+/// Longest AID the receipt tables allow.
+const AID_MAX: usize = 16;
+
+fn push_aid(out: &mut Vec<u8>, aid: Option<&Vec<u8>>, name: &str) -> Result<(), String> {
+    match aid {
+        Some(aid) => {
+            if !(AID_MIN..=AID_MAX).contains(&aid.len()) {
+                return Err(format!("{name} is {} bytes; an AID is 5 to 16", aid.len()));
+            }
+            out.push(aid.len() as u8);
+            out.extend_from_slice(aid);
+        }
+        None => out.push(0),
+    }
+    Ok(())
+}
+
+impl ReceiptKind {
+    /// The bytes this kind's receipt signature covers after the Confirmation
+    /// Data: the AID tail of Tables C-11 to C-16, in table order.
+    ///
+    /// # Errors
+    ///
+    /// A required AID is absent or not 5 to 16 bytes, or a registry-update
+    /// field is longer than its table allows. Both are command-line mistakes,
+    /// and a receipt verified over the wrong context is a wrong answer.
+    pub fn context(&self, aids: &ReceiptContext) -> Result<Vec<u8>, String> {
+        let mut out = Vec::new();
+        match self {
+            Self::Load => {
+                push_aid(
+                    &mut out,
+                    aids.elf_aid.as_ref(),
+                    "the executable load file AID",
+                )?;
+                push_aid(&mut out, aids.sd_aid.as_ref(), "the security domain AID")?;
+            }
+            Self::Install => {
+                push_aid(
+                    &mut out,
+                    aids.elf_aid.as_ref(),
+                    "the executable load file AID",
+                )?;
+                push_aid(&mut out, aids.app_aid.as_ref(), "the instance AID")?;
+            }
+            Self::Delete => {
+                push_aid(&mut out, aids.app_aid.as_ref(), "the deleted AID")?;
+            }
+            Self::Extradite => {
+                push_aid(
+                    &mut out,
+                    aids.from_aid.as_ref(),
+                    "the old security domain AID",
+                )?;
+                push_aid(&mut out, aids.app_aid.as_ref(), "the transferred AID")?;
+                push_aid(
+                    &mut out,
+                    aids.to_aid.as_ref(),
+                    "the new security domain AID",
+                )?;
+            }
+            Self::RegistryUpdate => {
+                push_aid(
+                    &mut out,
+                    aids.from_aid.as_ref(),
+                    "the old security domain AID",
+                )?;
+                push_aid(&mut out, aids.app_aid.as_ref(), "the application AID")?;
+                push_aid(
+                    &mut out,
+                    aids.to_aid.as_ref(),
+                    "the new security domain AID",
+                )?;
+                let privs = aids.privileges.as_deref().unwrap_or(&[]);
+                if privs.len() > 3 {
+                    return Err(format!(
+                        "the privileges are {} bytes; a registry update carries 0 to 3",
+                        privs.len()
+                    ));
+                }
+                out.push(privs.len() as u8);
+                out.extend_from_slice(privs);
+                let params = aids.registry_params.as_deref().unwrap_or(&[]);
+                out.push(params.len() as u8);
+                out.extend_from_slice(params);
+            }
+            Self::Combined => {
+                push_aid(
+                    &mut out,
+                    aids.elf_aid.as_ref(),
+                    "the executable load file AID",
+                )?;
+                push_aid(&mut out, aids.app_aid.as_ref(), "the instance AID")?;
+                push_aid(&mut out, aids.sd_aid.as_ref(), "the security domain AID")?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The symmetric algorithm a receipt key selects (C.5, Card Specification
+/// v2.3.1, the four bullets that open the section).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptAlgorithm {
+    /// AES-CMAC per B.2.2: a 16-byte signature whatever the key size.
+    Aes,
+    /// Single DES plus a final Triple DES, per B.1.2.2 with B.1.3 padding: a
+    /// 16-byte receipt key (keying option 2 of ISO 18033-3) or a 24-byte one.
+    Des,
+}
+
+impl ReceiptAlgorithm {
+    /// The spelling used on the command line and in the report.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Aes => "aes",
+            Self::Des => "des",
+        }
+    }
+}
+
+/// A GlobalPlatform receipt generation key.
+///
+/// Never the command line (shell history, process list): a file or an
+/// environment variable, the same rule as every other key in this crate. The
+/// bytes appear in no output, and [`std::fmt::Debug`] is redacted.
+///
+/// The text is one key, hex, optionally `KEY/KCV`, optionally prefixed with the
+/// algorithm: `aes:` (the default) or `des:`. The prefix exists because a
+/// 16-byte key is legal for both AES-128 and two-key Triple DES, and the same
+/// bytes produce different signatures under the two.
+///
+/// **The DES receipt is not a CMAC.** C.5 names four algorithms; the AES one is
+/// AES-CMAC and the DES one is the Retail MAC of B.1.2.2, a CBC-MAC with single
+/// DES on every block but the last and Triple DES on the last.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReceiptKey {
+    algorithm: ReceiptAlgorithm,
+    bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for ReceiptKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReceiptKey { .. }")
+    }
+}
+
+fn strip_prefix_ci<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    text.get(..prefix.len())
+        .filter(|head| head.eq_ignore_ascii_case(prefix))
+        .map(|_| &text[prefix.len()..])
+}
+
+impl ReceiptKey {
+    /// Parses one receipt key from `text` (`#` lines skipped).
+    ///
+    /// # Errors
+    ///
+    /// A [`KeyError`] whose text never contains the input.
+    pub fn parse(text: &str) -> Result<Self, KeyError> {
+        let tokens: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .flat_map(|l| l.split(|c: char| c.is_whitespace() || c == ','))
+            .filter(|t| !t.is_empty())
+            .collect();
+        let [token] = tokens.as_slice() else {
+            return Err(KeyError::Count(tokens.len()));
+        };
+        let (algorithm, body) = if let Some(body) = strip_prefix_ci(token, "aes:") {
+            (ReceiptAlgorithm::Aes, body)
+        } else if let Some(body) = strip_prefix_ci(token, "des:") {
+            (ReceiptAlgorithm::Des, body)
+        } else {
+            (ReceiptAlgorithm::Aes, *token)
+        };
+        let (key_hex, kcv_hex) = match body.split_once('/') {
+            Some((k, c)) => (k, Some(c)),
+            None => (body, None),
+        };
+        let bytes = hex::decode(key_hex).ok().ok_or(KeyError::DapFormat)?;
+        let ok = match algorithm {
+            ReceiptAlgorithm::Aes => matches!(bytes.len(), 16 | 24 | 32),
+            ReceiptAlgorithm::Des => matches!(bytes.len(), 16 | 24),
+        };
+        if !ok {
+            return Err(KeyError::DapFormat);
+        }
+        if let Some(kcv_hex) = kcv_hex {
+            let want = hex::decode(kcv_hex)
+                .ok()
+                .and_then(|v| <[u8; 3]>::try_from(v).ok())
+                .ok_or(KeyError::DapFormat)?;
+            if !kcv_matches(algorithm == ReceiptAlgorithm::Aes, &bytes, &want)
+                .map_err(|_| KeyError::DapFormat)?
+            {
+                return Err(KeyError::Kcv {
+                    index: 1,
+                    computed: hex::encode_upper(
+                        Self {
+                            algorithm,
+                            bytes: bytes.clone(),
+                        }
+                        .kcv(),
+                    ),
+                    stated: hex::encode_upper(want),
+                });
+            }
+        }
+        Ok(Self { algorithm, bytes })
+    }
+
+    /// Reads and parses the key from `source`.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`].
+    pub fn load(source: KeySource<'_>) -> Result<Self, KeyError> {
+        Self::parse(&read_key_text(source)?)
+    }
+
+    /// Which algorithm this key selects.
+    #[must_use]
+    pub const fn algorithm(&self) -> ReceiptAlgorithm {
+        self.algorithm
+    }
+
+    /// The key check value (public, 24 bits), which is safe to print.
+    ///
+    /// # Panics
+    ///
+    /// Never: [`Self::parse`] only admits key lengths these accept.
+    #[must_use]
+    pub fn kcv(&self) -> [u8; 3] {
+        match self.algorithm {
+            ReceiptAlgorithm::Aes => aes_kcv(&self.bytes).expect("16, 24 or 32 bytes"),
+            ReceiptAlgorithm::Des => des_kcv(&self.bytes).expect("16 or 24 bytes"),
+        }
+    }
+}
+
+/// The receipt signature over `data`.
+///
+/// # Errors
+///
+/// Only if a future algorithm refuses; the key length was checked at parse time.
+pub fn receipt_mac(
+    algorithm: ReceiptAlgorithm,
+    key: &[u8],
+    data: &[u8],
+) -> Result<Vec<u8>, String> {
+    match algorithm {
+        // C.5: "Symmetric cryptography using an AES receipt key, an ICV of binary
+        // zeroes, and the signature method described in section B.2.2 applied to
+        // the receipt data." B.2.2 is CMAC per NIST SP 800-38B, and 800-38B
+        // specifies the padding of the input itself, so nothing is prepended
+        // here. The signature is the full 16 bytes. C.5's "an ICV of binary
+        // zeroes" belongs to the DES bullet this one was copied from: CMAC has no
+        // ICV, so there is nothing for it to set. The one CMAC in this crate
+        // lives in crate::otacrypto and is reused rather than reimplemented.
+        ReceiptAlgorithm::Aes => {
+            crate::otacrypto::sign(crate::otacrypto::Alg::Aes, key, data, Some(16))
+                .map_err(|e| e.to_string())
+        }
+        ReceiptAlgorithm::Des => Ok(retail_mac(key, data)),
+    }
+}
+
+/// DES padding (Card Specification v2.3.1 B.1.3): append `80`, then binary
+/// zeroes to a multiple of 8. "If the data is being padded with the intention of
+/// generating a MAC, the padding is discarded following the DES operation" - the
+/// padding completes the last block and is not part of the signature.
+#[must_use]
+pub fn des_padding(data: &[u8]) -> Vec<u8> {
+    let mut out = data.to_vec();
+    out.push(0x80);
+    while out.len() % 8 != 0 {
+        out.push(0);
+    }
+    out
+}
+
+/// The Retail MAC of B.1.2.2: ISO 9797-1 MAC Algorithm 3, initial
+/// transformation 1, output transformation 3, without truncation, with DES as
+/// the block cipher.
+///
+/// Initial transformation 1 puts single DES under `K1` on every block but the
+/// last; output transformation 3 triples the last intermediate block with
+/// `E_K1`, then `D_K2`, then `E_K3`. Triple DES in this specification is keying
+/// option 2 of ISO 18033-3, so a 16-byte key is `K1 || K2` with `K3 = K1`. The
+/// chaining value starts at the ICV of binary zeroes that C.5 names. The data is
+/// padded per B.1.3 first.
+/// One 8-byte block through single DES. The block type is cipher's `Block`,
+/// which is what the `des` crate's primitives take.
+fn des_block(key: &[u8], block: [u8; 8], decrypt: bool) -> [u8; 8] {
+    use aes::cipher::{Block, BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
+
+    let mut work: Block<des::Des> = Default::default();
+    work.copy_from_slice(&block);
+    let cipher = des::Des::new_from_slice(key).expect("an 8-byte DES key");
+    if decrypt {
+        cipher.decrypt_block(&mut work);
+    } else {
+        cipher.encrypt_block(&mut work);
+    }
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&work);
+    out
+}
+
+/// The Retail MAC of B.1.2.2: ISO 9797-1 MAC Algorithm 3, initial
+/// transformation 1, output transformation 3, without truncation, with DES as
+/// the block cipher.
+///
+/// Initial transformation 1 puts single DES under `K1` on every block but the
+/// last; output transformation 3 triples the last intermediate block with
+/// `E_K1`, then `D_K2`, then `E_K3`. Triple DES in this specification is keying
+/// option 2 of ISO 18033-3, so a 16-byte key is `K1 || K2` with `K3 = K1`. The
+/// chaining value starts at the ICV of binary zeroes that C.5 names, and the
+/// data is padded per B.1.3 first.
+#[must_use]
+pub fn retail_mac(key: &[u8], data: &[u8]) -> Vec<u8> {
+    use aes::cipher::{block_padding::NoPadding, BlockModeEncrypt, KeyIvInit};
+
+    let (k1, k2, k3) = match key.len() {
+        16 => (&key[..8], &key[8..16], &key[..8]),
+        _ => (&key[..8], &key[8..16], &key[16..24]),
+    };
+    let zero = [0u8; 8];
+    let padded = des_padding(data);
+    let split = padded.len() - 8;
+    let mut head = padded[..split].to_vec();
+    let mut chain = zero;
+    if !head.is_empty() {
+        let len = head.len();
+        let out = cbc::Encryptor::<des::Des>::new_from_slices(k1, &zero)
+            .expect("an 8-byte DES key")
+            .encrypt_padded::<NoPadding>(&mut head, len)
+            .expect("whole blocks")
+            .to_vec();
+        chain.copy_from_slice(&out[out.len() - 8..]);
+    }
+    let mut last = [0u8; 8];
+    for (n, byte) in last.iter_mut().enumerate() {
+        *byte = padded[split + n] ^ chain[n];
+    }
+    let tripled = des_block(k3, des_block(k2, des_block(k1, last, false), true), false);
+    tripled.to_vec()
+}
+
+/// A receipt response split into its two fields (Card Specification v2.3.1
+/// Table 11-13, Confirmations in Response Messages).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmationResponse<'a> {
+    /// The receipt the card generated, or an empty slice when the card sent a
+    /// Length of Receipt of `00`: receipts are optional and a card that returns
+    /// none still answers `90 00`.
+    pub receipt: &'a [u8],
+    /// The Confirmation Data the receipt is bound to (Table 11-14).
+    pub confirmation_data: &'a [u8],
+}
+
+/// Splits the `Data` field of a receipt-bearing response into the receipt and
+/// the Confirmation Data.
+///
+/// Table 11-13 codes the leading length as BER-TLV: one byte `00`-`7F`, or
+/// `81` and one byte for `80`-`FF`. That field is the length of the **Receipt
+/// alone**; the Confirmation Data is whatever follows it, which is why its own
+/// length is never stated.
+///
+/// # Errors
+///
+/// The length is not a legal BER length, or the response is too short to hold
+/// the receipt it claims. A response that cannot be split is never reported as
+/// "no receipt".
+pub fn split_confirmation(response: &[u8]) -> Result<ConfirmationResponse<'_>, String> {
+    let first = *response.first().ok_or("the response has no data at all")?;
+    let (len, header): (usize, usize) = if first == 0x81 {
+        (
+            usize::from(
+                *response
+                    .get(1)
+                    .ok_or("the two-byte receipt length is missing")?,
+            ),
+            2,
+        )
+    } else if first <= 0x7f {
+        (usize::from(first), 1)
+    } else {
+        return Err(format!(
+            "{first:02X} is not a BER length of a receipt (00 to 7F, or 81 80 to 81 FF)"
+        ));
+    };
+    let end = header
+        .checked_add(len)
+        .filter(|end| *end <= response.len())
+        .ok_or_else(|| {
+            format!(
+                "the response holds {} bytes but declares a {len}-byte receipt",
+                response.len()
+            )
+        })?;
+    Ok(ConfirmationResponse {
+        receipt: &response[header..end],
+        confirmation_data: &response[end..],
+    })
+}
+
+/// Splits Confirmation Data (Table 11-14) into the four fields it names.
+///
+/// Every field is `Length || Value`, and the two trailing ones are conditional,
+/// so a shorter structure is reported as `None` rather than as a parse failure:
+/// the verification never depends on this split, only the report does.
+#[must_use]
+pub fn decode_confirmation_data(data: &[u8]) -> serde_json::Value {
+    let mut at = 0usize;
+    let take = |at: &mut usize| -> Option<&[u8]> {
+        let len = usize::from(*data.get(*at)?);
+        let start = *at + 1;
+        let end = start.checked_add(len)?;
+        let value = data.get(start..end)?;
+        *at = end;
+        Some(value)
+    };
+    let Some(counter) = take(&mut at) else {
+        return serde_json::json!({ "parsed": false });
+    };
+    let Some(card_unique) = take(&mut at) else {
+        return serde_json::json!({ "parsed": false });
+    };
+    let token_identifier = take(&mut at).map(hex::encode_upper);
+    let token_digest = take(&mut at).map(hex::encode_upper);
+    serde_json::json!({
+        "parsed": true,
+        "confirmation_counter": hex::encode_upper(counter),
+        "card_unique_data": hex::encode_upper(card_unique),
+        "token_identifier": token_identifier,
+        "token_data_digest": token_digest,
+    })
+}
+
+/// What a receipt verification concluded.
+///
+/// Three answers, never two. `Unverified` and `Missing` are different facts:
+/// a receipt that was returned and did not verify is a card that did not prove
+/// what it said, while a missing receipt is a card whose issuer policy returns
+/// none. Collapsing the second into "nothing to check" is the failure this
+/// enum exists to prevent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptVerdict {
+    /// The recomputed signature equals the receipt the card returned.
+    Verified,
+    /// A receipt was returned and the recomputed signature differs from it.
+    Unverified,
+    /// The card returned no receipt (Length of Receipt `00`).
+    Missing,
+}
+
+impl ReceiptVerdict {
+    /// The spelling used in the report.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Unverified => "unverified",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+/// What [`verify_receipt`] was asked to check.
+#[derive(Debug, Clone)]
+pub struct ReceiptCheck<'a> {
+    /// Which receipt this is; it fixes the AID tail of the signed data.
+    pub kind: ReceiptKind,
+    /// The AIDs the card's operation named, in the order Table C-11..C-16 list.
+    pub context: &'a ReceiptContext,
+    /// The receipt the card returned, if any.
+    pub receipt: Option<Vec<u8>>,
+    /// The Confirmation Data from the response, Table 11-14.
+    pub confirmation_data: Vec<u8>,
+}
+
+/// Verifies one receipt.
+///
+/// The signed data is `Confirmation Data || context` in that order: C.5.1's
+/// Figure C-10 and every other receipt figure in C.5 put the Confirmation Data
+/// first and the AIDs after it. The signature is the full algorithm output
+/// compared in constant time.
+///
+/// # Errors
+///
+/// The receipt does not have the length this algorithm produces, which means
+/// the response cannot be this receipt rather than that it failed.
+pub fn verify_receipt(
+    key: &ReceiptKey,
+    check: &ReceiptCheck<'_>,
+) -> Result<serde_json::Value, String> {
+    let context = check.kind.context(check.context)?;
+    let signed = [check.confirmation_data.as_slice(), context.as_slice()].concat();
+    let expected = receipt_mac(key.algorithm(), &key.bytes, &signed)?;
+    let Some(receipt) = check.receipt.as_ref().filter(|r| !r.is_empty()) else {
+        return Ok(serde_json::json!({
+            "kind": check.kind.name(),
+            "algorithm": key.algorithm().name(),
+            "key_kcv": hex::encode_upper(key.kcv()),
+            "context": hex::encode_upper(&context),
+            "confirmation_data": hex::encode_upper(&check.confirmation_data),
+            "signed_data": hex::encode_upper(&signed),
+            "receipt": serde_json::Value::Null,
+            "expected_receipt": hex::encode_upper(&expected),
+            "signature_length": expected.len(),
+            "confirmation": decode_confirmation_data(&check.confirmation_data),
+            "verified": false,
+            "verdict": ReceiptVerdict::Missing.name(),
+            "note": "the card returned no receipt; this is not a pass and not a failure of the card",
+        }));
+    };
+    if receipt.len() != expected.len() {
+        return Err(format!(
+            "the receipt is {} bytes; a {} receipt is {}",
+            receipt.len(),
+            key.algorithm().name(),
+            expected.len()
+        ));
+    }
+    let ok = constant_time_eq_strict(receipt, &expected);
+    Ok(serde_json::json!({
+        "kind": check.kind.name(),
+        "algorithm": key.algorithm().name(),
+        "key_kcv": hex::encode_upper(key.kcv()),
+        "context": hex::encode_upper(&context),
+        "confirmation_data": hex::encode_upper(&check.confirmation_data),
+        "signed_data": hex::encode_upper(&signed),
+        "receipt": hex::encode_upper(receipt),
+        "expected_receipt": hex::encode_upper(&expected),
+        "signature_length": expected.len(),
+        "confirmation": decode_confirmation_data(&check.confirmation_data),
+        "verified": ok,
+        "verdict": if ok {
+            ReceiptVerdict::Verified.name()
+        } else {
+            ReceiptVerdict::Unverified.name()
+        },
+        "note": if ok {
+            "the card's receipt matches the signature this key makes over the signed data"
+        } else {
+            "the card returned a receipt that this key does not reproduce"
+        },
+    }))
+}
+
+fn constant_time_eq_strict(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// The human report for `gp receipt`.
+#[must_use]
+pub fn render_receipt_text(data: &serde_json::Value) -> String {
+    use crate::contract::sanitize;
+    let hex_of = |key: &str| data[key].as_str().unwrap_or("").to_string();
+    let mut out = String::new();
+    let verdict = data["verdict"].as_str().unwrap_or("unverified");
+    out.push_str(&format!("Receipt ({})\n\n", sanitize(verdict)));
+    for (label, key) in [
+        ("Operation", "kind"),
+        ("Algorithm", "algorithm"),
+        ("Key check value", "key_kcv"),
+        ("Confirmation data", "confirmation_data"),
+        ("Operation data", "context"),
+        ("Signed data", "signed_data"),
+        ("Receipt from card", "receipt"),
+        ("Receipt recomputed", "expected_receipt"),
+    ] {
+        let value = hex_of(key);
+        if value.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("  {label:22} {}\n", value.to_lowercase()));
+    }
+    let counter = data["confirmation"]["confirmation_counter"]
+        .as_str()
+        .unwrap_or("unparsed");
+    out.push_str(&format!("  {:22} {}\n", "Counter", counter.to_lowercase()));
+    out.push_str(&format!(
+        "  {:22} {}\n",
+        "Note",
+        sanitize(data["note"].as_str().unwrap_or(""))
+    ));
+    match verdict {
+        "verified" => out.push_str("\nVERIFIED\n"),
+        "missing" => out.push_str("\nNO RECEIPT: the card returned none. Nothing was proven.\n"),
+        _ => out.push_str("\nNOT VERIFIED: the receipt does not match.\n"),
+    }
+    out
+}
+
+#[cfg(test)]
+mod receipt_tests {
+    use super::*;
+
+    // The test vector below is written as literal bytes, NOT produced by the
+    // code under test. Both constants were computed with OpenSSL 3.5.7 on the
+    // construction above - `openssl mac -macopt cipher:AES-128-CBC -macopt
+    // hexkey:<KEY> CMAC` for the AES one, and single-DES CBC chaining with a
+    // final E_K1/D_K2/E_K1 block (`openssl enc -provider legacy -des-cbc`) for
+    // the Retail MAC one. See the report: the GlobalPlatform specification texts
+    // carry NO known-answer vector for a receipt, so this is an independent
+    // implementation agreeing with this one, not a normative test vector.
+    const AES_KEY: &str = "2B7E151628AED2A6ABF7158809CF4F3C";
+    const DES_KEY: &str = "0123456789ABCDEFFEDCBA9876543210";
+
+    /// Table 11-14: length of Confirmation Counter 02, counter 0001, length of
+    /// Card Unique Data 07, then the SD Provider Identification Number ('42')
+    /// with the SD Image Number ('01') of the SDIN ('45') of the Security Domain
+    /// that generated the confirmation. No Token identifier and no Token Data
+    /// digest: both are conditional or optional.
+    const CONFIRMATION_DATA: &str = "0200010742A00000015101";
+    /// Table C-11: length 08 and the Executable Load File AID, then length 07
+    /// and the Security Domain AID.
+    const LOAD_CONTEXT: &str = "08A000000151C0FF0107A0000001515053";
+    /// Confirmation Data || context: the exact bytes the signature covers, in
+    /// the order Figure C-10 draws them.
+    const SIGNED: &str = "0200010742A0000001510108A000000151C0FF0107A0000001515053";
+    const AES_RECEIPT: &str = "D0006C1C7B5E427897EB1AA61AEC5579";
+    const DES_RECEIPT: &str = "12039D08C8EF09E5";
+    /// SIGNED padded per B.1.3: append 80, then zeroes to a multiple of 8.
+    const SIGNED_PADDED_DES: &str =
+        "0200010742A0000001510108A000000151C0FF0107A000000151505380000000";
+
+    fn hexv(text: &str) -> Vec<u8> {
+        hex::decode(text).expect("a hex literal")
+    }
+
+    fn load_context() -> ReceiptContext {
+        ReceiptContext {
+            elf_aid: Some(hexv("A000000151C0FF01")),
+            sd_aid: Some(hexv("A0000001515053")),
+            ..ReceiptContext::default()
+        }
+    }
+
+    fn check<'a>(context: &'a ReceiptContext, receipt: &str, conf: &str) -> ReceiptCheck<'a> {
+        ReceiptCheck {
+            kind: ReceiptKind::Load,
+            context,
+            receipt: Some(hexv(receipt)),
+            confirmation_data: hexv(conf),
+        }
+    }
+
+    /// The signed data is a literal taken from the construction, not the output
+    /// of the builder: this is what makes the receipt constants above mean
+    /// anything.
+    #[test]
+    fn the_signed_data_is_the_literal_from_the_construction() {
+        let context = load_context();
+        let built = ReceiptKind::Load
+            .context(&context)
+            .expect("a valid context");
+        assert_eq!(hex::encode_upper(&built), LOAD_CONTEXT);
+        let signed = [hexv(CONFIRMATION_DATA), built].concat();
+        assert_eq!(hex::encode_upper(&signed), SIGNED);
+        assert_eq!(des_padding(&signed), hexv(SIGNED_PADDED_DES));
+    }
+
+    #[test]
+    fn a_correct_aes_receipt_verifies() {
+        let key = ReceiptKey::parse(AES_KEY).expect("an AES key");
+        let context = load_context();
+        let data = verify_receipt(&key, &check(&context, AES_RECEIPT, CONFIRMATION_DATA))
+            .expect("a 16-byte receipt for an AES key");
+        assert_eq!(data["verified"], serde_json::json!(true));
+        assert_eq!(data["verdict"], serde_json::json!("verified"));
+        assert_eq!(data["algorithm"], serde_json::json!("aes"));
+        assert_eq!(data["kind"], serde_json::json!("load"));
+        assert_eq!(data["signed_data"], serde_json::json!(SIGNED));
+        assert_eq!(
+            data["confirmation"]["confirmation_counter"],
+            serde_json::json!("0001")
+        );
+        assert_eq!(
+            data["confirmation"]["card_unique_data"],
+            serde_json::json!("42A00000015101")
+        );
+    }
+
+    #[test]
+    fn a_correct_des_receipt_verifies_and_is_not_a_cmac() {
+        let key = ReceiptKey::parse(&format!("des:{DES_KEY}")).expect("a DES key");
+        assert_eq!(key.algorithm(), ReceiptAlgorithm::Des);
+        let context = load_context();
+        let data = verify_receipt(&key, &check(&context, DES_RECEIPT, CONFIRMATION_DATA))
+            .expect("an 8-byte receipt for a DES key");
+        assert_eq!(data["verified"], serde_json::json!(true));
+        assert_eq!(data["signature_length"], serde_json::json!(8));
+        // The DES receipt is the Retail MAC of B.1.2.2, not a CMAC: the same
+        // key length under AES must not produce the same signature.
+        let aes = ReceiptKey::parse(&format!("aes:{DES_KEY}")).expect("an AES key");
+        assert_eq!(aes.algorithm(), ReceiptAlgorithm::Aes);
+        assert_ne!(
+            DES_RECEIPT,
+            hex::encode_upper(
+                receipt_mac(ReceiptAlgorithm::Aes, &hexv(DES_KEY), &hexv(SIGNED)).unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn a_single_flipped_bit_fails() {
+        let key = ReceiptKey::parse(AES_KEY).expect("an AES key");
+        let context = load_context();
+        let mut receipt = hexv(AES_RECEIPT);
+        receipt[0] ^= 0x01;
+        let check = ReceiptCheck {
+            kind: ReceiptKind::Load,
+            context: &context,
+            receipt: Some(receipt.clone()),
+            confirmation_data: hexv(CONFIRMATION_DATA),
+        };
+        let data = verify_receipt(&key, &check).expect("a 16-byte receipt");
+        assert_eq!(data["verified"], serde_json::json!(false));
+        assert_eq!(data["verdict"], serde_json::json!("unverified"));
+        assert_eq!(
+            data["receipt"],
+            serde_json::json!(hex::encode_upper(&receipt))
+        );
+    }
+
+    #[test]
+    fn a_receipt_for_other_signed_data_fails() {
+        let key = ReceiptKey::parse(AES_KEY).expect("an AES key");
+        let context = load_context();
+        // A different Confirmation Counter: different Confirmation Data, so a
+        // different signed-data string, and the same receipt no longer fits.
+        let other_conf = "0200020742A00000015101";
+        let data = verify_receipt(&key, &check(&context, AES_RECEIPT, other_conf)).unwrap();
+        assert_eq!(data["verified"], serde_json::json!(false));
+        assert_eq!(data["verdict"], serde_json::json!("unverified"));
+        assert_ne!(data["signed_data"], serde_json::json!(SIGNED));
+
+        // Same Confirmation Data, different AIDs: also a different signed-data
+        // string. A receipt must not verify across operations.
+        let other_context = ReceiptContext {
+            elf_aid: Some(hexv("A000000151C0FF02")),
+            sd_aid: Some(hexv("A0000001515053")),
+            ..ReceiptContext::default()
+        };
+        let data =
+            verify_receipt(&key, &check(&other_context, AES_RECEIPT, CONFIRMATION_DATA)).unwrap();
+        assert_eq!(data["verified"], serde_json::json!(false));
+        assert_eq!(data["verdict"], serde_json::json!("unverified"));
+    }
+
+    #[test]
+    fn a_missing_receipt_is_reported_as_missing_and_never_as_a_pass() {
+        let key = ReceiptKey::parse(AES_KEY).expect("an AES key");
+        let context = load_context();
+        // Length of Receipt '00' followed by the Confirmation Data: the shape a
+        // card sends when its issuer policy returns no receipt.
+        let response = hexv(&format!("00{CONFIRMATION_DATA}"));
+        let split = split_confirmation(&response).expect("a zero-length receipt is legal");
+        assert!(split.receipt.is_empty());
+        assert_eq!(
+            hex::encode_upper(split.confirmation_data),
+            CONFIRMATION_DATA
+        );
+        let check = ReceiptCheck {
+            kind: ReceiptKind::Load,
+            context: &context,
+            receipt: Some(split.receipt.to_vec()),
+            confirmation_data: split.confirmation_data.to_vec(),
+        };
+        let data = verify_receipt(&key, &check).expect("no receipt is not an error");
+        assert_eq!(data["verified"], serde_json::json!(false));
+        assert_eq!(data["verdict"], serde_json::json!("missing"));
+        assert_ne!(data["verdict"], serde_json::json!("verified"));
+        let text = render_receipt_text(&data);
+        assert!(text.contains("NO RECEIPT"));
+        assert!(!text.contains("VERIFIED\n"));
+    }
+
+    #[test]
+    fn a_whole_response_splits_into_receipt_and_confirmation_data() {
+        // Table 11-13: Length of Receipt, Receipt, Confirmation Data.
+        let one = hexv(&format!("10{AES_RECEIPT}{CONFIRMATION_DATA}"));
+        let split = split_confirmation(&one).expect("a 16-byte receipt");
+        assert_eq!(hex::encode_upper(split.receipt), AES_RECEIPT);
+        assert_eq!(
+            hex::encode_upper(split.confirmation_data),
+            CONFIRMATION_DATA
+        );
+        let key = ReceiptKey::parse(AES_KEY).expect("an AES key");
+        let context = load_context();
+        let data = verify_receipt(
+            &key,
+            &ReceiptCheck {
+                kind: ReceiptKind::Load,
+                context: &context,
+                receipt: Some(split.receipt.to_vec()),
+                confirmation_data: split.confirmation_data.to_vec(),
+            },
+        )
+        .unwrap();
+        assert_eq!(data["verified"], serde_json::json!(true));
+        // The two-byte BER form of Table 11-13, '81 80' to '81 FF': a receipt of
+        // 128 bytes is coded '81 80', not as one byte that could not hold it.
+        let long = hexv(&format!("8180{}{CONFIRMATION_DATA}", "A5".repeat(128)));
+        let long_split = split_confirmation(&long).expect("the two-byte BER length");
+        assert_eq!(long_split.receipt.len(), 128);
+        assert_eq!(
+            hex::encode_upper(long_split.confirmation_data),
+            CONFIRMATION_DATA
+        );
+    }
+
+    #[test]
+    fn a_response_that_cannot_be_split_is_refused_not_called_missing() {
+        assert!(split_confirmation(&[]).is_err());
+        assert!(split_confirmation(&hexv("82D0006C1C7B5E427897EB1AA61AEC5579")).is_err());
+        assert!(split_confirmation(&hexv("1002")).is_err());
+    }
+
+    #[test]
+    fn the_key_is_absent_from_every_output() {
+        let key = ReceiptKey::parse(AES_KEY).expect("an AES key");
+        let context = load_context();
+        for conf in [CONFIRMATION_DATA, "0200020742A00000015101"] {
+            let data = verify_receipt(&key, &check(&context, AES_RECEIPT, conf)).unwrap();
+            let text = render_receipt_text(&data);
+            let json = serde_json::to_string(&data).unwrap();
+            for out in [&text, &json] {
+                let lower = out.to_lowercase();
+                assert!(!lower.contains(&AES_KEY.to_lowercase()));
+                assert!(!lower.contains("2b7e1516"));
+            }
+            // The key check value is public and IS shown: that is the contract.
+            assert!(text
+                .to_lowercase()
+                .contains(&hex::encode(key.kcv()).to_lowercase()));
+        }
+        assert_eq!(format!("{key:?}"), "ReceiptKey { .. }");
+    }
+
+    #[test]
+    fn every_receipt_kind_builds_its_own_aid_tail() {
+        let elf = ReceiptContext {
+            elf_aid: Some(hexv("A000000151C0FF01")),
+            sd_aid: Some(hexv("A0000001515053")),
+            app_aid: Some(hexv("A000000151C0FF02")),
+            from_aid: Some(hexv("A0000001515053")),
+            to_aid: Some(hexv("A0000001515054")),
+            privileges: Some(hexv("00")),
+            registry_params: Some(Vec::new()),
+        };
+        let build =
+            |kind: ReceiptKind| hex::encode_upper(kind.context(&elf).expect("a full context"));
+        // Tables C-11 to C-16: len||AID pairs, in table order.
+        assert_eq!(
+            build(ReceiptKind::Load),
+            "08A000000151C0FF0107A0000001515053"
+        );
+        assert_eq!(
+            build(ReceiptKind::Install),
+            "08A000000151C0FF0108A000000151C0FF02"
+        );
+        assert_eq!(build(ReceiptKind::Delete), "08A000000151C0FF02");
+        assert_eq!(
+            build(ReceiptKind::Extradite),
+            "07A000000151505308A000000151C0FF0207A0000001515054"
+        );
+        assert_eq!(
+            build(ReceiptKind::Combined),
+            "08A000000151C0FF0108A000000151C0FF0207A0000001515053"
+        );
+        assert_eq!(
+            build(ReceiptKind::RegistryUpdate),
+            "07A000000151505308A000000151C0FF0207A0000001515054010000"
+        );
+        // A conditional AID the card left out is a length of 00, not a missing
+        // byte: dropping it would shift everything after it.
+        let partial = ReceiptContext {
+            app_aid: Some(hexv("A000000151C0FF02")),
+            ..ReceiptContext::default()
+        };
+        assert_eq!(
+            hex::encode_upper(
+                ReceiptKind::RegistryUpdate
+                    .context(&partial)
+                    .expect("conditional AIDs may be absent")
+            ),
+            "0008A000000151C0FF02000000"
+        );
+    }
+
+    #[test]
+    fn an_aid_that_is_not_an_aid_is_refused() {
+        let short = ReceiptContext {
+            elf_aid: Some(hexv("A00000")),
+            ..ReceiptContext::default()
+        };
+        assert!(ReceiptKind::Load.context(&short).is_err());
+        let long = ReceiptContext {
+            app_aid: Some(vec![0xA0; 17]),
+            ..ReceiptContext::default()
+        };
+        assert!(ReceiptKind::Delete.context(&long).is_err());
+    }
+
+    #[test]
+    fn the_receipt_key_text_names_its_algorithm() {
+        // A 16-byte key is legal for both AES-128 and two-key Triple DES, so
+        // the default is AES and DES is asked for.
+        assert_eq!(
+            ReceiptKey::parse(DES_KEY)
+                .expect("bare means AES")
+                .algorithm(),
+            ReceiptAlgorithm::Aes
+        );
+        assert_eq!(
+            ReceiptKey::parse(&format!("DES:{DES_KEY}"))
+                .expect("the prefix is case insensitive")
+                .algorithm(),
+            ReceiptAlgorithm::Des
+        );
+        assert!(ReceiptKey::parse("nothex").is_err());
+        assert!(ReceiptKey::parse(&format!("des:{}", "00".repeat(8))).is_err());
+    }
+}

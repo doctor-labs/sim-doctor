@@ -88,6 +88,15 @@ All notable changes to this project are documented here. The format follows
   sends pySim's own SELECTs and reports every candidate a card is compatible with
   rather than only a winner; and an unknown `-t` name refused before a reader is opened.
   `profile list` needs no card at all (issue #275).
+- `gp receipt`: verify a GlobalPlatform receipt against a receipt generation key
+  (issue #247). READ-ONLY and offline: no reader is opened. The signed data is
+  `Confirmation Data || AID tail` and the signature is AES-CMAC (GP Card Spec
+  v2.3.1 B.2.2) for an AES key, or the Retail MAC of B.1.2.2 with B.1.3 padding
+  for a DES key; the AID tail is the one Tables C-11 to C-16 give for the
+  operation named by `--kind`. The key comes from `--receipt-key-file` or
+  `--receipt-key-env` and never appears in any output. Exit 0 only when the
+  receipt verifies: an unverified receipt and a card that returned none are
+  reported as different verdicts and neither is a pass.
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).

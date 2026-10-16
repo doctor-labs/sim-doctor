@@ -1548,6 +1548,31 @@ struct GpReadWriteFlags {
     keys: GpKeyArgs,
     #[command(flatten)]
     channel: GpChannelArg,
+    /// Verify a GlobalPlatform receipt: check that the receipt a Security Domain
+    /// returned is the signature its receipt generation key makes over the
+    /// response's Confirmation Data and the AIDs the operation named (GlobalPlatform
+    /// Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is
+    /// Table 11-14). READ-ONLY: no card is opened and nothing is sent, so the
+    /// receipt may come from a response you captured yourself.
+    ///
+    /// The receipt key comes from --receipt-key-file or --receipt-key-env, never
+    /// from the command line, and is never printed: only its key check value (24
+    /// bits, public) is shown. One key, hex, optionally KEY/KCV, optionally
+    /// prefixed aes: (the default) or des:.
+    ///
+    /// The signature is AES-CMAC over `Confirmation Data || AIDs` for an AES key
+    /// (B.2.2), or the Retail MAC of B.1.2.2 over the same data padded per B.1.3
+    /// for a DES key. The AIDs are the tail of Tables C-11 to C-16 and their order
+    /// depends on --kind.
+    ///
+    /// Exit 0 only when the receipt verifies. A receipt that does not verify is
+    /// reported as UNVERIFIED with the signature this key makes; a card that
+    /// returned none is reported as MISSING. Neither is ever a pass, and there is
+    /// no flag that turns either into one.
+    Receipt {
+        #[command(flatten)]
+        receipt: GpReceiptArgs,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1747,6 +1772,63 @@ struct GpDapArgs {
     dap_hash: DapHash,
 }
 
+/// Where `gp receipt` gets the receipt generation key and what it verifies.
+/// Never a value on the command line.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("receipt_key_source").required(true)
+    .args(["receipt_key_file", "receipt_key_env"])))]
+struct GpReceiptArgs {
+    /// The receipt bytes on their own, hex. Use --response to hand over the
+    /// whole response instead.
+    #[arg(long, value_name = "HEX", conflicts_with = "response")]
+    receipt: Option<String>,
+    /// The Data field of the card's whole response, hex: the Confirmation
+    /// Structure of Table 11-13.
+    #[arg(long, value_name = "HEX")]
+    response: Option<String>,
+    /// The Confirmation Data the receipt is bound to (Table 11-14), hex. Needed
+    /// with --receipt, because the signature covers it and it is not part of the
+    /// receipt.
+    #[arg(long, value_name = "HEX", requires = "receipt")]
+    confirmation_data: Option<String>,
+    /// Which receipt this is. It fixes which AIDs the signature covers.
+    #[arg(long, value_name = "KIND", default_value = "load",
+          value_parser = parse_receipt_kind)]
+    kind: gp::ReceiptKind,
+    /// Executable Load File AID, 5 to 16 bytes of hex (load, install, combined).
+    #[arg(long, value_name = "HEX")]
+    elf_aid: Option<String>,
+    /// Security Domain AID, 5 to 16 bytes of hex (load, combined).
+    #[arg(long, value_name = "HEX")]
+    sd_aid: Option<String>,
+    /// Instance AID (install, combined), the deleted AID (delete), the
+    /// application or ELF AID (extradite), the application AID (registry
+    /// update). 5 to 16 bytes of hex.
+    #[arg(long, value_name = "HEX")]
+    app_aid: Option<String>,
+    /// Old Security Domain AID (extradite, registry update), 5 to 16 bytes.
+    #[arg(long, value_name = "HEX")]
+    from_aid: Option<String>,
+    /// New Security Domain AID (extradite, registry update), 5 to 16 bytes.
+    #[arg(long, value_name = "HEX")]
+    to_aid: Option<String>,
+    /// Privileges being written, 0 to 3 bytes of hex (registry update).
+    #[arg(long, value_name = "HEX")]
+    privileges: Option<String>,
+    /// Registry Update Parameters being written, hex (registry update).
+    #[arg(long, value_name = "HEX")]
+    registry_params: Option<String>,
+    /// File holding the receipt generation key (keep it chmod 600).
+    #[arg(long, value_name = "PATH")]
+    receipt_key_file: Option<std::path::PathBuf>,
+    /// Environment variable holding the receipt generation key.
+    #[arg(long, value_name = "VAR")]
+    receipt_key_env: Option<String>,
+    /// Emit one JSON envelope of kind "gp" on stdout.
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum DapHash {
     Sha256,
@@ -1767,6 +1849,18 @@ fn parse_kdf_template(name: &str) -> Result<&'static str, String> {
         ));
     }
     Ok(text)
+}
+
+fn parse_receipt_kind(text: &str) -> Result<gp::ReceiptKind, String> {
+    gp::ReceiptKind::parse(text).ok_or_else(|| {
+        let all: Vec<&str> = gp::ReceiptKind::all().iter().map(|k| k.name()).collect();
+        format!("expected one of {}", all.join(", "))
+    })
+}
+
+fn hex_bytes(text: &str, what: &str) -> Result<Vec<u8>, String> {
+    let squeezed: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    hex::decode(&squeezed).map_err(|_| format!("{what} is not hex"))
 }
 
 fn parse_hex_byte(text: &str) -> Result<u8, String> {
@@ -3041,6 +3135,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 &params,
                 &write,
             ),
+            GpAction::Receipt { receipt } => run_gp_receipt(&receipt),
             GpAction::PutKey {
                 new_key_version,
                 replace_key_version,
@@ -3686,6 +3781,160 @@ fn run_gp(
 }
 
 /// Prints a successful `gp` `data`: the envelope with --json, text otherwise.
+/// Runs `gp receipt`: loads the receipt generation key, builds the AID tail the
+/// receipt signature covers, and checks the card's receipt against it.
+///
+/// Opens no reader and sends nothing. The exit code is 0 **only** when the
+/// receipt verified: a mismatch and a missing receipt are both failures, and
+/// the data block always carries the `verdict` and `verified` a caller needs to
+/// tell them apart. There is no flag that downgrades either.
+fn run_gp_receipt(args: &GpReceiptArgs) -> contract::ExitCode {
+    const KIND: &str = "gp";
+    let fail = |kind: &str, message: String| {
+        let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
+        report_refusal(KIND, &message, data, args.json)
+    };
+    let source = match (&args.receipt_key_file, &args.receipt_key_env) {
+        (Some(path), _) => gp::KeySource::File(path),
+        (None, Some(name)) => gp::KeySource::Env(name),
+        (None, None) => return fail("keys-unusable", "no receipt key source given".into()),
+    };
+    let key = match gp::ReceiptKey::load(source) {
+        Ok(key) => key,
+        Err(err) => {
+            let kind = match err {
+                gp::KeyError::Kcv { .. } => "key-kcv-mismatch",
+                _ => "keys-unusable",
+            };
+            return fail(kind, err.to_string());
+        }
+    };
+    // The AID tail of Tables C-11 to C-16. An option the command line did not
+    // give is a conditional element the card left out, which the context
+    // builder writes as a length of 00 - not a missing byte.
+    type Setter = fn(&mut gp::ReceiptContext, Vec<u8>);
+    let mut context = gp::ReceiptContext::default();
+    let aids: [(&Option<String>, &str, Setter); 7] = [
+        (&args.elf_aid, "the executable load file AID", |c, v| {
+            c.elf_aid = Some(v)
+        }),
+        (&args.sd_aid, "the security domain AID", |c, v| {
+            c.sd_aid = Some(v)
+        }),
+        (&args.app_aid, "the application AID", |c, v| {
+            c.app_aid = Some(v)
+        }),
+        (&args.from_aid, "the old security domain AID", |c, v| {
+            c.from_aid = Some(v)
+        }),
+        (&args.to_aid, "the new security domain AID", |c, v| {
+            c.to_aid = Some(v)
+        }),
+        (&args.privileges, "the privileges", |c, v| {
+            c.privileges = Some(v)
+        }),
+        (
+            &args.registry_params,
+            "the registry update parameters",
+            |c, v| c.registry_params = Some(v),
+        ),
+    ];
+    for (text, name, set) in aids {
+        if let Some(value) = text {
+            match hex_bytes(value, name) {
+                Ok(bytes) => set(&mut context, bytes),
+                Err(message) => return fail("bad-argument", message),
+            }
+        }
+    }
+
+    // Either the whole response (Table 11-13), or the two fields handed over
+    // separately. Both end up as the same owned (receipt, confirmation data)
+    // pair, and a response that cannot be split is a refusal, never "no receipt".
+    let (receipt, confirmation_data): (Vec<u8>, Vec<u8>) = match (&args.response, &args.receipt) {
+        (Some(response), _) => {
+            let bytes = match hex_bytes(response, "the response") {
+                Ok(bytes) => bytes,
+                Err(message) => return fail("bad-argument", message),
+            };
+            match gp::split_confirmation(&bytes) {
+                Ok(split) => (split.receipt.to_vec(), split.confirmation_data.to_vec()),
+                Err(message) => return fail("malformed-response", message),
+            }
+        }
+        (None, Some(only)) => {
+            let bytes = match hex_bytes(only, "the receipt") {
+                Ok(bytes) => bytes,
+                Err(message) => return fail("bad-argument", message),
+            };
+            let confirmation = match &args.confirmation_data {
+                Some(text) => match hex_bytes(text, "the confirmation data") {
+                    Ok(bytes) => bytes,
+                    Err(message) => return fail("bad-argument", message),
+                },
+                None => {
+                    return fail(
+                        "missing-confirmation-data",
+                        "--receipt needs --confirmation-data: the signature covers the \
+                         Confirmation Data, not the receipt alone"
+                            .into(),
+                    );
+                }
+            };
+            (bytes, confirmation)
+        }
+        (None, None) => {
+            return fail(
+                "missing-receipt",
+                "nothing to verify: give --response, or --receipt with --confirmation-data".into(),
+            );
+        }
+    };
+
+    let check = gp::ReceiptCheck {
+        kind: args.kind,
+        context: &context,
+        receipt: Some(receipt),
+        confirmation_data,
+    };
+    match gp::verify_receipt(&key, &check) {
+        Ok(data) => emit_gp_receipt(data, args.json),
+        Err(message) => fail("bad-argument", message),
+    }
+}
+
+/// Emits a `gp receipt` result and returns its exit code: 0 only for a verified
+/// receipt, 1 for an unverified one and for a card that returned none.
+fn emit_gp_receipt(data: serde_json::Value, json: bool) -> contract::ExitCode {
+    let verified = data["verified"] == serde_json::json!(true);
+    let code = if verified {
+        contract::ExitCode::Success
+    } else {
+        contract::ExitCode::Findings
+    };
+    let message = match data["verdict"].as_str().unwrap_or("unverified") {
+        "verified" => "receipt verified",
+        "missing" => "the card returned no receipt",
+        _ => "the receipt does not verify",
+    };
+    let rendered = if json {
+        match contract::Envelope::new("gp", code, message, data).to_json() {
+            Ok(line) => line,
+            Err(err) => {
+                eprintln!("sim-doctor: {err}");
+                return contract::ExitCode::Findings;
+            }
+        }
+    } else {
+        gp::render_receipt_text(&data)
+    };
+    if let Err(err) = emit_stdout(&rendered, "the gp receipt report") {
+        eprintln!("sim-doctor: {err}");
+        return contract::ExitCode::Findings;
+    }
+    code
+}
+
 fn emit_gp(what: &str, data: serde_json::Value, json: bool) -> contract::ExitCode {
     let rendered = if json {
         match contract::Envelope::new(
