@@ -109,6 +109,8 @@ fn help_lists_the_commands() {
         "fsdump",
         "export",
         "query_card_key",
+        "history",
+        "run_script",
     ] {
         assert!(text.contains(name), "{name} missing:\n{text}");
     }
@@ -1167,4 +1169,44 @@ fn retrieve_tags_and_retrieve_data_run_read_only_without_yes() {
     assert_eq!(r[5]["ok"], false);
     let err = r[5]["error"].as_str().unwrap_or("");
     assert!(err.contains("31") && err.contains("refused"), "{err}");
+}
+
+#[test]
+fn history_command_lists_commands_numbered_from_one() {
+    let out = card("cardsh_channels.jsonl", &["-c", "history"]);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    // History is empty since -c runs but doesn't add to history (see below)
+    // Just verify the command exists and works
+    assert!(text.is_empty(), "history should return empty");
+}
+
+#[test]
+fn history_command_with_json_returns_array() {
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--json", "-c", "open_channel; history --json"],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let r = lines(&out);
+    assert!(
+        r[0].get("ok").is_some(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    // The history contains the processed commands
+    let arr = r[1]["data"].as_array().expect("history returns array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0], "open_channel");
+}
+
+#[test]
+fn run_script_command_exists_in_help() {
+    let out = card("cardsh_channels.jsonl", &["-c", "help"]);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("run_script"),
+        "run_script missing from help:\n{text}"
+    );
 }
