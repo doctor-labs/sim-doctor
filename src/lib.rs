@@ -144,6 +144,7 @@ pub mod notif;
 pub mod ota_expanded;
 pub mod otacrypto;
 pub mod pace;
+pub mod profile_download;
 pub mod rules;
 pub mod saip;
 pub mod sarif;
@@ -452,6 +453,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: cardfixture::NAME,
         owns: "The card-profile table (ten bought JavaCard/GlobalPlatform cards, every field pinned to a line of GlobalPlatformPro's docs/TestedCards), the pySim card-profile field schema, and the sim-doctor/card-fixture/1 format: its generator, and a loader that refuses an unknown version or a document with no provenance.",
         depends_on: &[],
+    },
+    ModuleInfo {
+        name: profile_download::NAME,
+        owns: "The SGP.22 profile download order (GetEUICCChallenge, GetEUICCInfo1, InitiateAuthentication, AuthenticateServer, AuthenticateClient, PrepareDownload, GetBoundProfilePackage, then LoadBoundProfilePackage) over an ES9+ client and a card callback, with transactionId checks, a CancelSession chain before any load, and retryable or terminal failure kinds.",
+        depends_on: &[es10::NAME],
     },
 ];
 
