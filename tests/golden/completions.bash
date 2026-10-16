@@ -58,6 +58,9 @@ _sim__doctor() {
             sim__doctor,ota-crypto)
                 cmd="sim__doctor__subcmd__ota__subcmd__crypto"
                 ;;
+            sim__doctor,readers)
+                cmd="sim__doctor__subcmd__readers"
+                ;;
             sim__doctor,rules)
                 cmd="sim__doctor__subcmd__rules"
                 ;;
@@ -352,6 +355,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,ota-crypto)
                 cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto"
                 ;;
+            sim__doctor__subcmd__help,readers)
+                cmd="sim__doctor__subcmd__help__subcmd__readers"
+                ;;
             sim__doctor__subcmd__help,rules)
                 cmd="sim__doctor__subcmd__help__subcmd__rules"
                 ;;
@@ -575,7 +581,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
+            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2233,7 +2239,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
+            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2890,6 +2896,20 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__readers)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__help__subcmd__rules)
             opts="list explain"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -3310,6 +3330,20 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__readers)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__rules)
             opts="-h --help list explain help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
@@ -3479,7 +3513,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-h --json --tui --dialect --reader --max-depth --max-children --max-nodes --max-directories --score --severity --baseline --fail-on --sarif --tar --terminal-profile --sms-deliver-report --face --theme --color --headless --help"
+            opts="-h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --score --severity --baseline --fail-on --sarif --tar --terminal-profile --sms-deliver-report --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3490,6 +3524,10 @@ _sim__doctor() {
                     return 0
                     ;;
                 --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader-index)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

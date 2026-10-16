@@ -125,6 +125,12 @@ enum Command {
     /// Describe the crate module roots and the layering between them.
     Modules(ModulesArgs),
 
+    /// List the PC/SC readers by name and index, for --reader or --reader-index.
+    ///
+    /// Needs no card. Indices run from 0 in the order PC/SC reports the readers.
+    /// Exit 2 when the PC/SC service cannot be reached.
+    Readers(ReadersArgs),
+
     /// Select a card's master file, walk everything under it, and report.
     ///
     /// Opens a real PC/SC session against one reader, selects the master file
@@ -1195,6 +1201,13 @@ struct ScanArgs {
     #[arg(long, value_name = "NAME")]
     reader: Option<String>,
 
+    /// The reader to use, by its index in `sim-doctor readers` (counted from 0).
+    ///
+    /// For when two readers share a name, which --reader cannot tell apart.
+    /// Conflicts with --reader.
+    #[arg(long, value_name = "N", conflicts_with = "reader")]
+    reader_index: Option<usize>,
+
     #[command(flatten)]
     walk_limits: WalkLimitArgs,
 
@@ -1381,6 +1394,14 @@ struct ScanArgs {
     headless: bool,
 }
 
+/// `readers` takes no card, only the switch for a JSON envelope.
+#[derive(Args)]
+struct ReadersArgs {
+    /// Emit one JSON envelope (type "readers") on stdout, and nothing else.
+    #[arg(long)]
+    json: bool,
+}
+
 // What `shell` and `explore` read from the card: a scan's reader, dialect and bounds.
 #[derive(Args)]
 struct CardArgs {
@@ -1389,6 +1410,13 @@ struct CardArgs {
     /// Defaults to the first reader PC/SC reports.
     #[arg(long, value_name = "NAME")]
     reader: Option<String>,
+
+    /// The reader to use, by its index in `sim-doctor readers` (counted from 0).
+    ///
+    /// For when two readers share a name, which --reader cannot tell apart.
+    /// Conflicts with --reader.
+    #[arg(long, value_name = "N", conflicts_with = "reader")]
+    reader_index: Option<usize>,
 
     /// Which FCP tag table this card answers SELECT with (see `scan --help`).
     #[arg(
@@ -1760,6 +1788,7 @@ fn main() -> process::ExitCode {
 fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
     match command {
         Command::Modules(args) => run_modules(args),
+        Command::Readers(args) => run_readers(&args),
         Command::Scan(args) => kit::scan(d, args),
         Command::Ts48(args) => match args.action {
             Ts48Action::Compare(args) => run_ts48_compare(args),
@@ -1964,6 +1993,89 @@ fn init_diagnostics() {
 /// `emit_modules` stays a function that renders data and nothing else. [`run_scan`]
 /// copies this shape and adds a second checkpoint after the walk; see its own
 /// documentation for why there are exactly two.
+/// The readers PC/SC reports, in driver order. Under the replay seam, the one
+/// reader the log was recorded from, so the listing is testable with no service.
+fn list_readers() -> Result<Vec<ReaderName>, String> {
+    #[cfg(feature = "test-seams")]
+    if let Some(path) = env::var_os(REPLAY_ENV) {
+        let log = std::fs::read_to_string(&path).map_err(|err| err.to_string())?;
+        let replay = replay::Replay::from_log(&log)?;
+        return Ok(vec![replay.reader().clone()]);
+    }
+    Pcsc::readers().map_err(|err| {
+        format!(
+            "cannot list PC/SC readers: {err}. Is the PC/SC service running (pcscd on Linux, \
+             the Smart Card service on Windows)?"
+        )
+    })
+}
+
+/// `readers`: every PC/SC reader with its index, for `--reader-index`. Needs no card.
+fn run_readers(args: &ReadersArgs) -> contract::ExitCode {
+    let (code, readers) = match list_readers() {
+        Ok(readers) => (contract::ExitCode::Success, readers),
+        Err(message) => {
+            eprintln!("sim-doctor: {message}");
+            if args.json {
+                let line = contract::Envelope::new(
+                    "readers",
+                    contract::ExitCode::Error,
+                    message,
+                    serde_json::json!({ "readers": [] }),
+                )
+                .to_json();
+                match line {
+                    Ok(line) => {
+                        if let Err(err) = emit_stdout(&line, "the readers envelope") {
+                            eprintln!("sim-doctor: {err}");
+                        }
+                    }
+                    Err(err) => eprintln!("sim-doctor: {err}"),
+                }
+            }
+            return contract::ExitCode::Error;
+        }
+    };
+    if readers.is_empty() {
+        eprintln!("sim-doctor: no PC/SC reader is attached");
+    }
+
+    if args.json {
+        let rows: Vec<serde_json::Value> = readers
+            .iter()
+            .enumerate()
+            .map(|(index, name)| serde_json::json!({ "index": index, "name": name.as_str() }))
+            .collect();
+        let message = format!("{} reader(s) attached", readers.len());
+        let line = contract::Envelope::new(
+            "readers",
+            code,
+            message,
+            serde_json::json!({ "readers": rows }),
+        )
+        .to_json();
+        match line {
+            Ok(line) => {
+                if let Err(err) = emit_stdout(&line, "the readers envelope") {
+                    eprintln!("sim-doctor: {err}");
+                }
+            }
+            Err(err) => eprintln!("sim-doctor: {err}"),
+        }
+    } else if !readers.is_empty() {
+        let text = readers
+            .iter()
+            .enumerate()
+            .map(|(index, name)| format!("{index}  {name}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Err(err) = emit_stdout(&text, "the reader list") {
+            eprintln!("sim-doctor: {err}");
+        }
+    }
+    code
+}
+
 fn run_modules(args: ModulesArgs) -> contract::ExitCode {
     if checkpoint() {
         return report_interrupted(MODULES_KIND, args.json);
@@ -2311,6 +2423,7 @@ type ScanSession = (Box<dyn CardSession>, ReaderName, Option<Vec<u8>>);
 fn open_scan_session(
     requested: Option<&str>,
     exclusive: bool,
+    index: Option<usize>,
 ) -> Result<ScanSession, scan::Failure> {
     #[cfg(feature = "test-seams")]
     if let Some(path) = env::var_os(REPLAY_ENV) {
@@ -2319,11 +2432,14 @@ fn open_scan_session(
         let replay = replay::Replay::from_log(&log)
             .map_err(|err| scan::Failure::new("reader-unavailable", err))?;
         let reader = replay.reader().clone();
+        // The index is still checked against the one replayed reader, so an
+        // out-of-range --reader-index is refused here as it would be for real.
+        pick_reader(std::slice::from_ref(&reader), None, index)?;
         return Ok((Box::new(replay), reader, None));
     }
     let readers = Pcsc::readers()
         .map_err(|err| scan::Failure::new("context-unavailable", err.to_string()))?;
-    let reader = pick_reader(&readers, requested)?.clone();
+    let reader = pick_reader(&readers, requested, index)?.clone();
     let session = PcscSession::open_with(&reader, share_mode(exclusive)).map_err(|err| {
         let kind = match err {
             TransportError::NoCard { .. } => "no-card",
@@ -2379,7 +2495,7 @@ fn run_gp(
         Ok(readers) => readers,
         Err(err) => return refuse(scan::Failure::new("context-unavailable", err.to_string())),
     };
-    let reader = match pick_reader(&readers, reader) {
+    let reader = match pick_reader(&readers, reader, None) {
         Ok(reader) => reader,
         Err(failure) => return refuse(failure),
     };
@@ -3011,7 +3127,7 @@ fn run_euicc_op(
         Ok(readers) => readers,
         Err(err) => return refuse(scan::Failure::new("context-unavailable", err.to_string())),
     };
-    let reader = match pick_reader(&readers, flags.reader.as_deref()) {
+    let reader = match pick_reader(&readers, flags.reader.as_deref(), None) {
         Ok(reader) => reader,
         Err(failure) => return refuse(failure),
     };
@@ -3662,7 +3778,7 @@ fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
         Ok(readers) => readers,
         Err(err) => return refuse(scan::Failure::new("context-unavailable", err.to_string())),
     };
-    let reader = match pick_reader(&readers, args.reader.as_deref()) {
+    let reader = match pick_reader(&readers, args.reader.as_deref(), None) {
         Ok(reader) => reader,
         Err(failure) => return refuse(failure),
     };
@@ -3824,7 +3940,7 @@ fn open_fuzz_session(
             ))
         }
     };
-    let reader = match pick_reader(&readers, safety.reader.as_deref()) {
+    let reader = match pick_reader(&readers, safety.reader.as_deref(), None) {
         Ok(reader) => reader.clone(),
         Err(failure) => return Err(report_failure(&failure, safety.json)),
     };
@@ -4135,6 +4251,7 @@ fn emit_fuzz_report(
 fn pick_reader<'a>(
     readers: &'a [ReaderName],
     requested: Option<&str>,
+    index: Option<usize>,
 ) -> Result<&'a ReaderName, scan::Failure> {
     if readers.is_empty() {
         return Err(scan::Failure::new(
@@ -4142,6 +4259,19 @@ fn pick_reader<'a>(
             "no PC/SC reader is attached. Start pcscd and attach a card, or see \
              docs/swsim-fixture.md for the software SIM this project tests against",
         ));
+    }
+
+    if let Some(index) = index {
+        return readers.get(index).ok_or_else(|| {
+            scan::Failure::new(
+                "unknown-reader",
+                format!(
+                    "no reader at index {index}: {} reader(s) attached, numbered from 0 \
+                     (see `sim-doctor readers`)",
+                    readers.len()
+                ),
+            )
+        });
     }
 
     let Some(requested) = requested else {

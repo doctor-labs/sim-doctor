@@ -26,6 +26,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('-V', '-V ', [CompletionResultType]::ParameterName, 'Print version')
             [CompletionResult]::new('--version', '--version', [CompletionResultType]::ParameterName, 'Print version')
             [CompletionResult]::new('modules', 'modules', [CompletionResultType]::ParameterValue, 'Describe the crate module roots and the layering between them')
+            [CompletionResult]::new('readers', 'readers', [CompletionResultType]::ParameterValue, 'List the PC/SC readers by name and index, for --reader or --reader-index')
             [CompletionResult]::new('scan', 'scan', [CompletionResultType]::ParameterValue, 'Select a card''s master file, walk everything under it, and report')
             [CompletionResult]::new('ts48', 'ts48', [CompletionResultType]::ParameterValue, 'Compare a card against the public GSMA TS.48 test profile')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project')
@@ -54,9 +55,16 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'sim-doctor;readers' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope (type "readers") on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
         'sim-doctor;scan' {
             [CompletionResult]::new('--dialect', '--dialect', [CompletionResultType]::ParameterName, 'Which FCP tag table this card answers SELECT with')
             [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--reader-index', '--reader-index', [CompletionResultType]::ParameterName, 'The reader to use, by its index in `sim-doctor readers` (counted from 0)')
             [CompletionResult]::new('--max-depth', '--max-depth', [CompletionResultType]::ParameterName, 'Deepest path below the master file the walk descends into')
             [CompletionResult]::new('--max-children', '--max-children', [CompletionResultType]::ParameterName, 'Identifiers probed per directory')
             [CompletionResult]::new('--max-nodes', '--max-nodes', [CompletionResultType]::ParameterName, 'Files the card selected across the whole walk (default 16384)')
@@ -879,6 +887,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;help' {
             [CompletionResult]::new('modules', 'modules', [CompletionResultType]::ParameterValue, 'Describe the crate module roots and the layering between them')
+            [CompletionResult]::new('readers', 'readers', [CompletionResultType]::ParameterValue, 'List the PC/SC readers by name and index, for --reader or --reader-index')
             [CompletionResult]::new('scan', 'scan', [CompletionResultType]::ParameterValue, 'Select a card''s master file, walk everything under it, and report')
             [CompletionResult]::new('ts48', 'ts48', [CompletionResultType]::ParameterValue, 'Compare a card against the public GSMA TS.48 test profile')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project')
@@ -902,6 +911,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;modules' {
+            break
+        }
+        'sim-doctor;help;readers' {
             break
         }
         'sim-doctor;help;scan' {
