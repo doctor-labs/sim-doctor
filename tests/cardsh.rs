@@ -1450,6 +1450,9 @@ fn trace_json_keeps_every_exchange_whatever_the_display_flags() {
     );
 }
 
+const DUMP_SCRIPT: &str = "apdu 00A4000C022FE2; apdu 00B000000A --expect-response-regex ^9810; \
+     apdu 00D6000001AA; apdu --yes 00D6000001AA --expect-sw 6Dxx";
+
 /// The scratch directory for one `--dump` test, under cargo's per-target temp dir.
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
