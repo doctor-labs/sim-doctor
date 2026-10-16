@@ -150,6 +150,29 @@ pub enum Ef {
     /// EF.VBSCA `6FD5` under an application: like EF.VGCSCA but for the broadcast
     /// service. TS 31.102 clause 4.2.78.
     Vbsca,
+    // --- ProSe and 5G ProSe EFs (3GPP TS 31.102 clause 4.4.8 / 4.4.13) ---
+    /// EF.5G_PROSE_ST `4F01` under DF.5G_ProSe `5FF0` (TS 31.102 clause 4.4.13.2).
+    ProseSt,
+    /// EF.5G_PROSE_DD `4F02` under DF.5G_ProSe (TS 31.102 clause 4.4.13.3).
+    ProseDd,
+    /// EF.5G_PROSE_DC `4F03` under DF.5G_ProSe (TS 31.102 clause 4.4.13.4).
+    ProseDc,
+    /// EF.5G_PROSE_U2NRU `4F04` under DF.5G_ProSe (TS 31.102 clause 4.4.13.5).
+    ProseU2nru,
+    /// EF.5G_PROSE_RU `4F05` under DF.5G_ProSe (TS 31.102 clause 4.4.13.6).
+    ProseRu,
+    /// EF.5G_PROSE_UIR `4F06` under DF.5G_ProSe (TS 31.102 clause 4.4.13.7).
+    ProseUir,
+    /// EF.5G_PROSE_U2URU `4F07` under DF.5G_ProSe (TS 31.102 clause 4.4.13.8).
+    ProseU2uru,
+    /// EF.5G_PROSE_EU `4F08` under DF.5G_ProSe (TS 31.102 clause 4.4.13.9).
+    ProseEu,
+    /// EF.PROSE_MON `4F01` under DF.ProSe `5F90` (TS 31.102 clause 4.4.8):
+    /// a linear-fixed file of monitoring-parameter records.
+    ProseMon,
+    /// EF.PROSE_RADIO_COM `4F04` under DF.ProSe (TS 31.102 clause 4.4.8): a
+    /// transparent file of radio parameters, read as raw bytes.
+    ProseRadioCom,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -191,6 +214,16 @@ impl Ef {
             Self::RplmnAct => "EF.RPLMNAcT",
             Self::VgcscA => "EF.VGCSCA",
             Self::Vbsca => "EF.VBSCA",
+            Self::ProseSt => "EF.5G_PROSE_ST",
+            Self::ProseDd => "EF.5G_PROSE_DD",
+            Self::ProseDc => "EF.5G_PROSE_DC",
+            Self::ProseU2nru => "EF.5G_PROSE_U2NRU",
+            Self::ProseRu => "EF.5G_PROSE_RU",
+            Self::ProseUir => "EF.5G_PROSE_UIR",
+            Self::ProseU2uru => "EF.5G_PROSE_U2URU",
+            Self::ProseEu => "EF.5G_PROSE_EU",
+            Self::ProseMon => "EF.PROSE_MON",
+            Self::ProseRadioCom => "EF.PROSE_RADIO_COM",
         }
     }
 
@@ -199,6 +232,8 @@ impl Ef {
             Self::Dir | Self::Msisdn | Self::Adn | Self::Fdn | Self::Impu | Self::Pcscf => {
                 Shape::LinearFixed
             }
+            // EF.PROSE_MON is the only ProSe linear-fixed file (TS 31.102 4.4.8).
+            Self::ProseMon => Shape::LinearFixed,
             _ => Shape::Transparent,
         }
     }
@@ -226,6 +261,10 @@ pub fn classify(path: &Path) -> Option<Ef> {
                 && matches!(seg[seg.len() - 3].to_bytes(), [0x7F, 0x10] | [0x7F, 0xFF]));
     // DF.5GS `5FC0` below an application: the 5G files are meaningful only there.
     let five_gs = seg.len() >= 3 && seg[seg.len() - 2].to_bytes() == [0x5F, 0xC0];
+    // DF.ProSe `5F90` and DF.5G_ProSe `5FF0` below an application: the ProSe
+    // files are meaningful only there (3GPP TS 31.102 clause 4.4.8 / 4.4.13).
+    let prose = seg.len() >= 3 && seg[seg.len() - 2].to_bytes() == [0x5F, 0x90];
+    let five_g_prose = seg.len() >= 3 && seg[seg.len() - 2].to_bytes() == [0x5F, 0xF0];
     let (adf, gsm, telecom, mf) = match seg.len() {
         2 => (path.adf().is_some(), false, false, path.adf().is_none()),
         n if n >= 3 => {
@@ -271,6 +310,16 @@ pub fn classify(path: &Path) -> Option<Ef> {
         [0x6F, 0x65] if adf || gsm => Some(Ef::RplmnAct),
         [0x6F, 0xD4] if adf || gsm => Some(Ef::VgcscA),
         [0x6F, 0xD5] if adf || gsm => Some(Ef::Vbsca),
+        [0x4F, 0x01] if five_g_prose => Some(Ef::ProseSt),
+        [0x4F, 0x02] if five_g_prose => Some(Ef::ProseDd),
+        [0x4F, 0x03] if five_g_prose => Some(Ef::ProseDc),
+        [0x4F, 0x04] if five_g_prose => Some(Ef::ProseU2nru),
+        [0x4F, 0x05] if five_g_prose => Some(Ef::ProseRu),
+        [0x4F, 0x06] if five_g_prose => Some(Ef::ProseUir),
+        [0x4F, 0x07] if five_g_prose => Some(Ef::ProseU2uru),
+        [0x4F, 0x08] if five_g_prose => Some(Ef::ProseEu),
+        [0x4F, 0x01] if prose => Some(Ef::ProseMon),
+        [0x4F, 0x04] if prose => Some(Ef::ProseRadioCom),
         _ => None,
     }
 }
@@ -976,6 +1025,133 @@ pub fn decode_vgc_sca(bytes: &[u8]) -> Result<(Vec<CipheringRecord>, Vec<u8>), M
 /// A ciphering-algorithm record (alg_v_ki_1, alg_v_ki_2).
 pub type CipheringRecord = (u8, u8);
 
+// ---------------------------------------------------------------------------
+// ProSe and 5G ProSe EFs (3GPP TS 31.102 clause 4.4.8 / 4.4.13)
+//
+// The 5G ProSe configuration EFs (EF.5G_PROSE_DD/DC/U2NRU/RU/UIR/U2URU/EU) are
+// transparent files whose body is a BER-TLV object rooted at tag `A0`. Their
+// inner information-element tags are listed per EF below, taken from 3GPP TS
+// 31.102 clause 4.4.13.3..4.4.13.9 and cross-checked against pySim
+// (`osmocom/pysim`, `ts_31_102.py`, the `EF_5G_PROSE_*` classes which quote the
+// same section numbers): the tags each EF carries are what a card is meant to
+// send, and a decoder names the ones it knows and shows the rest as raw bytes,
+// never guessing an unknown IE's meaning.
+// ---------------------------------------------------------------------------
+
+/// A named TLV information element, with unknown IEs kept as raw octets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProseIe {
+    /// The IE's tag octet, e.g. `0x85`.
+    pub tag: u8,
+    /// The IE's name when 3GPP TS 31.102 names it, else `None`.
+    pub name: Option<&'static str>,
+    /// The IE's value bytes, shown in full (ProSe config IEs are small).
+    pub value: Vec<u8>,
+}
+
+/// The set of information-element tags a 5G ProSe config EF may carry, as a
+/// `(tag, name)` pair per 3GPP TS 31.102 clause 4.4.13.x. An EF's root is tag
+/// `0xA0`; its children are looked up here.
+///
+/// Reusing `ef::ef_for` is not possible (these are card-shell kinds), so the
+/// table lives here and is matched by tag. Unknown tags fall through and are
+/// shown raw by [`decode_prose_config`].
+fn prose_ie_name(ef: Ef, tag: u8) -> Option<&'static str> {
+    match (ef, tag) {
+        // Shared by the discovery, communication, relay and remote UE EFs.
+        (Ef::ProseDd, 0x80)
+        | (Ef::ProseDc, 0x80)
+        | (Ef::ProseU2nru, 0x80)
+        | (Ef::ProseRu, 0x80)
+        | (Ef::ProseU2uru, 0x80)
+        | (Ef::ProseEu, 0x80) => Some("Served by NG-RAN PLMN"),
+        (Ef::ProseDd, 0x81)
+        | (Ef::ProseDc, 0x81)
+        | (Ef::ProseU2nru, 0x81)
+        | (Ef::ProseRu, 0x81)
+        | (Ef::ProseU2uru, 0x81)
+        | (Ef::ProseEu, 0x81) => Some("Not served by NG-RAN PLMN"),
+        // EF.5G_PROSE_DD inner IEs (TS 31.102 4.4.13.3).
+        (Ef::ProseDd, 0x82) => Some("ProSe identifiers"),
+        (Ef::ProseDd, 0x83) => Some("ProSe ID to default destination Layer 2 ID"),
+        (Ef::ProseDd, 0x84) => Some("Group member discovery parameters"),
+        (Ef::ProseDd, 0x85) => Some("Validity timer"),
+        (Ef::ProseDd, 0x86) => Some("ProSe direct discovery UE ID"),
+        (Ef::ProseDd, 0x87) => Some("HPLMN 5G DD-NMF address information"),
+        // EF.5G_PROSE_DC inner IEs (TS 31.102 4.4.13.4).
+        (Ef::ProseDc, 0x87) => Some("Privacy config"),
+        (Ef::ProseDc, 0x88) => Some("Direct communication in NR PC5"),
+        (Ef::ProseDc, 0x89) => Some("Application to path preference mapping rules"),
+        (Ef::ProseDc, 0x91) => Some("ProSe ID to NR TX profile for broadcast and groupcast"),
+        // EF.5G_PROSE_U2NRU inner IEs (TS 31.102 4.4.13.5).
+        (Ef::ProseU2nru, 0x8a) => Some("ProSe ID to default destination Layer 2 ID"),
+        (Ef::ProseU2nru, 0x8b) => Some("RxC info list"),
+        (Ef::ProseU2nru, 0x8c) => Some("5QI to PC5-QoS parameters mapping rules"),
+        (Ef::ProseU2nru, 0x8d) => Some("ProSe ID to application server address mapping rules"),
+        (Ef::ProseU2nru, 0x8e) => Some("User info ID for discovery"),
+        (Ef::ProseU2nru, 0x92) => Some("Privacy timer"),
+        (Ef::ProseU2nru, 0x93) => Some("5GPKMF address information"),
+        // EF.5G_PROSE_RU inner IEs (TS 31.102 4.4.13.6).
+        (Ef::ProseRu, 0x8f) => Some("Default destination Layer 2 IDs"),
+        (Ef::ProseRu, 0x90) => Some("N3IWF selection info for 5G ProSe L3 remote UE"),
+        // EF.5G_PROSE_UIR inner IEs (TS 31.102 4.4.13.7).
+        (Ef::ProseUir, 0x94) => Some("Collection period"),
+        (Ef::ProseUir, 0x95) => Some("Reporting window"),
+        (Ef::ProseUir, 0x96) => Some("Reporting indicators"),
+        (Ef::ProseUir, 0x97) => Some("5G DDNMF CTF address for uploading"),
+        // EF.5G_PROSE_U2URU inner IEs (TS 31.102 4.4.13.8).
+        (Ef::ProseU2uru, 0x99) => Some("Default destination Layer 2 IDs for Rx discovery"),
+        (Ef::ProseU2uru, 0x9a) => Some("Default destination Layer 2 IDs for Tx/Rx direct"),
+        // EF.5G_PROSE_EU inner IEs (TS 31.102 4.4.13.9); `0x93` here is the
+        // PKMF address information IE, distinct from U2NRU's same-tagged one.
+        (Ef::ProseEu, 0x93) => Some("5GPKMF address information"),
+        _ => None,
+    }
+}
+
+/// EF.5G_PROSE_ST (TS 31.102 clause 4.4.13.2): a 1-bit service table, service
+/// `n` is bit `(n-1) % 8` of octet `(n-1) / 8`.
+pub fn decode_prose_st(bytes: &[u8]) -> Result<Services, Malformed> {
+    decode_services(Table::Prose, bytes)
+}
+
+/// Decode a 5G ProSe configuration EF (TS 31.102 clause 4.4.13.x): a transparent
+/// file whose body is a BER-TLV object rooted at tag `0xA0`, whose children are
+/// the information elements [`prose_ie_name`] names. Every child's value is
+/// returned as raw hex; unknown IEs are listed with `null` and their bytes, never
+/// misinterpreted. An empty or non-`A0` root is `Malformed`.
+pub fn decode_prose_config(ef: Ef, bytes: &[u8]) -> Result<Vec<ProseIe>, Malformed> {
+    if bytes.is_empty() {
+        return Err(Malformed("a 5G ProSe config EF is empty"));
+    }
+    let first = bytes[0];
+    if first != 0xA0 {
+        return Err(Malformed(
+            "5G ProSe config EF does not start with the A0 root tag",
+        ));
+    }
+    let mut stream = Stream::new(bytes);
+    let root = stream
+        .next_atom()
+        .map_err(|_| Malformed("5G ProSe config root TLV is malformed"))?;
+    let Some(root) = root else {
+        return Err(Malformed("5G ProSe config EF is empty"));
+    };
+    let mut out = Vec::new();
+    let mut inner = Stream::new(root.value());
+    while let Some(atom) = inner
+        .next_atom()
+        .map_err(|_| Malformed("5G ProSe config IE is malformed"))?
+    {
+        out.push(ProseIe {
+            tag: atom.tag().octet(),
+            name: prose_ie_name(ef, atom.tag().octet()),
+            value: atom.value().to_vec(),
+        });
+    }
+    Ok(out)
+}
+
 /// Which service table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Table {
@@ -987,7 +1163,7 @@ pub enum Table {
     Ist,
     /// EF.SST, TS 51.011 clause 10.3.7.
     Sst,
-    /// EF.5G_PROSE_ST, TS 31.102 clause 4.6.5.1.
+    /// EF.5G_PROSE_ST, TS 31.102 clause 4.4.13.2.
     Prose,
 }
 
@@ -1020,7 +1196,7 @@ pub fn decode_services(table: Table, bytes: &[u8]) -> Result<Services, Malformed
 
 /// Set or clear the single service bit for service `n` in a 1-bit table
 /// (UST, EST, IST, PROSE — TS 31.102 clause 4.2.8 / 4.2.47, TS 31.103 clause 4.2.7,
-/// TS 31.102 clause 4.6.5.1): service `n` is bit `(n-1) % 8` of octet `(n-1) / 8`.
+/// TS 31.102 clause 4.4.13.2): service `n` is bit `(n-1) % 8` of octet `(n-1) / 8`.
 ///
 /// The buffer is grown with zero octets so a service past the current end is
 /// accommodated, mirroring pySim's `ust_update`.
@@ -1179,6 +1355,15 @@ pub fn service_name(table: Table, n: u16) -> Option<&'static str> {
         (Table::Ust, 123) => Some("5G Security Parameters"),
         (Table::Ust, 124) => Some("Subscription identifier privacy support"),
         (Table::Ust, 125) => Some("SUCI calculation by the USIM"),
+        // EF.5G_PROSE_ST (TS 31.102 clause 4.4.13.2): the ProSe service numbers
+        // are the ones pySim's `EF_5G_PROSE_ST_map` names.
+        (Table::Prose, 1) => Some("5G ProSe configuration data for direct discovery"),
+        (Table::Prose, 2) => Some("5G ProSe configuration data for direct communication"),
+        (Table::Prose, 3) => Some("5G ProSe configuration data for UE-to-network relay UE"),
+        (Table::Prose, 4) => Some("5G ProSe configuration data for remote UE"),
+        (Table::Prose, 5) => Some("5G ProSe configuration data for usage information reporting"),
+        (Table::Prose, 6) => Some("5G ProSe configuration data for UE-to-UE relay UE"),
+        (Table::Prose, 7) => Some("5G ProSe configuration data for end UE"),
         _ => None,
     }
 }
@@ -1275,6 +1460,16 @@ pub enum Decoded {
         /// Trailing octets when the body was not a whole number of records.
         remainder: Vec<u8>,
     },
+    /// EF.5G_PROSE_ST (TS 31.102 clause 4.4.13.2): a ProSe service table.
+    ProseSt(Services),
+    /// A 5G ProSe config EF (EF.5G_PROSE_DD/DC/U2NRU/RU/UIR/U2URU/EU,
+    /// TS 31.102 clause 4.4.13.x): the root `A0` TLV's named information
+    /// elements, with unknown ones kept as raw bytes.
+    ProseConfig(Ef, Vec<ProseIe>),
+    /// EF.PROSE_MON (TS 31.102 clause 4.4.8): linear-fixed monitoring records.
+    ProseMon(Vec<Vec<u8>>),
+    /// EF.PROSE_RADIO_COM (TS 31.102 clause 4.4.8): raw radio parameters.
+    ProseRadioCom(Vec<u8>),
 }
 
 /// Decodes the bytes read from an EF `ef` (a record per element for a linear
@@ -1346,6 +1541,23 @@ pub fn decode(ef: Ef, records: &[Vec<u8>], mnc_len: Option<u8>) -> Result<Decode
         ),
         Ef::SuciCalcInfo => Decoded::Suci(decode_suci_calc_info(first)?),
         Ef::RoutingIndicator => Decoded::RoutingIndicator(decode_routing_indicator(first)?),
+        Ef::ProseSt => Decoded::ProseSt(decode_prose_st(first)?),
+        Ef::ProseDd
+        | Ef::ProseDc
+        | Ef::ProseU2nru
+        | Ef::ProseRu
+        | Ef::ProseUir
+        | Ef::ProseU2uru
+        | Ef::ProseEu => Decoded::ProseConfig(ef, decode_prose_config(ef, first)?),
+        Ef::ProseMon => Decoded::ProseMon(
+            records
+                .iter()
+                .take(MAX_RECORDS)
+                .filter(|r| !r.iter().all(|b| *b == 0xFF))
+                .cloned()
+                .collect(),
+        ),
+        Ef::ProseRadioCom => Decoded::ProseRadioCom(first.to_vec()),
         Ef::ManuArea => Decoded::Raw(first.to_vec()),
         Ef::Keys | Ef::KeysPs if first.is_empty() => {
             return Err(Malformed("key file read back empty"))
@@ -1471,6 +1683,44 @@ impl Decoded {
                     .join(", ")
             ),
             Self::Raw(b) => hex(b),
+            Self::ProseSt(s) => format!(
+                "{} {} ProSe service(s): {}{}",
+                s.enabled.len(),
+                "enabled",
+                s.enabled
+                    .iter()
+                    .take(EVIDENCE_ITEMS)
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                if s.enabled.len() > EVIDENCE_ITEMS {
+                    format!(" (+{} more)", s.enabled.len() - EVIDENCE_ITEMS)
+                } else {
+                    String::new()
+                },
+            ),
+            Self::ProseConfig(ef, ies) => {
+                let shown: Vec<String> = ies
+                    .iter()
+                    .take(EVIDENCE_ITEMS)
+                    .map(|ie| format!("{:02X}:{}", ie.tag, hex(&ie.value)))
+                    .collect();
+                format!(
+                    "{} IE(s) in {}: {}{}",
+                    ies.len(),
+                    ef.name(),
+                    shown.join(", "),
+                    if ies.len() > EVIDENCE_ITEMS {
+                        format!(" (+{} more)", ies.len() - EVIDENCE_ITEMS)
+                    } else {
+                        String::new()
+                    },
+                )
+            }
+            Self::ProseMon(records) => {
+                format!("{} ProSe monitoring record(s)", records.len())
+            }
+            Self::ProseRadioCom(b) => hex(b),
             Self::Suci(s) => format!(
                 "schemes by priority [{}], {} home network public key(s)",
                 s.schemes
@@ -1705,6 +1955,27 @@ impl Decoded {
                 }
                 out
             }
+            Self::ProseSt(s) => json!({
+                "table": "5G_PROSE_ST",
+                "count": s.enabled.len(),
+                "enabled": s.enabled,
+                "named": s.enabled.iter().filter_map(|n| {
+                    service_name(s.table, *n).map(|name| json!({ "service": n, "name": name }))
+                }).collect::<Vec<_>>(),
+            }),
+            Self::ProseConfig(ef, ies) => json!({
+                "ef": ef.name(),
+                "ie_count": ies.len(),
+                "ie": ies.iter().map(|ie| json!({
+                    "tag": format!("{:02X}", ie.tag),
+                    "name": ie.name,
+                    "hex": hex(&ie.value),
+                })).collect::<Vec<_>>(),
+            }),
+            Self::ProseMon(records) => json!({
+                "records": records.iter().map(|r| json!({ "hex": hex(r) })).collect::<Vec<_>>(),
+            }),
+            Self::ProseRadioCom(b) => json!({ "bytes": b.len(), "hex": hex(b) }),
         }
     }
 }
@@ -2546,5 +2817,127 @@ mod tests {
         assert!(whole.fields().get("remainder").is_none());
         // The evidence line reports the trailing remainder raw.
         assert_eq!(rem.evidence(), "1 language record(s): de remainder: 65");
+    }
+
+    // --- ProSe and 5G ProSe EFs (3GPP TS 31.102 clause 4.4.8 / 4.4.13) ---
+
+    #[test]
+    fn prose_files_are_classified_only_below_their_df() {
+        // DF.5G_ProSe `5FF0` below an application (7FFF). The 5G ProSe config
+        // EFs are 4F02..4F08 under it; EF.5G_PROSE_ST is 4F01.
+        let prose = |s: &str| s.parse::<Path>().unwrap();
+        assert_eq!(classify(&prose("3F00/7FFF/5FF0/4F01")), Some(Ef::ProseSt));
+        assert_eq!(classify(&prose("3F00/7FFF/5FF0/4F02")), Some(Ef::ProseDd));
+        assert_eq!(classify(&prose("3F00/7FFF/5FF0/4F03")), Some(Ef::ProseDc));
+        assert_eq!(
+            classify(&prose("3F00/7FFF/5FF0/4F04")),
+            Some(Ef::ProseU2nru)
+        );
+        assert_eq!(classify(&prose("3F00/7FFF/5FF0/4F05")), Some(Ef::ProseRu));
+        assert_eq!(classify(&prose("3F00/7FFF/5FF0/4F06")), Some(Ef::ProseUir));
+        assert_eq!(
+            classify(&prose("3F00/7FFF/5FF0/4F07")),
+            Some(Ef::ProseU2uru)
+        );
+        assert_eq!(classify(&prose("3F00/7FFF/5FF0/4F08")), Some(Ef::ProseEu));
+        // DF.ProSe `5F90`: EF.PROSE_MON is 4F01, EF.PROSE_RADIO_COM is 4F04.
+        assert_eq!(classify(&prose("3F00/7FFF/5F90/4F01")), Some(Ef::ProseMon));
+        assert_eq!(
+            classify(&prose("3F00/7FFF/5F90/4F04")),
+            Some(Ef::ProseRadioCom)
+        );
+        // The same identifiers are NOT these EFs under a different parent.
+        assert_eq!(classify(&prose("3F00/7FFF/5FC0/4F01")), None);
+        assert_eq!(classify(&prose("3F00/7FFF/5F3B/4F01")), None);
+    }
+
+    #[test]
+    fn prose_st_decodes_bits_to_service_numbers() {
+        // EF.5G_PROSE_ST (TS 31.102 4.4.13.2): 1-bit service table.
+        // Octet 0x03 => services 1 and 2; octet 0x04 => service 19.
+        let bytes = &[0x03, 0x00, 0x04];
+        let d = decode(Ef::ProseSt, &[bytes.to_vec()], None).unwrap();
+        let s = decode_prose_st(bytes).unwrap();
+        assert_eq!(s.enabled, [1, 2, 19]);
+        assert_eq!(s.table, Table::Prose);
+        assert_eq!(
+            service_name(Table::Prose, 2),
+            Some("5G ProSe configuration data for direct communication")
+        );
+        assert_eq!(d.evidence(), "3 enabled ProSe service(s): 1,2,19");
+        let json = d.fields();
+        assert_eq!(json["table"], "5G_PROSE_ST");
+        assert_eq!(json["enabled"], serde_json::json!([1, 2, 19]));
+    }
+
+    #[test]
+    fn prose_config_decodes_named_and_unknown_ies() {
+        // EF.5G_PROSE_DD (TS 31.102 4.4.13.3): an A0 root containing
+        // 80 (Served by NG-RAN PLMN) and 82 (ProSe identifiers), and an
+        // unknown tag 8F kept as raw bytes.
+        // A0 06 { 80 01 AA 82 01 BB }
+        let bytes = &[0xA0, 0x06, 0x80, 0x01, 0xAA, 0x82, 0x01, 0xBB];
+        let ies = decode_prose_config(Ef::ProseDd, bytes).unwrap();
+        assert_eq!(ies.len(), 2);
+        assert_eq!(ies[0].tag, 0x80);
+        assert_eq!(ies[0].name, Some("Served by NG-RAN PLMN"));
+        assert_eq!(ies[0].value, vec![0xAA]);
+        assert_eq!(ies[1].tag, 0x82);
+        assert_eq!(ies[1].name, Some("ProSe identifiers"));
+        assert_eq!(ies[1].value, vec![0xBB]);
+
+        // An unknown IE tag in the same EF is listed with name = null.
+        // A0 03 { 80 01 AA, then 8F 00 }
+        let bytes = &[0xA0, 0x05, 0x80, 0x01, 0xAA, 0x8F, 0x00];
+        let ies = decode_prose_config(Ef::ProseDd, bytes).unwrap();
+        assert_eq!(ies.len(), 2);
+        assert_eq!(ies[0].tag, 0x80);
+        assert_eq!(ies[0].name, Some("Served by NG-RAN PLMN"));
+        assert_eq!(ies[1].tag, 0x8F);
+        assert!(ies[1].name.is_none());
+        assert!(ies[1].value.is_empty());
+
+        // Evidence and JSON round-trip.
+        let d = decode(Ef::ProseDd, &[bytes[..].to_vec()], None).unwrap();
+        let json = d.fields();
+        assert_eq!(json["ef"], "EF.5G_PROSE_DD");
+        assert_eq!(json["ie_count"], 2);
+        assert_eq!(json["ie"][0]["tag"], "80");
+        assert_eq!(json["ie"][0]["name"], "Served by NG-RAN PLMN");
+        assert_eq!(json["ie"][0]["hex"], "AA");
+    }
+
+    #[test]
+    fn prose_config_errors_on_empty_and_non_a0_root() {
+        assert!(decode_prose_config(Ef::ProseDd, &[]).is_err());
+        assert!(decode_prose_config(Ef::ProseDd, &[0x80, 0x02, 0x01, 0x02]).is_err());
+    }
+
+    #[test]
+    fn prose_eu_names_the_0x93_ie() {
+        // EF.5G_PROSE_EU (TS 31.102 4.4.13.9): tag 0x93 is "5GPKMF address
+        // information", distinct from U2NRU's same-tagged IE.
+        // A0 03 { 93 01 FF }
+        let bytes = &[0xA0, 0x03, 0x93, 0x01, 0xFF];
+        let ies = decode_prose_config(Ef::ProseEu, bytes).unwrap();
+        assert_eq!(ies.len(), 1);
+        assert_eq!(ies[0].tag, 0x93);
+        assert_eq!(ies[0].name, Some("5GPKMF address information"));
+    }
+
+    #[test]
+    fn prose_mon_and_radio_com_decode_as_records_and_bytes() {
+        // EF.PROSE_MON (TS 31.102 4.4.8): linear-fixed records.
+        let records = vec![vec![0x01, 0x02, 0x03], vec![0xFF; 4]];
+        let d = decode(Ef::ProseMon, &records, None).unwrap();
+        let json = d.fields();
+        assert_eq!(json["records"].as_array().unwrap().len(), 1);
+        assert_eq!(json["records"][0]["hex"], "010203");
+        assert_eq!(d.evidence(), "1 ProSe monitoring record(s)");
+
+        // EF.PROSE_RADIO_COM: transparent file of raw radio parameters.
+        let d = decode(Ef::ProseRadioCom, &[vec![0xDE, 0xAD, 0xBE, 0xEF]], None).unwrap();
+        assert_eq!(d.evidence(), "DEADBEEF");
+        assert_eq!(d.fields()["hex"], "DEADBEEF");
     }
 }

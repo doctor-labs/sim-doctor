@@ -204,6 +204,18 @@ fn ef_for(kind: &str, name: &str) -> Option<Ef> {
         ("impi", _) => Ef::Impi,
         ("impu", _) => Ef::Impu,
         ("pcscf", _) => Ef::Pcscf,
+        // 5G ProSe config EFs (TS 31.102 clause 4.4.13.x): transparent files
+        // carrying a tag-A0-rooted TLV tree decoded by `ef::decode_prose_config`.
+        ("tlv", "EF.5G_PROSE_DD") => Ef::ProseDd,
+        ("tlv", "EF.5G_PROSE_DC") => Ef::ProseDc,
+        ("tlv", "EF.5G_PROSE_U2NRU") => Ef::ProseU2nru,
+        ("tlv", "EF.5G_PROSE_RU") => Ef::ProseRu,
+        ("tlv", "EF.5G_PROSE_UIR") => Ef::ProseUir,
+        ("tlv", "EF.5G_PROSE_U2URU") => Ef::ProseU2uru,
+        ("tlv", "EF.5G_PROSE_EU") => Ef::ProseEu,
+        // DF.ProSe files (TS 31.102 clause 4.4.8): read as raw records/bytes.
+        ("hex", "EF.PROSE_MON") => Ef::ProseMon,
+        ("hex", "EF.PROSE_RADIO_COM") => Ef::ProseRadioCom,
         _ => return None,
     })
 }
