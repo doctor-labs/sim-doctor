@@ -329,7 +329,7 @@ fn b64_encode(data: &[u8]) -> String {
     out
 }
 
-fn b64_decode(text: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn b64_decode(text: &str) -> Result<Vec<u8>, String> {
     let chars: Vec<u8> = text
         .bytes()
         .filter(|b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
