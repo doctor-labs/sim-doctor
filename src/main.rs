@@ -171,6 +171,27 @@ enum Command {
     /// is opened.
     Profile(ProfileArgs),
 
+    /// List known card profiles, show one, or write its fixture document.
+    ///
+    /// A catalogue of real, purchasable JavaCard / GlobalPlatform cards with the
+    /// versions their seller prints. Every stated field is pinned to the line of
+    /// GlobalPlatformPro's docs/TestedCards that states it, and the card-profile
+    /// field schema is pySim's own, with its line numbers.
+    ///
+    /// NO CARD, NO READER: nothing here opens a session, sends an APDU or writes
+    /// to a card. `data.card_touched` is false and nothing is opened.
+    ///
+    /// NOT A FILE-SYSTEM PROFILE. This is not a second TS.48 corpus: it states no
+    /// file identifier, size or layout, so it cannot answer whether a card matches
+    /// TS.48. `sim-doctor ts48 compare` compares a walk against the GSMA file list.
+    ///
+    /// Prices and shop links are quoted verbatim from the reference and carry the
+    /// date it was read. They are dated data, not current quotes, and no link is
+    /// re-checked.
+    ///
+    /// Exit codes: 0 the table was printed, 2 the name is not in the table.
+    Cards(CardsArgs),
+
     /// Compare a card against the public GSMA TS.48 test profile.
     Ts48(Ts48Args),
 
@@ -2214,6 +2235,56 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "     Under --baseline only new findings count: 3 or 0, never 1\n",
     "  130  interrupted\n",
 );
+/// Everything `sim-doctor cards` takes.
+#[derive(Args)]
+struct CardsArgs {
+    #[command(subcommand)]
+    action: CardsAction,
+}
+
+#[derive(Subcommand)]
+enum CardsAction {
+    /// Print the card table: name, stated JavaCard and GlobalPlatform versions,
+    /// stated EEPROM size, and which heading of the reference lists it.
+    List(CardsListArgs),
+    /// Print one card profile in full, with every note and every provenance record.
+    Show(CardsShowArgs),
+    /// Write one card profile's fixture document to stdout.
+    ///
+    /// On success stdout carries the document and nothing else, so
+    /// `sim-doctor cards fixture NAME > NAME.card-fixture.json` writes a file a
+    /// reader can check against this binary. On refusal stdout carries nothing and
+    /// the reason goes to stderr.
+    ///
+    /// The document declares its format (`sim-doctor/card-fixture/1`) and the date
+    /// the references were read, and it is byte-identical every time: the generator
+    /// has no clock, no map and no randomness.
+    Fixture(CardsFixtureArgs),
+}
+
+#[derive(Args)]
+struct CardsListArgs {
+    /// Emit one JSON envelope (type "cards") on stdout, and nothing else.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct CardsShowArgs {
+    /// The profile name, exactly as `cards list` prints it.
+    name: String,
+
+    /// Emit one JSON envelope (type "cards") on stdout, and nothing else.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct CardsFixtureArgs {
+    /// The profile name, exactly as `cards list` prints it.
+    name: String,
+}
+
 /// Everything `sim-doctor ts48` takes.
 #[derive(Args)]
 struct ProfileArgs {
@@ -3170,6 +3241,11 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             }
         },
         Command::Batch(args) => run_batch(args),
+        Command::Cards(args) => match args.action {
+            CardsAction::List(args) => run_cards_list(args),
+            CardsAction::Show(args) => run_cards_show(args),
+            CardsAction::Fixture(args) => run_cards_fixture(args),
+        },
         Command::Ts48(args) => match args.action {
             Ts48Action::Compare(args) => run_ts48_compare(args),
         },
@@ -6936,6 +7012,100 @@ fn profile_success(data: serde_json::Value) -> contract::ExitCode {
             contract::ExitCode::Findings
         }
     }
+}
+
+/// `sim-doctor cards list`. No card, no reader, no APDU.
+fn run_cards_list(args: CardsListArgs) -> contract::ExitCode {
+    if checkpoint() {
+        return report_interrupted(sim_doctor::cardfixture::KIND, args.json);
+    }
+    let rendered = if args.json {
+        contract::Envelope::success(sim_doctor::cardfixture::catalogue())
+            .to_json()
+            .map_err(|e| e.to_string())
+    } else {
+        Ok(sim_doctor::cardfixture::table())
+    };
+    match rendered.and_then(|line| emit_stdout(&line, "the card list")) {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => {
+            eprintln!("sim-doctor: {message}");
+            contract::ExitCode::Findings
+        }
+    }
+}
+
+/// `sim-doctor cards show NAME`.
+fn run_cards_show(args: CardsShowArgs) -> contract::ExitCode {
+    if checkpoint() {
+        return report_interrupted(sim_doctor::cardfixture::KIND, args.json);
+    }
+    let profile = match sim_doctor::cardfixture::find(&args.name) {
+        Some(profile) => profile,
+        None => return refuse_unknown_card(&args.name, args.json),
+    };
+    let rendered = if args.json {
+        contract::Envelope::success(sim_doctor::cardfixture::profile_json(profile))
+            .to_json()
+            .map_err(|e| e.to_string())
+    } else {
+        Ok(sim_doctor::cardfixture::detail(profile))
+    };
+    match rendered.and_then(|line| emit_stdout(&line, "the card profile")) {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => {
+            eprintln!("sim-doctor: {message}");
+            contract::ExitCode::Findings
+        }
+    }
+}
+
+/// `sim-doctor cards fixture NAME`: the document on stdout, or nothing on stdout.
+fn run_cards_fixture(args: CardsFixtureArgs) -> contract::ExitCode {
+    if checkpoint() {
+        return report_interrupted(sim_doctor::cardfixture::KIND, false);
+    }
+    let profile = match sim_doctor::cardfixture::find(&args.name) {
+        Some(profile) => profile,
+        None => return refuse_unknown_card(&args.name, false),
+    };
+    match profile.render_pretty() {
+        Ok(document) => match emit_stdout(&document, "the card fixture") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => {
+                eprintln!("sim-doctor: {message}");
+                contract::ExitCode::Findings
+            }
+        },
+        Err(err) => report_refusal(
+            sim_doctor::cardfixture::KIND,
+            &format!(
+                "the fixture for {} could not be rendered: {err}",
+                profile.name
+            ),
+            serde_json::json!({ "error": { "kind": "fixture-unrenderable" } }),
+            false,
+        ),
+    }
+}
+
+/// A name that is not in the table: refused by name, with every name that is.
+fn refuse_unknown_card(name: &str, json: bool) -> contract::ExitCode {
+    let known = sim_doctor::cardfixture::names();
+    let message = format!(
+        "unknown card profile {name:?}; the table has {}: {}",
+        known.len(),
+        known.join(", ")
+    );
+    report_refusal(
+        sim_doctor::cardfixture::KIND,
+        &message,
+        serde_json::json!({
+            "error": { "kind": "unknown-profile", "name": name },
+            "known_profiles": known,
+        }),
+        json,
+    )
 }
 
 fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
