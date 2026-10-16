@@ -269,7 +269,7 @@ pub fn decode_key_information(data: &[u8]) -> Result<Value, String> {
 
 /// Decodes a BER OID value into its arcs (first byte is `40 * a + b`, the rest
 /// base-128). `None` if empty, truncated, or an arc overflows `u64`.
-fn oid_arcs(bytes: &[u8]) -> Option<Vec<u64>> {
+pub(crate) fn oid_arcs(bytes: &[u8]) -> Option<Vec<u64>> {
     let (first, rest) = bytes.split_first()?;
     let mut arcs = vec![u64::from(first / 40), u64::from(first % 40)];
     let mut acc: u64 = 0;
@@ -285,7 +285,7 @@ fn oid_arcs(bytes: &[u8]) -> Option<Vec<u64>> {
     (!open).then_some(arcs)
 }
 
-fn dotted(arcs: &[u64]) -> String {
+pub(crate) fn dotted(arcs: &[u64]) -> String {
     arcs.iter()
         .map(u64::to_string)
         .collect::<Vec<_>>()

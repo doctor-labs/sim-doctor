@@ -31,8 +31,8 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules, scan,
-    session, sms, tar, trace,
+    apdu_fuzz, apdu_scan, cat, ci, contract, euicc, fix, fuzz, gp, notif, otacrypto, rules, saip,
+    scan, session, sms, tar, trace,
     transport::{
         pcsc::{Pcsc, PcscSession},
         replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
@@ -232,6 +232,11 @@ enum Command {
     /// `sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT,
     /// addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing.
     Sms(SmsArgs),
+
+    /// `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement
+    /// sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV
+    /// tree. Parse only, no personalization. Sends nothing.
+    Saip(SaipArgs),
 
     /// Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt,
     /// CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them.
@@ -1722,6 +1727,9 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::OtaCrypto(args) => run_otacrypto(args),
         Command::Sms(args) => match args.action {
             SmsAction::Decode { hex, tpdu, json } => run_sms_decode(&hex, tpdu, json),
+        },
+        Command::Saip(args) => match args.action {
+            SaipAction::Parse { file, json } => run_saip_parse(&file, json),
         },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
@@ -3375,6 +3383,92 @@ fn run_otacrypto(args: OtaCryptoArgs) -> contract::ExitCode {
                 Err(message) => refuse(message),
             }
         }
+    }
+}
+
+/// Everything `sim-doctor saip` takes.
+#[derive(Args)]
+struct SaipArgs {
+    #[command(subcommand)]
+    action: SaipAction,
+}
+
+#[derive(Subcommand)]
+enum SaipAction {
+    /// Decode a SAIP profile package (DER, the concatenated ProfileElements) offline.
+    Parse {
+        /// Path to the profile package. Read-only; the file is capped at 8 MiB.
+        file: std::path::PathBuf,
+        /// Emit one JSON envelope of kind "saip" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Runs `sim-doctor saip parse`: reads the file under a size cap and decodes it with
+/// [`saip::decode`]. The envelope kind is "saip"; `data` is `{pe_count, elements}`.
+///
+/// Exit codes: 0 when decoded; 2 when the file cannot be read or is not a well-formed
+/// package (a refusal, with the offset in the message). Nothing is sent to a card.
+fn run_saip_parse(path: &std::path::Path, json: bool) -> contract::ExitCode {
+    use std::io::Read;
+    const KIND: &str = "saip";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the saip error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(err) => return refuse(format!("cannot read {}: {err}", path.display())),
+    };
+    let mut bytes = Vec::new();
+    // One byte past the cap, so an over-long file is refused by `saip::decode`, not truncated.
+    let cap = saip::MAX_FILE_BYTES as u64 + 1;
+    if let Err(err) = file.take(cap).read_to_end(&mut bytes) {
+        return refuse(format!("cannot read {}: {err}", path.display()));
+    }
+    let decoded = match saip::decode(&bytes) {
+        Ok(value) => value,
+        Err(err) => return refuse(err.to_string()),
+    };
+    if json {
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            decoded,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the saip result") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let mut out = String::new();
+    for element in decoded["elements"].as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "{:>3}  {:<22} tag {:<6} length {}\n",
+            element["index"],
+            element["type"].as_str().unwrap_or("?"),
+            element["tag"].as_str().unwrap_or("?"),
+            element["length"],
+        ));
+    }
+    out.push_str(&format!("{} profile elements\n", decoded["pe_count"]));
+    match emit_stdout(out.trim_end(), "the saip result") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
     }
 }
 

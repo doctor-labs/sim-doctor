@@ -643,6 +643,56 @@ esac
     ;;
 esac
 ;;
+(saip)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sim-doctor__subcmd__saip_commands" \
+"*::: :->saip" \
+&& ret=0
+
+    case $state in
+    (saip)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-saip-command-$line[1]:"
+        case $line[1] in
+            (parse)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope of kind "saip" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':file -- Path to the profile package. Read-only; the file is capped at 8 MiB:_files' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__saip__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-saip-help-command-$line[1]:"
+        case $line[1] in
+            (parse)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (ota-crypto)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
@@ -1335,6 +1385,26 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(saip)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__saip_commands" \
+"*::: :->saip" \
+&& ret=0
+
+    case $state in
+    (saip)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-saip-command-$line[1]:"
+        case $line[1] in
+            (parse)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (ota-crypto)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__ota-crypto_commands" \
@@ -1501,6 +1571,7 @@ _sim-doctor_commands() {
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
+'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
@@ -2008,6 +2079,7 @@ _sim-doctor__subcmd__help_commands() {
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
+'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
@@ -2287,6 +2359,18 @@ _sim-doctor__subcmd__help__subcmd__rules__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help rules list commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__saip_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__saip_commands() {
+    local commands; commands=(
+'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+    )
+    _describe -t commands 'sim-doctor help saip commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__saip__subcmd__parse_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__saip__subcmd__parse_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help saip parse commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__scan_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__scan_commands() {
     local commands; commands=()
@@ -2450,6 +2534,37 @@ _sim-doctor__subcmd__rules__subcmd__help__subcmd__list_commands() {
 _sim-doctor__subcmd__rules__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor rules list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip_commands] )) ||
+_sim-doctor__subcmd__saip_commands() {
+    local commands; commands=(
+'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor saip commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__help_commands() {
+    local commands; commands=(
+'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor saip help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__help__subcmd__parse_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__help__subcmd__parse_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip help parse commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__parse_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__parse_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip parse commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__scan_commands] )) ||
 _sim-doctor__subcmd__scan_commands() {

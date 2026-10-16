@@ -131,6 +131,7 @@ pub mod mcp;
 pub mod notif;
 pub mod otacrypto;
 pub mod rules;
+pub mod saip;
 pub mod sarif;
 pub mod scan;
 pub mod scp03;
@@ -360,6 +361,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: sms::NAME,
         owns: "Offline SMS TPDU decoding (TS 23.040): SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT, addresses, DCS, UDH and concatenation, GSM 7-bit and UCS2 text.",
         depends_on: &[],
+    },
+    ModuleInfo {
+        name: saip::NAME,
+        owns: "Offline SAIP profile package parse: the DER ProfileElement sequence named by PE type (SAIP 3.3.1 ASN.1 order) and shown as a bounded TLV tree; unknown PEs as raw hex. Parse only, no personalization.",
+        depends_on: &[der::NAME],
     },
     ModuleInfo {
         name: ts48::NAME,
