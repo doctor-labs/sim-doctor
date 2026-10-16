@@ -71,6 +71,7 @@ impl Outcome {
 /// What one card read is told: the `scan` flags, or the card part of `shell` and `explore`.
 struct Run {
     reader: Option<String>,
+    reader_index: Option<usize>,
     dialect: scan::Dialect,
     limits: Limits,
     tar: tar::Selection,
@@ -94,6 +95,7 @@ impl Run {
     fn session(card: &CardArgs) -> Run {
         Run {
             reader: card.reader.clone(),
+            reader_index: card.reader_index,
             dialect: card.dialect,
             limits: limits_from(&card.walk_limits),
             tar: card.tar.clone(),
@@ -113,6 +115,7 @@ impl Run {
     fn scan(args: &ScanArgs) -> Run {
         Run {
             reader: args.reader.clone(),
+            reader_index: args.reader_index,
             dialect: args.dialect,
             limits: limits_from(&args.walk_limits),
             tar: args.tar.clone(),
@@ -194,7 +197,8 @@ impl SimDoctor {
             self.refuse(&scan::Failure::new(kind, err.to_string()))
         };
         let (mut session, reader, atr) =
-            open_scan_session(args.reader.as_deref(), false).map_err(|f| self.refuse(&f))?;
+            open_scan_session(args.reader.as_deref(), false, args.reader_index)
+                .map_err(|f| self.refuse(&f))?;
         let session: &mut dyn CardSession = &mut *session;
 
         let options = walk::Options {

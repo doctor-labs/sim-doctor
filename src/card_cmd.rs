@@ -134,7 +134,7 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
     let exclusive = args.exclusive;
     let opener: cardsh::Opener = Box::new(move |requested| {
         let (session, reader, atr) =
-            super::open_scan_session(requested, exclusive).map_err(|f| f.message)?;
+            super::open_scan_session(requested, exclusive, None).map_err(|f| f.message)?;
         let session: Box<dyn CardSession> = match &dump {
             Some(file) => {
                 let file = file.try_clone().map_err(|err| err.to_string())?;
