@@ -3166,7 +3166,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-h --json --tui --dialect --reader --max-depth --max-children --max-nodes --max-directories --score --severity --baseline --fail-on --sarif --tar --terminal-profile --face --theme --color --headless --help"
+            opts="-h --json --tui --dialect --reader --max-depth --max-children --max-nodes --max-directories --score --severity --baseline --fail-on --sarif --tar --terminal-profile --sms-deliver-report --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
