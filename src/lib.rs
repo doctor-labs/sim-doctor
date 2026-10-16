@@ -137,6 +137,7 @@ pub mod saip;
 pub mod sarif;
 pub mod scan;
 pub mod scp02;
+pub mod scp01;
 pub mod scp03;
 pub mod scp03t;
 pub mod session;
