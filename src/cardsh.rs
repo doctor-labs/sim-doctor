@@ -5534,6 +5534,7 @@ mod tests {
                 yes: true,
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
+                card_key: None,
             },
         );
         sh.equip(None, Profile::Uicc).unwrap();
