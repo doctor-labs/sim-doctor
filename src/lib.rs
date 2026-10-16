@@ -133,6 +133,7 @@ pub mod mcp;
 pub mod notif;
 pub mod ota_expanded;
 pub mod otacrypto;
+pub mod pace;
 pub mod rules;
 pub mod saip;
 pub mod sarif;
@@ -354,6 +355,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: euicc::NAME,
         owns: "Read-only eUICC queries: select the ISD-R on a logical channel and run GetEID, GetEuiccInfo1/2, GetProfilesInfo, ListNotification (metadata only) and GetEUICCChallenge through es10; The writes are nickname (SetNickname), enable and disable (EnableProfile, DisableProfile with REFRESH), delete (DeleteProfile), reset (eUICCMemoryReset, needs the EID confirmed) and notification removal (RemoveNotificationFromList): each a dry run unless confirmed, verified by a re-read.",
         depends_on: &[apdu::NAME, session::NAME, es10::NAME, ef::NAME, contract::NAME, transport::NAME],
+    },
+    ModuleInfo {
+        name: pace::NAME,
+        owns: "PACE with the CAN: the PACE application selection, MSE:Set AT, the encrypted nonce, the generic mapping, the ephemeral ECDH and the authentication tokens, the SHA-256 key derivation function, and the AES secure messaging channel that follows (wrap, unwrap, SSC). Reads the CAN from a file or an environment variable and never prints it. Authentication, not a write: sends no writing command, and installs no profile (that is a separate issue). Only secp256r1 of the four TR-03110 curves can be computed on, because this crate adds no P-384 or Brainpool package.",
+        depends_on: &[apdu::NAME, transport::NAME, session::NAME, scp03::NAME, tlv::NAME],
     },
     ModuleInfo {
         name: scan::NAME,
