@@ -301,7 +301,7 @@ pub const PROBE_USER_DATA: [u8; 7] = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
 /// \[V] `CommandPacket.CPH = {0x02, 0x70, 0x00}`. The third octet is the
 /// version and flags byte, written `00` for a CP whose integrity is not
 /// cryptographically protected.
-const COMMAND_PACKET_HEADER: [u8; 3] = [0x02, 0x70, 0x00];
+pub(crate) const COMMAND_PACKET_HEADER: [u8; 3] = [0x02, 0x70, 0x00];
 
 /// The SPI1 octet of the probe's Command Packet.
 ///
@@ -326,13 +326,6 @@ const SPI2_PROBE: u8 = 0x29;
 /// selector, and `0x00` is `KIC_ALGO_IMPLICIT`.
 const KEY_SET: u8 = 0x00;
 
-/// The counter the probe's Command Packet carries.
-///
-/// \[V] `TARScanner.testTAR` calls `setCounter(1)`, and
-/// `CommandPacket.setCounter` writes `CNTR[4 - i] = (byte)(counter >>>
-/// (i * 8))`, so one is `00 00 00 00 01` big-endian.
-const COMMAND_COUNTER: [u8; 5] = [0x00, 0x00, 0x00, 0x00, 0x01];
-
 /// The command header length of a Command Packet with no cryptographic
 /// checksum.
 ///
@@ -340,7 +333,7 @@ const COMMAND_COUNTER: [u8; 5] = [0x00, 0x00, 0x00, 0x00, 0x01];
 /// `int _chl = 13; // 2b (SPI) + 1b (KIC) + 1b (KID) + 3b (TAR) + 5b (CNTR)
 /// `isCryptographicChecksumEnabled()`. The probe sets neither, so
 /// it is thirteen.
-const COMMAND_HEADER_LEN: u8 = 13;
+pub(crate) const COMMAND_HEADER_LEN: u8 = 13;
 
 /// The SMS-DELIVER TPDU first octet the probe sends.
 ///
@@ -480,10 +473,34 @@ pub fn command_packet(tar: u32) -> Vec<u8> {
 /// KID both carry `keyset << 4` in their high nibble, same encoding
 /// [`CommandPacket.setKeyset`] uses \[V] (see [`KEY_SET`]'s doc comment).
 pub fn command_packet_with(tar: u32, keyset: u8, spi1: u8, spi2: u8) -> Vec<u8> {
+    // The counter is one: \[V] `TARScanner.testTAR` calls `setCounter(1)`, and
+    // `CommandPacket.setCounter` writes `CNTR[4 - i] = (byte)(counter >>> (i * 8))`.
+    let key_nibble = keyset << 4;
+    command_packet_octets(tar, spi1, spi2, key_nibble, key_nibble, 1)
+}
+
+/// The Command Packet with KIC, KID and the counter given as raw octets.
+///
+/// [`command_packet_with`] derives KIC and KID from a keyset and leaves the
+/// algorithm nibble at `0` (`KIC_ALGO_IMPLICIT` / `KID_ALGO_IMPLICIT`). A
+/// fuzzer that varies the algorithm, or the counter value, needs those octets
+/// directly. `kic` and `kid` are the whole octets (keyset in the high nibble,
+/// algorithm in the low nibble); `counter` is the one-octet value written into
+/// the five-octet CNTR field, big-endian.
+///
+/// \[V] `CommandPacket.setKICAlgo` / `setKIDAlgo` (low nibble) and
+/// `CommandPacket.setCounter` (CNTR), SIMTester `d197fef`.
+pub fn command_packet_octets(
+    tar: u32,
+    spi1: u8,
+    spi2: u8,
+    kic: u8,
+    kid: u8,
+    counter: u8,
+) -> Vec<u8> {
     let ud = PROBE_USER_DATA;
     let cpl = u16::try_from(1 + usize::from(COMMAND_HEADER_LEN) + ud.len())
         .expect("the probe user data is seven octets, so CPL is 21");
-    let key_nibble = keyset << 4;
 
     let mut out = Vec::with_capacity(usize::from(cpl) + COMMAND_PACKET_HEADER.len());
     out.extend_from_slice(&COMMAND_PACKET_HEADER);
@@ -491,10 +508,10 @@ pub fn command_packet_with(tar: u32, keyset: u8, spi1: u8, spi2: u8) -> Vec<u8> 
     out.push(COMMAND_HEADER_LEN);
     out.push(spi1);
     out.push(spi2);
-    out.push(key_nibble);
-    out.push(key_nibble);
+    out.push(kic);
+    out.push(kid);
     out.extend_from_slice(&tar.to_be_bytes()[1..]);
-    out.extend_from_slice(&COMMAND_COUNTER);
+    out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, counter]);
     out.push(0x00);
     out.extend_from_slice(&ud);
     out
