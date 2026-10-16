@@ -2906,6 +2906,24 @@ pub fn delete_file_command(cla: u8, file_id: [u8; 2]) -> apdu::Command {
     apdu::Command::case3(apdu::Header::new(cla, 0xE4, 0x00, 0x00), file_id.to_vec())
 }
 
+/// ENVELOPE (INS 0xC2, ETSI TS 102 221): `cla C2 00 00 Lc data`, no Le. `data` is sent as given.
+/// INS C2 is verified in [`crate::tar::INS_ENVELOPE`]. The class is `cla` as the caller passes it:
+/// the shell sends `card.cla() | 0x80`, which is 80 on a UICC and A0 on a SIM.
+pub fn envelope_command(cla: u8, data: &[u8]) -> Result<apdu::Command, String> {
+    if data.is_empty() {
+        return Err("envelope: the data field is empty; give at least one octet".into());
+    }
+    let lc = u8::try_from(data.len()).map_err(|_| {
+        format!(
+            "envelope: the data field is {} octets; a short APDU carries at most 255",
+            data.len()
+        )
+    })?;
+    let mut raw = vec![cla, crate::tar::INS_ENVELOPE, 0x00, 0x00, lc];
+    raw.extend_from_slice(data);
+    apdu::Command::decode(&raw).map_err(|e| format!("envelope: {e}"))
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -3269,6 +3287,29 @@ pub fn grammar() -> clap::Command {
             C::new("delete_file")
                 .about("DELETE FILE (TS 102 222 clause 6.4): delete the EF or DF with this two-octet identifier below the selected DF. WARNING: DELETE FILE PERMANENTLY removes the file and its data (deleting a DF takes everything below it); a dry run unless --yes")
                 .arg(Arg::new("file_id").required(true).value_name("HEX").help("the two-octet file identifier, e.g. 6f99"))
+        )
+        .subcommand(
+            C::new("envelope")
+                .about("ENVELOPE (INS C2): send the given octets as the data field of one ENVELOPE APDU, as SIM Toolkit data. WARNING: it runs SIM Toolkit code on the card and can change its state or send messages; a dry run unless --yes")
+                .arg(
+                    Arg::new("data")
+                        .required(true)
+                        .num_args(1..)
+                        .value_name("HEX")
+                        .help("the envelope data field in hex, e.g. d3 02 aa bb (sent as given)"),
+                )
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("envelope_sms")
+                .about("ENVELOPE SMS-PP DOWNLOAD: wrap the given octets in a tag D1 BER-TLV (the SMS-PP-DOWNLOAD envelope) and send it as one ENVELOPE APDU. WARNING: it runs SIM Toolkit code on the card and can change its state or send messages; a dry run unless --yes")
+                .arg(
+                    Arg::new("data")
+                        .required(true)
+                        .num_args(1..)
+                        .value_name("HEX")
+                        .help("the SMS-PP-DOWNLOAD content in hex (device identities, address, SMS TPDU); the D1 tag and length are added"),
+                )
                 .arg(yes_arg()),
         )
         .subcommand(
@@ -3644,6 +3685,8 @@ impl Shell {
             "delete_file" => self.cmd_delete_file(args),
             "deactivate_file" => self.cmd_deactivate_file(args),
             "query_card_key" => self.cmd_query_card_key(args),
+            "envelope" => self.cmd_envelope(args, false),
+            "envelope_sms" => self.cmd_envelope(args, true),
             other => Err(CmdErr::new(format!("`{other}` is not implemented"))),
         }
     }
@@ -3909,6 +3952,57 @@ impl Shell {
             "DELETE FILE",
             "WARNING: DELETE FILE PERMANENTLY removes the file and its data; a DF takes everything below it, and this cannot be undone",
         )
+    }
+
+    /// ENVELOPE, free-form (`sms_pp` false) or wrapped as an SMS-PP DOWNLOAD (`sms_pp` true).
+    /// The class is the profile's class with the proprietary bit set (`card.cla() | 0x80`):
+    /// 80 on a UICC, A0 on a SIM. Gated behind `--yes`: an ENVELOPE runs SIM Toolkit code.
+    fn cmd_envelope(&mut self, args: &clap::ArgMatches, sms_pp: bool) -> CmdResult {
+        let text: Vec<&str> = args
+            .get_many::<String>("data")
+            .expect("required")
+            .map(String::as_str)
+            .collect();
+        let body = parse_hex(&text.join("")).map_err(CmdErr::new)?;
+        let data = if sms_pp {
+            crate::tar::inner_tlv(crate::tar::TAG_SMS_PP_DOWNLOAD, &body).ok_or_else(|| {
+                CmdErr::new(
+                    "envelope_sms: the SMS-PP DOWNLOAD content is too long for a BER-TLV length",
+                )
+            })?
+        } else {
+            body
+        };
+        let name = if sms_pp {
+            "ENVELOPE SMS-PP DOWNLOAD"
+        } else {
+            "ENVELOPE"
+        };
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let command = envelope_command(card.cla() | 0x80, &data).map_err(CmdErr::new)?;
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        let apdu = hex_upper(&wire);
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {apdu} ({name} runs SIM Toolkit code on the card and can change its state or send messages; add --yes to send)"),
+                json!({ "sent": false, "apdu": apdu }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let record = json!({
+            "sent": true,
+            "apdu": apdu,
+            "sw": sw.map(|s| s.to_string()),
+            "meaning": sw.map(crate::trace::sw_meaning),
+            "data": hex_upper(ex.data()),
+        });
+        let mut text = format!("sw {}", sw_text(sw));
+        if !ex.data().is_empty() {
+            text.push_str(&format!("\ndata {}", hex_upper(ex.data())));
+        }
+        Ok(Reply::ok(text, record))
     }
 
     fn cmd_equip(&mut self, args: &clap::ArgMatches) -> CmdResult {
@@ -4908,6 +5002,42 @@ mod tests {
         for ins in [0xE6, 0xE8, 0xFE] {
             assert!(!is_read_only(ins), "INS {ins:02X} must be gated");
         }
+    }
+
+    #[test]
+    fn envelope_commands_build_the_right_apdu_and_are_gated() {
+        // ENVELOPE (ETSI TS 102 221; INS C2 as in swSIM and SIMTester): CLA 80 on a UICC,
+        // P1 = P2 = 00, the data field is the envelope, no Le. Free-form: the bytes are sent as given.
+        assert_eq!(
+            envelope_command(0x80, &[0xD3, 0x02, 0xAA, 0xBB])
+                .unwrap()
+                .encode()
+                .unwrap(),
+            vec![0x80, 0xC2, 0x00, 0x00, 0x04, 0xD3, 0x02, 0xAA, 0xBB]
+        );
+        // an empty data field and one longer than a short APDU's Lc are refused, not sent
+        assert!(envelope_command(0x80, &[]).is_err());
+        assert!(envelope_command(0x80, &[0u8; 256]).is_err());
+        // SMS-PP DOWNLOAD: the payload is wrapped in tag D1 with its BER-TLV length first
+        let sms = crate::tar::inner_tlv(crate::tar::TAG_SMS_PP_DOWNLOAD, &[0x82, 0x02, 0x82, 0x81])
+            .unwrap();
+        assert_eq!(sms, vec![0xD1, 0x04, 0x82, 0x02, 0x82, 0x81]);
+        assert_eq!(
+            envelope_command(0x80, &sms).unwrap().encode().unwrap(),
+            vec![0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x82, 0x81]
+        );
+        // ENVELOPE runs SIM Toolkit code on the card, so it is not read-only (gated behind --yes)
+        assert!(!is_read_only(0xC2));
+        // both forms parse, and --yes is what lets them send
+        let m = grammar()
+            .try_get_matches_from(["envelope", "D3", "00", "--yes"])
+            .unwrap();
+        let (name, args) = m.subcommand().unwrap();
+        assert_eq!(name, "envelope");
+        assert!(args.get_flag("yes"));
+        assert!(grammar()
+            .try_get_matches_from(["envelope_sms", "82", "02", "82", "81"])
+            .is_ok());
     }
 
     #[test]
