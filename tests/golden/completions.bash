@@ -28,6 +28,9 @@ _sim__doctor() {
             sim__doctor,completions)
                 cmd="sim__doctor__subcmd__completions"
                 ;;
+            sim__doctor,esim-cert)
+                cmd="sim__doctor__subcmd__esim__subcmd__cert"
+                ;;
             sim__doctor,euicc)
                 cmd="sim__doctor__subcmd__euicc"
                 ;;
@@ -99,6 +102,18 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__ci__subcmd__help,install)
                 cmd="sim__doctor__subcmd__ci__subcmd__help__subcmd__install"
+                ;;
+            sim__doctor__subcmd__esim__subcmd__cert,help)
+                cmd="sim__doctor__subcmd__esim__subcmd__cert__subcmd__help"
+                ;;
+            sim__doctor__subcmd__esim__subcmd__cert,verify)
+                cmd="sim__doctor__subcmd__esim__subcmd__cert__subcmd__verify"
+                ;;
+            sim__doctor__subcmd__esim__subcmd__cert__subcmd__help,help)
+                cmd="sim__doctor__subcmd__esim__subcmd__cert__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__esim__subcmd__cert__subcmd__help,verify)
+                cmd="sim__doctor__subcmd__esim__subcmd__cert__subcmd__help__subcmd__verify"
                 ;;
             sim__doctor__subcmd__euicc,delete)
                 cmd="sim__doctor__subcmd__euicc__subcmd__delete"
@@ -301,6 +316,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,completions)
                 cmd="sim__doctor__subcmd__help__subcmd__completions"
                 ;;
+            sim__doctor__subcmd__help,esim-cert)
+                cmd="sim__doctor__subcmd__help__subcmd__esim__subcmd__cert"
+                ;;
             sim__doctor__subcmd__help,euicc)
                 cmd="sim__doctor__subcmd__help__subcmd__euicc"
                 ;;
@@ -354,6 +372,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__ci,install)
                 cmd="sim__doctor__subcmd__help__subcmd__ci__subcmd__install"
+                ;;
+            sim__doctor__subcmd__help__subcmd__esim__subcmd__cert,verify)
+                cmd="sim__doctor__subcmd__help__subcmd__esim__subcmd__cert__subcmd__verify"
                 ;;
             sim__doctor__subcmd__help__subcmd__euicc,delete)
                 cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__delete"
@@ -545,7 +566,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto fuzz euicc card help"
+            opts="-h -V --help --version modules scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -775,6 +796,84 @@ _sim__doctor() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__esim__subcmd__cert)
+            opts="-h --help verify help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__esim__subcmd__cert__subcmd__help)
+            opts="verify help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__esim__subcmd__cert__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__esim__subcmd__cert__subcmd__help__subcmd__verify)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__esim__subcmd__cert__subcmd__verify)
+            opts="-h --root --at --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --root)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --at)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2081,7 +2180,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto fuzz euicc card help"
+            opts="modules scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2167,6 +2266,34 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__help__subcmd__completions)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__esim__subcmd__cert)
+            opts="verify"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__esim__subcmd__cert__subcmd__verify)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
