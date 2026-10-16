@@ -2128,6 +2128,80 @@ impl Shell {
         Ok(result)
     }
 
+    /// pySim's `update_imsi_plmn` (ts_51_011.py, EF_IMSI): the new PLMN digits replace the IMSI's
+    /// first digits and the MSIN after them is kept. The file keeps its length, so the whole EF is
+    /// written in one UPDATE BINARY and read back to verify.
+    fn cmd_update_imsi_plmn(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let plmn = args.get_one::<String>("plmn").expect("required").clone();
+        if !(plmn.len() == 5 || plmn.len() == 6) || !plmn.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(CmdErr::new(
+                "PLMN is 5 or 6 decimal digits (MCC then MNC), e.g. 23415",
+            ));
+        }
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let ef = card.ef()?;
+        if ef.fid != names::fid_of("EF.IMSI") || ef.structure != Some("transparent") {
+            return Err(CmdErr::new("select EF.IMSI first (6F07, transparent)"));
+        }
+        let size = ef.size.unwrap_or(9);
+        let current = card.read_binary(0, size)?;
+        let imsi = ef::decode_imsi(&current)
+            .map_err(|e| CmdErr::new(e.to_string()))?
+            .as_str()
+            .to_owned();
+        if imsi.len() <= plmn.len() {
+            return Err(CmdErr::new(format!(
+                "the IMSI on the card ({} digits) has no MSIN after a {}-digit PLMN",
+                imsi.len(),
+                plmn.len()
+            )));
+        }
+        let new_imsi = format!("{plmn}{}", &imsi[plmn.len()..]);
+        let body = imsi_ef_bytes(&new_imsi).map_err(CmdErr::new)?;
+        if body.len() != current.len() {
+            return Err(CmdErr::new("the new IMSI does not fit EF.IMSI"));
+        }
+        let command = update_binary_command(card.cla(), 0, &body);
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!(
+                    "dry run: would send {} (WARNING: this overwrites the IMSI on the card, {imsi} becomes {new_imsi}; add --yes to send)",
+                    hex_upper(&wire)
+                ),
+                json!({ "sent": false, "apdu": hex_upper(&wire), "previous_imsi": imsi, "imsi": new_imsi }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        if !sw.is_some_and(|s| s.is_success()) {
+            return Err(CmdErr::new(format!(
+                "UPDATE BINARY of EF.IMSI refused: {}",
+                sw_text(sw)
+            )));
+        }
+        let verified = card.read_binary(0, size)? == body;
+        Ok(Reply::ok(
+            format!(
+                "UPDATE BINARY of EF.IMSI done: IMSI is now {new_imsi} (read back: {})",
+                if verified {
+                    "matches"
+                } else {
+                    "does not match"
+                }
+            ),
+            json!({
+                "sent": true,
+                "apdu": hex_upper(&wire),
+                "sw": sw.map(|s| s.to_string()),
+                "previous_imsi": imsi,
+                "imsi": new_imsi,
+                "verified": verified,
+            }),
+        ))
+    }
+
     fn cmd_read_record(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let card = self.equipped()?;
         let ef = card.ef()?;
@@ -2415,6 +2489,24 @@ pub fn update_binary_command(cla: u8, offset: u16, data: &[u8]) -> apdu::Command
 /// the new octets. ISO/IEC 7816-4 INS 0xDC.
 pub fn update_record_command(cla: u8, record: u8, mode: u8, data: &[u8]) -> apdu::Command {
     apdu::Command::case3(apdu::Header::new(cla, 0xDC, record, mode), data.to_vec())
+}
+
+/// The 9 octets of EF.IMSI for a 14- or 15-digit IMSI: the length octet (8), then the mobile
+/// identity as TS 24.008 clause 10.5.1.4 lays it out (the inverse of [`ef::decode_imsi`]): octet 2
+/// is the first digit in b8..b5, the odd/even indicator in b4 and type of identity `001` in b3..b1;
+/// then two digits per octet, low nibble first; an even count is padded with `F`.
+pub fn imsi_ef_bytes(imsi: &str) -> Result<Vec<u8>, String> {
+    if !(14..=15).contains(&imsi.len()) || !imsi.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("an IMSI is 14 or 15 decimal digits, not {imsi:?}"));
+    }
+    let mut nib: Vec<u8> = imsi.bytes().map(|b| b - b'0').collect();
+    nib.resize(15, 0x0F);
+    let odd = imsi.len() % 2 == 1;
+    let mut body = vec![(nib[0] << 4) | (u8::from(odd) << 3) | 0x01];
+    body.extend(nib[1..].chunks(2).map(|p| (p[1] << 4) | p[0]));
+    let mut ef = vec![body.len() as u8];
+    ef.extend(body);
+    Ok(ef)
 }
 
 /// Splits a line into words: spaces separate, `'...'` and `"..."` group, a backslash escapes.
@@ -2850,6 +2942,12 @@ pub fn grammar() -> clap::Command {
                 .arg(Arg::new("mode").long("mode").value_name("HEX").default_value("04").help("P2: 04 is absolute (current) addressing"))
                 .arg(Arg::new("data").long("data").value_name("HEX").required(true).help("new bytes for the record"))
                 .arg(Arg::new("read_back").long("read-back").action(clap::ArgAction::SetTrue).help("read the record back and confirm it matches --data"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("update_imsi_plmn")
+                .about("Change the PLMN (MCC+MNC, 5 or 6 digits) of the selected EF.IMSI, keeping the MSIN; WARNING: overwrites the IMSI on the card, the network then knows the card by the new IMSI; a dry run unless --yes; reads back to verify")
+                .arg(Arg::new("plmn").required(true).value_name("PLMN").help("the new MCC+MNC, e.g. 23415"))
                 .arg(yes_arg()),
         )
         .subcommand(
@@ -3381,6 +3479,7 @@ impl Shell {
             "read_record" => self.cmd_read_record(args),
             "update_binary" => self.cmd_update_binary(args),
             "update_record" => self.cmd_update_record(args),
+            "update_imsi_plmn" => self.cmd_update_imsi_plmn(args),
             "read_records" => self.cmd_read_records(args),
             "read_binary_decoded" => self.cmd_read_decoded(Which::Binary),
             "read_record_decoded" => self.cmd_read_decoded(Which::Record(
@@ -4614,6 +4713,57 @@ mod tests {
         // both change the card, so they are NOT read-only (the shell gates them behind --yes)
         assert!(!is_read_only(0xD6));
         assert!(!is_read_only(0xDC));
+    }
+
+    #[test]
+    fn update_imsi_plmn_builds_the_ef_and_is_gated() {
+        // EF.IMSI octets for 001010123456789 (TS 51.011 10.3.2): length 8, then 09 (first digit 0,
+        // odd, type IMSI), then digit pairs low nibble first. The same bytes pySim's enc_imsi makes.
+        assert_eq!(
+            imsi_ef_bytes("001010123456789").unwrap(),
+            vec![0x08, 0x09, 0x10, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98]
+        );
+        // round trip through the decoder, for an odd (15) and an even (14) digit count
+        for imsi in ["234150123456789", "23415012345678"] {
+            let bytes = imsi_ef_bytes(imsi).unwrap();
+            assert_eq!(ef::decode_imsi(&bytes).unwrap().as_str(), imsi);
+        }
+        assert!(imsi_ef_bytes("2341501234567").is_err(), "13 digits");
+        assert!(imsi_ef_bytes("23415012345678a").is_err(), "not digits");
+        // dry run on the test card (IMSI 001010123456789): PLMN 23415 gives 234150123456789, and
+        // only the EF is read, no UPDATE BINARY is sent
+        let (mut sh, log) = shell_log();
+        assert!(sh.exec("select ADF.USIM").ok && sh.exec("select EF.IMSI").ok);
+        let before = log.borrow().len();
+        let r = sh.exec("update_imsi_plmn 23415");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["apdu"], "00D6000009082943511032547698");
+        assert_eq!(r.data["previous_imsi"], "001010123456789");
+        assert_eq!(r.data["imsi"], "234150123456789");
+        assert!(r.text.contains("WARNING"), "{}", r.text);
+        assert!(
+            log.borrow()[before..].iter().all(|c| c[1] != 0xD6),
+            "a dry run sends no UPDATE BINARY"
+        );
+        // --yes writes it, reads it back and the decoder sees the new IMSI
+        let r = sh.exec("update_imsi_plmn 23415 --yes");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(r.data["verified"], true, "{}", r.text);
+        assert!(log.borrow().iter().any(|c| c[1] == 0xD6));
+        let r = sh.exec("read_binary_decoded");
+        assert_eq!(r.data["decoded"]["imsi"], "234150123456789", "{}", r.text);
+        // refused before the card is written: a PLMN of the wrong length or with a letter, and a file
+        // that is not EF.IMSI
+        let (mut sh, log) = shell_log();
+        assert!(sh.exec("select ADF.USIM").ok && sh.exec("select EF.IMSI").ok);
+        let before = log.borrow().len();
+        let r = sh.exec("update_imsi_plmn 2341");
+        assert!(!r.ok && r.text.contains("5 or 6"), "{}", r.text);
+        assert!(!sh.exec("update_imsi_plmn 2341x").ok);
+        assert_eq!(log.borrow().len(), before, "nothing was sent");
+        assert!(sh.exec("select 3F00").ok && sh.exec("select 2FE2").ok);
+        let r = sh.exec("update_imsi_plmn 23415");
+        assert!(!r.ok && r.text.contains("select EF.IMSI"), "{}", r.text);
     }
 
     #[test]
