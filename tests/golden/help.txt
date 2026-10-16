@@ -8,6 +8,7 @@ Usage: sim-doctor <COMMAND>
 
 Commands:
   modules      Describe the crate module roots and the layering between them
+  readers      List the PC/SC readers by name and index, for --reader or --reader-index
   scan         Select a card's master file, walk everything under it, and report
   ts48         Compare a card against the public GSMA TS.48 test profile
   install      Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project
@@ -44,6 +45,15 @@ Options:
       --json  Emit the JSON envelope on stdout instead of a human-readable table
   -h, --help  Print help
 
+$ sim-doctor readers -h [exit 0]
+List the PC/SC readers by name and index, for --reader or --reader-index
+
+Usage: sim-doctor readers [OPTIONS]
+
+Options:
+      --json  Emit one JSON envelope (type "readers") on stdout, and nothing else
+  -h, --help  Print help (see more with '--help')
+
 $ sim-doctor scan -h [exit 0]
 Select a card's master file, walk everything under it, and report
 
@@ -54,6 +64,7 @@ Options:
       --tui                  Show the findings in an interactive terminal view instead of the report
       --dialect <TABLE>      Which FCP tag table this card answers SELECT with [default: ts-102-221]
       --reader <NAME>        The reader to use, matched against the driver's own name
+      --reader-index <N>     The reader to use, by its index in `sim-doctor readers` (counted from 0)
       --max-depth <N>        Deepest path below the master file the walk descends into
       --max-children <N>     Identifiers probed per directory
       --max-nodes <N>        Files the card selected across the whole walk (default 16384)
@@ -886,6 +897,7 @@ Usage: sim-doctor shell [OPTIONS]
 
 Options:
       --reader <NAME>        The reader to use, matched against the driver's own name
+      --reader-index <N>     The reader to use, by its index in `sim-doctor readers` (counted from 0)
       --dialect <TABLE>      Which FCP tag table this card answers SELECT with (see `scan --help`) [default: ts-102-221]
       --max-depth <N>        Deepest path below the master file the walk descends into
       --max-children <N>     Identifiers probed per directory
@@ -903,6 +915,7 @@ Usage: sim-doctor explore [OPTIONS]
 
 Options:
       --reader <NAME>        The reader to use, matched against the driver's own name
+      --reader-index <N>     The reader to use, by its index in `sim-doctor readers` (counted from 0)
       --dialect <TABLE>      Which FCP tag table this card answers SELECT with (see `scan --help`) [default: ts-102-221]
       --max-depth <N>        Deepest path below the master file the walk descends into
       --max-children <N>     Identifiers probed per directory

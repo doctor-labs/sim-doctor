@@ -35,10 +35,18 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(readers)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope (type "readers") on stdout, and nothing else]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (scan)
 _arguments "${_arguments_options[@]}" : \
 '--dialect=[Which FCP tag table this card answers SELECT with]:TABLE:_default' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'(--reader)--reader-index=[The reader to use, by its index in \`sim-doctor readers\` (counted from 0)]:N:_default' \
 '--max-depth=[Deepest path below the master file the walk descends into]:N:_default' \
 '--max-children=[Identifiers probed per directory]:N:_default' \
 '--max-nodes=[Files the card selected across the whole walk (default 16384)]:N:_default' \
@@ -1256,6 +1264,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(readers)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (scan)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1653,6 +1665,7 @@ esac
 _sim-doctor_commands() {
     local commands; commands=(
 'modules:Describe the crate module roots and the layering between them' \
+'readers:List the PC/SC readers by name and index, for --reader or --reader-index' \
 'scan:Select a card'\''s master file, walk everything under it, and report' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
@@ -2205,6 +2218,7 @@ _sim-doctor__subcmd__gp__subcmd__status_commands() {
 _sim-doctor__subcmd__help_commands() {
     local commands; commands=(
 'modules:Describe the crate module roots and the layering between them' \
+'readers:List the PC/SC readers by name and index, for --reader or --reader-index' \
 'scan:Select a card'\''s master file, walk everything under it, and report' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
@@ -2499,6 +2513,11 @@ _sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help ota-crypto sign commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__readers_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__readers_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help readers commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__rules_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__rules_commands() {
     local commands; commands=(
@@ -2649,6 +2668,11 @@ _sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__sign_commands() {
 _sim-doctor__subcmd__ota-crypto__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor ota-crypto sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__readers_commands] )) ||
+_sim-doctor__subcmd__readers_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor readers commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__rules_commands] )) ||
 _sim-doctor__subcmd__rules_commands() {

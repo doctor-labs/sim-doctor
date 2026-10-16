@@ -23,6 +23,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -V 'Print version'
             cand --version 'Print version'
             cand modules 'Describe the crate module roots and the layering between them'
+            cand readers 'List the PC/SC readers by name and index, for --reader or --reader-index'
             cand scan 'Select a card''s master file, walk everything under it, and report'
             cand ts48 'Compare a card against the public GSMA TS.48 test profile'
             cand install 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project'
@@ -49,9 +50,15 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'sim-doctor;readers'= {
+            cand --json 'Emit one JSON envelope (type "readers") on stdout, and nothing else'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
         &'sim-doctor;scan'= {
             cand --dialect 'Which FCP tag table this card answers SELECT with'
             cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --reader-index 'The reader to use, by its index in `sim-doctor readers` (counted from 0)'
             cand --max-depth 'Deepest path below the master file the walk descends into'
             cand --max-children 'Identifiers probed per directory'
             cand --max-nodes 'Files the card selected across the whole walk (default 16384)'
@@ -750,6 +757,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;help'= {
             cand modules 'Describe the crate module roots and the layering between them'
+            cand readers 'List the PC/SC readers by name and index, for --reader or --reader-index'
             cand scan 'Select a card''s master file, walk everything under it, and report'
             cand ts48 'Compare a card against the public GSMA TS.48 test profile'
             cand install 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project'
@@ -772,6 +780,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;help;modules'= {
+        }
+        &'sim-doctor;help;readers'= {
         }
         &'sim-doctor;help;scan'= {
         }
