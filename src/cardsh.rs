@@ -7093,123 +7093,6 @@ mod tests {
             );
         }
     }
-}
-
-#[cfg(test)]
-mod file_management_tests {
-    use super::testcard::*;
-
-    #[test]
-    fn create_ef_is_a_dry_run_that_prints_the_apdu_then_sends_with_yes() {
-        let (mut sh, log) = shell_log();
-        let r = sh.exec("create_ef 6f99 --size 16");
-        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
-        assert!(
-            r.text.contains("WARNING") && r.text.contains("--yes"),
-            "{}",
-            r.text
-        );
-        assert!(r.text.contains("00E000001162"), "{}", r.text);
-        assert!(log.borrow().is_empty(), "nothing reached the card");
-        // the test card does not know CREATE FILE and answers 6D00: the refusal is reported
-        let r = sh.exec("create_ef 6f99 --size 16 --yes");
-        assert!(!r.ok, "{}", r.text);
-        assert_eq!(r.data["sw"], "6D00");
-        assert_eq!(log.borrow().len(), 1, "one CREATE FILE");
-        assert_eq!(log.borrow()[0][..5], [0x00, 0xE0, 0x00, 0x00, 0x11]);
-    }
-
-    #[test]
-    fn create_ef_refuses_a_bad_geometry_before_anything_is_sent() {
-        let (mut sh, log) = shell_log();
-        assert!(
-            !sh.exec("create_ef 6f99 --size 16 --structure linear --yes")
-                .ok
-        );
-        assert!(
-            !sh.exec("create_ef 6f99 --size 17 --structure linear --record-length 4 --yes")
-                .ok
-        );
-        assert!(
-            !sh.exec("create_ef 6f99 --size 16 --record-length 4 --yes")
-                .ok
-        );
-        assert!(
-            !sh.exec("create_ef 6f9 --size 16 --yes").ok,
-            "a file ID is two octets"
-        );
-        assert!(log.borrow().is_empty());
-    }
-
-    #[test]
-    fn create_df_and_resize_ef_are_dry_runs_and_sent_with_yes() {
-        let (mut sh, log) = shell_log();
-        let r = sh.exec("create_df 7f21");
-        assert!(
-            r.ok && r.data["sent"] == false && r.text.contains("WARNING"),
-            "{}",
-            r.text
-        );
-        let r = sh.exec("resize_ef 6f99 --size 32");
-        assert!(
-            r.ok && r.data["sent"] == false && r.text.contains("permanently"),
-            "{}",
-            r.text
-        );
-        assert!(log.borrow().is_empty());
-        let r = sh.exec("resize_ef 6f99 --size 32 --yes");
-        assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
-        assert_eq!(log.borrow()[0][..4], [0x80, 0xD4, 0x00, 0x00]);
-    }
-
-    #[test]
-    fn delete_file_is_a_dry_run_that_warns_it_is_permanent() {
-        let (mut sh, log) = shell_log();
-        let r = sh.exec("delete_file 6f99");
-        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
-        assert!(
-            r.text.contains("PERMANENTLY") && r.text.contains("--yes"),
-            "{}",
-            r.text
-        );
-        assert!(log.borrow().is_empty());
-        sh.opts.yes = true;
-        let r = sh.exec("delete_file 6f99");
-        assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
-        assert_eq!(log.borrow()[0], [0x00, 0xE4, 0x00, 0x00, 0x02, 0x6F, 0x99]);
-    }
-
-    #[test]
-    fn get_identity_is_sent_without_yes_gate() {
-        // GET IDENTITY is a read-only command, so it's always sent (no --yes gate)
-        let (mut sh, log) = shell_log();
-        sh.exec("select ADF.USIM");
-        let r = sh.exec("get_identity");
-        assert!(r.ok, "{}", r.text);
-        assert_eq!(
-            r.data["sent"], true,
-            "GET IDENTITY should always be sent (read-only, no --yes gate)"
-        );
-        // TS 31.102 7.5.2: CLA 80 (basic channel), INS 78, P1 00, P2 01 (SUCI context), Le 00.
-        let apdu = r.data["apdu"].as_str().unwrap();
-        assert_eq!(apdu, "8078000100", "SUCI context");
-        let r = sh.exec("get_identity --nswo-context");
-        assert_eq!(
-            r.data["apdu"].as_str().unwrap(),
-            "8078000200",
-            "5G NSWO context"
-        );
-        // Verify the command was logged
-        let sent = log.borrow().clone();
-        let get_id = sent.iter().find(|c| c[1] == 0x78);
-        assert!(get_id.is_some(), "GET IDENTITY command should be in log");
-        // The response should have data and status word
-        let data = r.data["data"].as_str().unwrap();
-        assert!(
-            !data.is_empty() || r.data["sw"] == "9000",
-            "Should have identity data or SW 9000"
-        );
-    }
 
     #[test]
     fn edit_decoded_encodes_iccid_and_raw_files_and_refuses_the_rest() {
@@ -7481,5 +7364,122 @@ mod file_management_tests {
             assert!(!r.ok, "record {n}: {}", r.text);
             assert_eq!(log.borrow().len(), before, "record {n} sent an APDU");
         }
+    }
+}
+
+#[cfg(test)]
+mod file_management_tests {
+    use super::testcard::*;
+
+    #[test]
+    fn create_ef_is_a_dry_run_that_prints_the_apdu_then_sends_with_yes() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("create_ef 6f99 --size 16");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(
+            r.text.contains("WARNING") && r.text.contains("--yes"),
+            "{}",
+            r.text
+        );
+        assert!(r.text.contains("00E000001162"), "{}", r.text);
+        assert!(log.borrow().is_empty(), "nothing reached the card");
+        // the test card does not know CREATE FILE and answers 6D00: the refusal is reported
+        let r = sh.exec("create_ef 6f99 --size 16 --yes");
+        assert!(!r.ok, "{}", r.text);
+        assert_eq!(r.data["sw"], "6D00");
+        assert_eq!(log.borrow().len(), 1, "one CREATE FILE");
+        assert_eq!(log.borrow()[0][..5], [0x00, 0xE0, 0x00, 0x00, 0x11]);
+    }
+
+    #[test]
+    fn create_ef_refuses_a_bad_geometry_before_anything_is_sent() {
+        let (mut sh, log) = shell_log();
+        assert!(
+            !sh.exec("create_ef 6f99 --size 16 --structure linear --yes")
+                .ok
+        );
+        assert!(
+            !sh.exec("create_ef 6f99 --size 17 --structure linear --record-length 4 --yes")
+                .ok
+        );
+        assert!(
+            !sh.exec("create_ef 6f99 --size 16 --record-length 4 --yes")
+                .ok
+        );
+        assert!(
+            !sh.exec("create_ef 6f9 --size 16 --yes").ok,
+            "a file ID is two octets"
+        );
+        assert!(log.borrow().is_empty());
+    }
+
+    #[test]
+    fn create_df_and_resize_ef_are_dry_runs_and_sent_with_yes() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("create_df 7f21");
+        assert!(
+            r.ok && r.data["sent"] == false && r.text.contains("WARNING"),
+            "{}",
+            r.text
+        );
+        let r = sh.exec("resize_ef 6f99 --size 32");
+        assert!(
+            r.ok && r.data["sent"] == false && r.text.contains("permanently"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty());
+        let r = sh.exec("resize_ef 6f99 --size 32 --yes");
+        assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
+        assert_eq!(log.borrow()[0][..4], [0x80, 0xD4, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn delete_file_is_a_dry_run_that_warns_it_is_permanent() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("delete_file 6f99");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(
+            r.text.contains("PERMANENTLY") && r.text.contains("--yes"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty());
+        sh.opts.yes = true;
+        let r = sh.exec("delete_file 6f99");
+        assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
+        assert_eq!(log.borrow()[0], [0x00, 0xE4, 0x00, 0x00, 0x02, 0x6F, 0x99]);
+    }
+
+    #[test]
+    fn get_identity_is_sent_without_yes_gate() {
+        // GET IDENTITY is a read-only command, so it's always sent (no --yes gate)
+        let (mut sh, log) = shell_log();
+        sh.exec("select ADF.USIM");
+        let r = sh.exec("get_identity");
+        assert!(r.ok, "{}", r.text);
+        assert_eq!(
+            r.data["sent"], true,
+            "GET IDENTITY should always be sent (read-only, no --yes gate)"
+        );
+        // TS 31.102 7.5.2: CLA 80 (basic channel), INS 78, P1 00, P2 01 (SUCI context), Le 00.
+        let apdu = r.data["apdu"].as_str().unwrap();
+        assert_eq!(apdu, "8078000100", "SUCI context");
+        let r = sh.exec("get_identity --nswo-context");
+        assert_eq!(
+            r.data["apdu"].as_str().unwrap(),
+            "8078000200",
+            "5G NSWO context"
+        );
+        // Verify the command was logged
+        let sent = log.borrow().clone();
+        let get_id = sent.iter().find(|c| c[1] == 0x78);
+        assert!(get_id.is_some(), "GET IDENTITY command should be in log");
+        // The response should have data and status word
+        let data = r.data["data"].as_str().unwrap();
+        assert!(
+            !data.is_empty() || r.data["sw"] == "9000",
+            "Should have identity data or SW 9000"
+        );
     }
 }
