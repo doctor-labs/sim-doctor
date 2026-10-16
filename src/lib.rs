@@ -152,6 +152,7 @@ pub mod scp02;
 pub mod scp03;
 pub mod scp03t;
 pub mod scp11;
+pub mod scp8x;
 pub mod session;
 pub mod sign;
 pub mod signals;
