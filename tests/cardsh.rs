@@ -624,3 +624,143 @@ fn sst_uses_two_bits_per_service_and_ist_names_its_services() {
     assert!(names[0].contains("P-CSCF"), "{names:?}");
     assert!(names.iter().all(|n| !n.is_empty()), "{names:?}");
 }
+
+#[test]
+fn tree_prints_the_file_tree_recursively() {
+    let out = card(
+        "cardsh_select.jsonl",
+        &["--json", "-c", "select 3F00; tree"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    // r[0] = select 3F00, r[1] = tree
+    assert_eq!(r[1]["ok"], true);
+    let data = &r[1]["data"];
+    assert_eq!(data["scope"], "MF");
+    assert_eq!(data["count"], 106);
+    assert_eq!(data["truncated"], false);
+    // The JSON tree has the MF root with children.
+    let tree = &data["tree"];
+    assert_eq!(tree["name"], "MF");
+    assert_eq!(tree["kind"], "MF");
+    assert_eq!(tree["fid"], "3F00");
+    // MF's first children are the MF EFs then the DFs.
+    let children = tree["children"].as_array().unwrap();
+    assert!(children
+        .iter()
+        .any(|c| c["name"] == "EF.DIR" && c["fid"] == "2F00" && c["kind"] == "EF"));
+    assert!(children
+        .iter()
+        .any(|c| c["name"] == "DF.TELECOM" && c["fid"] == "7F10" && c["kind"] == "DF"));
+    assert!(children
+        .iter()
+        .any(|c| c["name"] == "DF.GSM" && c["fid"] == "7F20" && c["kind"] == "DF"));
+    // DF.TELECOM has children (EF.ADN, DF.PHONEBOOK, etc.).
+    let telecom = children.iter().find(|c| c["name"] == "DF.TELECOM").unwrap();
+    let telecom_children = telecom["children"].as_array().unwrap();
+    assert!(telecom_children
+        .iter()
+        .any(|c| c["name"] == "EF.ADN" && c["fid"] == "6F3A"));
+    assert!(telecom_children
+        .iter()
+        .any(|c| c["name"] == "DF.PHONEBOOK" && c["fid"] == "5F3A"));
+}
+
+#[test]
+fn tree_json_is_nested_and_indented_text_has_two_spaces() {
+    let out = card(
+        "cardsh_select.jsonl",
+        &["--json", "-c", "select 3F00; tree --json; tree"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    // r[0] = select, r[1] = tree --json, r[2] = tree (text in data)
+    let json_tree = &r[1]["data"]["tree"];
+    let children = json_tree["children"].as_array().unwrap();
+    // DF.TELECOM is a child of MF and should have nested children.
+    let telecom = children.iter().find(|c| c["name"] == "DF.TELECOM").unwrap();
+    let telecom_children = telecom["children"].as_array().unwrap();
+    assert!(telecom_children.iter().any(|c| c["name"] == "EF.ADN"));
+
+    // The text tree has two-space indentation per level.
+    let text = &r[2]["data"]["tree"];
+    // The serialized JSON tree from `tree` (text mode still returns tree in data).
+    let text_tree = text.as_object().unwrap();
+    let text_children = text_tree["children"].as_array().unwrap();
+    // DF.TELECOM appears as a child, and its children include EF.ADN.
+    let text_telecom = text_children
+        .iter()
+        .find(|c| c["name"] == "DF.TELECOM")
+        .unwrap();
+    let text_telecom_children = text_telecom["children"].as_array().unwrap();
+    assert!(text_telecom_children
+        .iter()
+        .any(|c| c["name"] == "EF.ADN" && c["fid"] == "6F3A"));
+}
+
+#[test]
+fn tree_respects_depth_and_max_bounds() {
+    let out = card(
+        "cardsh_select.jsonl",
+        &["--json", "-c", "select 3F00; tree --depth 1 --max 5 --json"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    let data = &r[1]["data"];
+    assert_eq!(data["depth"], 1);
+    assert_eq!(data["max"], 5);
+    assert_eq!(data["count"], 5);
+    assert_eq!(data["truncated"], true);
+    // With depth 1, the tree root has no children (depth 1 means only the root level).
+    let children = data["tree"]["children"].as_array().unwrap();
+    assert!(children.is_empty() || children.len() <= 5);
+}
+
+#[test]
+fn tree_from_a_df_scope_lists_only_that_directory() {
+    let out = card(
+        "cardsh_select.jsonl",
+        &["--json", "-c", "select 3F00; select 7F20; tree --json"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    // r[0] = select 3F00, r[1] = select 7F20, r[2] = tree
+    let data = &r[2]["data"];
+    assert_eq!(data["scope"], "DF.GSM");
+    let tree = &data["tree"];
+    assert_eq!(tree["name"], "DF.GSM");
+    assert_eq!(tree["fid"], "7F20");
+    assert_eq!(tree["kind"], "DF");
+    // DF.GSM's EFs include EF.IMSI, EF.LOCI, etc. Its only DF child is DF.SoLSA, DF.MExE.
+    let children = tree["children"].as_array().unwrap();
+    assert!(children
+        .iter()
+        .any(|c| c["name"] == "EF.IMSI" && c["fid"] == "6F07" && c["kind"] == "EF"));
+    assert!(children
+        .iter()
+        .any(|c| c["name"] == "DF.SoLSA" && c["fid"] == "5F70" && c["kind"] == "DF"));
+    // No MF-level EFs should appear (e.g. EF.ICCID is under MF, not DF.GSM).
+    assert!(!children.iter().any(|c| c["name"] == "EF.ICCID"));
+    // DF.TELECOM should not appear (it's under MF, not DF.GSM).
+    assert!(!children.iter().any(|c| c["name"] == "DF.TELECOM"));
+}

@@ -273,6 +273,156 @@ fn path_arg(path: &str) -> String {
     }
 }
 
+/// A node in the file tree built by [`TreeBuilder`].
+#[derive(Debug, Clone)]
+struct TreeNode {
+    name: String,
+    fid: String,
+    kind: &'static str,
+    children: Vec<TreeNode>,
+}
+
+impl TreeNode {
+    fn json(&self) -> Value {
+        json!({
+            "name": self.name,
+            "fid": self.fid,
+            "kind": self.kind,
+            "children": self.children.iter().map(|c| c.json()).collect::<Vec<_>>(),
+        })
+    }
+
+    /// Appends this node's line and recurses, indented `depth` levels (two spaces each).
+    fn text(&self, out: &mut String, depth: u8, max_depth: u8) {
+        if depth >= max_depth {
+            return;
+        }
+        let indent = "  ".repeat(depth as usize);
+        out.push_str(&format!(
+            "{}{} {} {}\n",
+            indent, self.name, self.fid, self.kind
+        ));
+        for child in &self.children {
+            child.text(out, depth + 1, max_depth);
+        }
+    }
+}
+
+/// Builds the recursive file tree from the name catalog (no card I/O).
+struct TreeBuilder {
+    root: TreeNode,
+    count: u32,
+    max_entries: u32,
+    max_depth: u8,
+}
+
+impl TreeBuilder {
+    fn new(scope: &str, max_depth: u8, max_entries: u32) -> Self {
+        let fid = if scope == "MF" {
+            FileId::MASTER_FILE.to_string()
+        } else {
+            names::DIRS
+                .iter()
+                .find(|(n, _, _)| *n == scope)
+                .map(|(_, fid, _)| FileId::from_bytes(fid.to_be_bytes()).to_string())
+                .unwrap_or_default()
+        };
+        Self {
+            root: TreeNode {
+                name: scope_name(scope).to_owned(),
+                fid,
+                kind: if scope == "MF" { "MF" } else { "DF" },
+                children: Vec::new(),
+            },
+            count: 0,
+            max_entries,
+            max_depth,
+        }
+    }
+
+    fn build(&mut self) {
+        let scope = self.root.name.clone();
+        let max_depth = self.max_depth;
+        let max_entries = self.max_entries;
+        let mut count = 0u32;
+        Self::fill(
+            &mut self.root,
+            &scope,
+            0,
+            max_depth,
+            max_entries,
+            &mut count,
+        );
+        self.count = count;
+    }
+
+    fn fill(
+        node: &mut TreeNode,
+        scope: &str,
+        depth: u8,
+        max_depth: u8,
+        max_entries: u32,
+        count: &mut u32,
+    ) {
+        if *count >= max_entries || depth >= max_depth {
+            return;
+        }
+        // EFs: every names::all() entry whose scope == scope.
+        for e in names::all() {
+            if *count >= max_entries {
+                break;
+            }
+            if e.scope == scope {
+                *count += 1;
+                node.children.push(TreeNode {
+                    name: e.name.to_owned(),
+                    fid: e.fid.to_string(),
+                    kind: "EF",
+                    children: Vec::new(),
+                });
+            }
+        }
+        // DFs: every names::DIRS entry whose parent == scope.
+        for (name, fid, parent) in names::DIRS {
+            if *count >= max_entries {
+                break;
+            }
+            if *parent == scope {
+                let fid_str = FileId::from_bytes(fid.to_be_bytes()).to_string();
+                *count += 1;
+                let mut child = TreeNode {
+                    name: (*name).to_owned(),
+                    fid: fid_str,
+                    kind: "DF",
+                    children: Vec::new(),
+                };
+                Self::fill(&mut child, name, depth + 1, max_depth, max_entries, count);
+                node.children.push(child);
+            }
+        }
+    }
+
+    fn root_json(&self) -> Value {
+        self.root.json()
+    }
+
+    fn root_text(&self, out: &mut String) {
+        for child in &self.root.children {
+            child.text(out, 1, self.max_depth);
+        }
+    }
+
+    /// Whether the tree was truncated by the entry cap.
+    fn truncated(&self) -> bool {
+        self.count >= self.max_entries
+    }
+}
+
+/// The display label of a scope for the tree root line.
+fn scope_name(scope: &str) -> &str {
+    scope
+}
+
 /// Is this a DF by its identifier alone (3F, 7F, 5F)? Only used when the card sent no FCP.
 fn df_by_fid(fid: FileId) -> bool {
     matches!(fid.to_bytes()[0], 0x3F | 0x7F | 0x5F)
@@ -2525,6 +2675,13 @@ pub fn grammar() -> clap::Command {
         )
         .subcommand(C::new("desc").about("Describe the selected file: name, description, structure, sizes (from the last SELECT)"))
         .subcommand(
+            C::new("tree")
+                .about("Print the file tree of the current directory recursively (from the file catalog; sends nothing)")
+                .arg(Arg::new("json").long("json").action(clap::ArgAction::SetTrue).help("Emit the tree as nested JSON instead of indented text"))
+                .arg(Arg::new("depth").long("depth").value_name("N").value_parser(clap::value_parser!(u8).range(0..=16)).help("Bound the recursion depth (default 16)"))
+                .arg(Arg::new("max").long("max").value_name("N").value_parser(clap::value_parser!(u32).range(1..=1024)).help("Bound the number of entries (default 1024)")),
+        )
+        .subcommand(
             C::new("verify_chv")
                 .about("VERIFY a PIN (default PIN1) with the value from --chv-file / --chv-env; a dry run unless --yes")
                 .arg(Arg::new("pin_nr").long("pin-nr").value_name("N").value_parser(clap::value_parser!(u8).range(1..=8)).help("PIN number: 1 is PIN1, 2 is PIN2 (key reference 81), 3-8 application PINs"))
@@ -2936,6 +3093,7 @@ impl Shell {
             )),
             "dir" => self.cmd_dir(args),
             "desc" => self.cmd_desc(),
+            "tree" => self.cmd_tree(args),
             "verify_chv" => self.cmd_verify_chv(args),
             "unblock_chv" => self.cmd_unblock_chv(args),
             "change_chv" => self.cmd_change_chv(args),
@@ -3427,6 +3585,50 @@ impl Shell {
             "fcp": file.fcp,
         });
         Ok(Reply::ok(text, data))
+    }
+
+    /// `tree`: print the current DF's file tree recursively (from the file catalog; sends nothing).
+    fn cmd_tree(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let card = self.equipped()?;
+        let chan = card.chans.get(&card.channel).expect("channel in use");
+        let scopes = names::scopes_of(&chan.dir, chan.adf.as_deref());
+        let scope = scopes.first().copied().unwrap_or("MF");
+
+        let max_depth: u8 = args.get_one::<u8>("depth").copied().unwrap_or(16);
+        let max_entries: u32 = args.get_one::<u32>("max").copied().unwrap_or(1024);
+        let json = args.get_flag("json");
+
+        let mut tree = TreeBuilder::new(scope, max_depth, max_entries);
+        tree.build();
+        let truncated = tree.truncated();
+
+        if json {
+            let data = json!({
+                "path": chan.path(),
+                "scope": scope,
+                "depth": max_depth,
+                "max": max_entries,
+                "count": tree.count,
+                "truncated": truncated,
+                "tree": tree.root_json(),
+            });
+            Ok(Reply::ok(String::new(), data))
+        } else {
+            let mut text = String::new();
+            text.push_str(&format!("{}\n", scope_name(scope)));
+            tree.root_text(&mut text);
+            text.push_str(&format!("{} files\n", tree.count));
+            let data = json!({
+                "path": chan.path(),
+                "scope": scope,
+                "depth": max_depth,
+                "max": max_entries,
+                "count": tree.count,
+                "truncated": truncated,
+                "tree": tree.root_json(),
+            });
+            Ok(Reply::ok(text, data))
+        }
     }
 
     /// `decode_hex HEX...`: decode hex with the SELECTED file's decoder, offline (sends nothing).
