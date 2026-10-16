@@ -45,15 +45,32 @@ pub fn is_capture(bytes: &[u8]) -> bool {
 /// SIM APDU in it. Never panics.
 pub fn parse(bytes: &[u8]) -> Result<Vec<Pair>, String> {
     let mut apdus = Vec::new();
-    if bytes.get(..4) == Some(&[0x0A, 0x0D, 0x0D, 0x0A]) {
-        pcapng(bytes, &mut apdus)?;
-    } else {
-        classic(bytes, &mut apdus)?;
-    }
+    for_each_frame(bytes, &mut |link, frame| {
+        if let Some(apdu) = gsmtap_apdu(link, frame) {
+            apdus.push(apdu);
+        }
+    })?;
     if apdus.is_empty() {
-        return Err("the capture holds no GSMTAP SIM APDU packets (UDP port 4729, GSMTAP type SIM, sub-type APDU)".into());
+        // No GSMTAP: the same file may hold RSPRO (osmo-remsim) traffic instead.
+        let pairs = super::rspro::parse(bytes)?;
+        if pairs.is_empty() {
+            return Err("the capture holds no GSMTAP SIM APDU packets (UDP port 4729, GSMTAP type SIM, sub-type APDU) and no RSPRO messages (TCP, IPA proto 0xEE, RSPRO ext 0x07)".into());
+        }
+        return Ok(pairs);
     }
     Ok(apdus.iter().filter_map(|a| split_apdu(a)).collect())
+}
+
+/// Calls `visit(link_type, frame)` for every record of a pcap or pcapng file.
+pub(super) fn for_each_frame(
+    bytes: &[u8],
+    visit: &mut dyn FnMut(u32, &[u8]),
+) -> Result<(), String> {
+    if bytes.get(..4) == Some(&[0x0A, 0x0D, 0x0D, 0x0A]) {
+        pcapng(bytes, visit)
+    } else {
+        classic(bytes, visit)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -80,7 +97,7 @@ impl Order {
 
 const TRUNCATED: &str = "the capture is truncated or malformed";
 
-fn classic(b: &[u8], out: &mut Vec<Vec<u8>>) -> Result<(), String> {
+fn classic(b: &[u8], visit: &mut dyn FnMut(u32, &[u8])) -> Result<(), String> {
     let le = match b.get(..4) {
         Some([0xD4, 0xC3, 0xB2, 0xA1] | [0x4D, 0x3C, 0xB2, 0xA1]) => true,
         Some([0xA1, 0xB2, 0xC3, 0xD4] | [0xA1, 0xB2, 0x3C, 0x4D]) => false,
@@ -95,15 +112,13 @@ fn classic(b: &[u8], out: &mut Vec<Vec<u8>>) -> Result<(), String> {
         let data = b
             .get(pos + 16..pos.saturating_add(16).saturating_add(incl))
             .ok_or(TRUNCATED)?;
-        if let Some(apdu) = gsmtap_apdu(link, data) {
-            out.push(apdu);
-        }
+        visit(link, data);
         pos += 16 + incl;
     }
     Ok(())
 }
 
-fn pcapng(b: &[u8], out: &mut Vec<Vec<u8>>) -> Result<(), String> {
+fn pcapng(b: &[u8], visit: &mut dyn FnMut(u32, &[u8])) -> Result<(), String> {
     let mut o = Order(true);
     let mut links: Vec<u32> = Vec::new();
     let mut pos = 0;
@@ -130,16 +145,16 @@ fn pcapng(b: &[u8], out: &mut Vec<Vec<u8>>) -> Result<(), String> {
                 let iface = o.u32(body).ok_or(TRUNCATED)? as usize;
                 let cap = o.u32(body.get(12..).ok_or(TRUNCATED)?).ok_or(TRUNCATED)? as usize;
                 let data = body.get(20..).and_then(|d| d.get(..cap)).ok_or(TRUNCATED)?;
-                if let Some(apdu) = links.get(iface).and_then(|&l| gsmtap_apdu(l, data)) {
-                    out.push(apdu);
+                if let Some(&link) = links.get(iface) {
+                    visit(link, data);
                 }
             }
             3 => {
                 let orig = o.u32(body).ok_or(TRUNCATED)? as usize;
                 let data = body.get(4..).ok_or(TRUNCATED)?;
                 let data = &data[..orig.min(data.len())];
-                if let Some(apdu) = links.first().and_then(|&l| gsmtap_apdu(l, data)) {
-                    out.push(apdu);
+                if let Some(&link) = links.first() {
+                    visit(link, data);
                 }
             }
             _ => {}
@@ -149,8 +164,16 @@ fn pcapng(b: &[u8], out: &mut Vec<Vec<u8>>) -> Result<(), String> {
     Ok(())
 }
 
-/// The APDU bytes of one captured frame, or None when it is not GSMTAP SIM APDU.
-fn gsmtap_apdu(link: u32, frame: &[u8]) -> Option<Vec<u8>> {
+/// An unfragmented IPv4 packet taken out of a captured frame.
+pub(super) struct Ipv4<'a> {
+    pub proto: u8,
+    pub src: [u8; 4],
+    pub dst: [u8; 4],
+    pub payload: &'a [u8],
+}
+
+/// The IPv4 packet inside one captured frame, or None when there is none.
+pub(super) fn ipv4(link: u32, frame: &[u8]) -> Option<Ipv4<'_>> {
     let ip = match link {
         1 => {
             let ethertype = frame.get(12..14)?;
@@ -164,14 +187,28 @@ fn gsmtap_apdu(link: u32, frame: &[u8]) -> Option<Vec<u8>> {
         _ => return None,
     };
     let ihl = usize::from(ip.first()? & 0x0F) * 4;
-    if ip[0] >> 4 != 4 || ihl < 20 || *ip.get(9)? != 17 {
+    if ip[0] >> 4 != 4 || ihl < 20 {
         return None;
     }
     let frag = u16::from_be_bytes([*ip.get(6)?, *ip.get(7)?]);
     if frag & 0x3FFF != 0 {
-        return None; // fragmented; GSMTAP SIM APDUs are tiny
+        return None; // fragmented; GSMTAP SIM APDUs and RSPRO segments are small
     }
-    let udp = ip.get(ihl..)?;
+    Some(Ipv4 {
+        proto: *ip.get(9)?,
+        src: ip.get(12..16)?.try_into().ok()?,
+        dst: ip.get(16..20)?.try_into().ok()?,
+        payload: ip.get(ihl..)?,
+    })
+}
+
+/// The APDU bytes of one captured frame, or None when it is not GSMTAP SIM APDU.
+fn gsmtap_apdu(link: u32, frame: &[u8]) -> Option<Vec<u8>> {
+    let ip = ipv4(link, frame)?;
+    if ip.proto != 17 {
+        return None;
+    }
+    let udp = ip.payload;
     if u16::from_be_bytes([*udp.get(2)?, *udp.get(3)?]) != GSMTAP_PORT {
         return None;
     }

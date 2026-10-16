@@ -18,6 +18,7 @@ pub const NAME: &str = "trace";
 use serde_json::{json, Value};
 
 pub mod pcap;
+mod rspro;
 
 use crate::apdu::{Command, StatusWord};
 
