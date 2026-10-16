@@ -27,6 +27,7 @@ All notable changes to this project are documented here. The format follows
 - `sim-doctor sms decode`: offline SMS TPDU decoder (DELIVER, SUBMIT, STATUS-REPORT; GSM 7-bit, 8-bit, UCS2; UDH and concatenation) (#199).
 
 - `sim-doctor ota-crypto`: offline DES/3DES/AES-CBC encrypt and decrypt, cryptographic checksum sign and check (CBC-MAC, AES-CMAC), as pySim's OTA layer uses (#204).
+- `decode`/reads: EF.LI, EF.RPLMNAcT, EF.VGCSCA and EF.VBSCA decode as a `TransRecEF` — a transparent EF split into fixed 2-octet records, each record decoded on its own with a short trailing remainder shown raw, matching pySim's `filesystem.py:1259` (`#178`).
 - `decode`/reads: EF.SST decoded with two bits per service (allocated, activated) and EF.IST services named, from pySim's tables (#171).
 - `card` shell: `decode_hex`, as in pySim-shell: decode hex with the selected file's decoder, offline (#169).
 - `card` shell: `cardinfo` (reader, ATR, profile, class byte, ICCID, channels), as in pySim-shell (#161).

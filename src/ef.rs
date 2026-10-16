@@ -137,6 +137,19 @@ pub enum Ef {
     SuciCalcInfo,
     /// EF.Routing_Indicator `4F0A` under DF.5GS `5FC0` (TS 31.102 clause 4.4.11.11).
     RoutingIndicator,
+    /// EF.LI `6F05` under an application: a transparent EF of fixed 2-octet records,
+    /// each a 2-character language code. pySim models it as `TransRecEF`
+    /// (filesystem.py:1259). TS 31.102 clause 4.2.60.
+    Li,
+    /// EF.RPLMNAcT `6F65` under an application: a transparent EF of fixed 2-octet
+    /// records, each an access-technology field. TS 31.102 clause 4.2.56.
+    RplmnAct,
+    /// EF.VGCSCA `6FD4` under an application: a transparent EF of fixed 2-octet
+    /// records, each two ciphering-algorithm octets. TS 31.102 clause 4.2.77.
+    VgcscA,
+    /// EF.VBSCA `6FD5` under an application: like EF.VGCSCA but for the broadcast
+    /// service. TS 31.102 clause 4.2.78.
+    Vbsca,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -174,6 +187,10 @@ impl Ef {
             Self::ManuArea => "EF.MANUAREA",
             Self::SuciCalcInfo => "EF.SUCI_Calc_Info",
             Self::RoutingIndicator => "EF.Routing_Indicator",
+            Self::Li => "EF.LI",
+            Self::RplmnAct => "EF.RPLMNAcT",
+            Self::VgcscA => "EF.VGCSCA",
+            Self::Vbsca => "EF.VBSCA",
         }
     }
 
@@ -249,6 +266,11 @@ pub fn classify(path: &Path) -> Option<Ef> {
         [0x6F, 0x78] if adf || gsm => Some(Ef::Acc),
         [0x6F, 0x3A] if telecom => Some(Ef::Adn),
         [0x6F, 0x3B] if adf || telecom => Some(Ef::Fdn),
+        // TransRecEF: transparent EFs of fixed 2-octet records (pySim filesystem.py:1259).
+        [0x6F, 0x05] if adf || gsm => Some(Ef::Li),
+        [0x6F, 0x65] if adf || gsm => Some(Ef::RplmnAct),
+        [0x6F, 0xD4] if adf || gsm => Some(Ef::VgcscA),
+        [0x6F, 0xD5] if adf || gsm => Some(Ef::Vbsca),
         _ => None,
     }
 }
@@ -837,6 +859,123 @@ pub fn decode_routing_indicator(bytes: &[u8]) -> Result<Digits, Malformed> {
     Ok(Digits(digits_of(swapped(&[*a, *b]))?))
 }
 
+// ---------------------------------------------------------------------------
+// TransRecEF decoders (pySim filesystem.py:1259)
+// ---------------------------------------------------------------------------
+
+/// Splits a transparent EF body (`bytes`) into fixed-size records of `rec_len`
+/// octets, returning the records and any trailing remainder that does not fill a
+/// whole record. Mirrors pySim's `TransRecEF.decode_record_*` short-record rule:
+/// a body shorter than one record, or with a trailing partial, is kept as raw
+/// remainder bytes rather than rejected.
+fn split_records(bytes: &[u8], rec_len: usize) -> (Vec<&[u8]>, &[u8]) {
+    match rec_len {
+        0 => (Vec::new(), bytes),
+        _ => {
+            let full = bytes.len() / rec_len;
+            let (records, remainder) = bytes.split_at(full * rec_len);
+            (records.chunks_exact(rec_len).collect(), remainder)
+        }
+    }
+}
+
+/// One used record of a TransRecEF whose record decodes to an optional value
+/// (`None` for an unused `FF`-padded record). `decode_rec` reads one record's
+/// bytes into its decoded form.
+fn decode_records<T, E>(
+    bytes: &[u8],
+    rec_len: usize,
+    decode_rec: impl Fn(&[u8]) -> Result<Option<T>, E>,
+) -> Result<(Vec<T>, Vec<u8>), E> {
+    let (records, remainder) = split_records(bytes, rec_len);
+    let mut out = Vec::with_capacity(records.len());
+    for r in records {
+        if let Some(t) = decode_rec(r)? {
+            out.push(t);
+        }
+    }
+    Ok((out, remainder.to_vec()))
+}
+
+/// One decoded 2-octet AcT field as the named access technologies.
+///
+/// Reuses the SAME bit semantics as [`PlmnEntry::act_names`]: TS 31.102 clause
+/// 4.2.5 — octet 1 b8 UTRAN, b7 E-UTRAN, b6 NG-RAN; octet 2 b8 GSM, b7 GSM
+/// COMPACT, b6 cdma2000 HRPD, b5 cdma2000 1xRTT. This is the AcT field shared by
+/// EF.OPLMNwAcT / EF.HPLMNwAcT and each 2-octet record of EF.RPLMNAcT.
+fn act_names(act: [u8; 2]) -> Vec<&'static str> {
+    // (octet index, mask, name) — matches the table in `PlmnEntry::act_names`.
+    const NAMES: [(usize, u8, &str); 7] = [
+        (0, 0x80, "UTRAN"),
+        (0, 0x40, "E-UTRAN"),
+        (0, 0x20, "NG-RAN"),
+        (1, 0x80, "GSM"),
+        (1, 0x40, "GSM COMPACT"),
+        (1, 0x20, "cdma2000 HRPD"),
+        (1, 0x10, "cdma2000 1xRTT"),
+    ];
+    NAMES
+        .iter()
+        .filter(|(i, bit, _)| act[*i] & bit != 0)
+        .map(|(_, _, n)| *n)
+        .collect()
+}
+
+/// One EF.LI record: two ASCII octets as a 2-character language code, or `None`
+/// for an unused `FF FF` record. TS 31.102 clause 4.2.60.
+fn decode_li_record(record: &[u8]) -> Result<Option<String>, Malformed> {
+    if record.len() != 2 {
+        return Err(Malformed("EF.LI record is not 2 octets"));
+    }
+    if record == [0xFF, 0xFF] {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8_lossy(record).into_owned()))
+}
+
+/// One EF.RPLMNAcT / EF.VGCSCA-style 2-octet AcT record, decoded by `dec_act`.
+/// An unused `FF FF` record is `None`. TS 31.102 clause 4.2.56 / 4.2.77.
+fn decode_act_record(record: &[u8]) -> Result<Option<Vec<&'static str>>, Malformed> {
+    if record.len() != 2 {
+        return Err(Malformed("a 2-octet AcT record is not 2 octets"));
+    }
+    if record == [0xFF, 0xFF] {
+        return Ok(None);
+    }
+    Ok(Some(act_names([record[0], record[1]])))
+}
+
+/// One EF.VGCSCA / EF.VBSCA record: two ciphering-algorithm octets
+/// (`alg_v_ki_1`, `alg_v_ki_2`). An unused `FF FF` record is `None`.
+/// TS 31.102 clause 4.2.77 / 4.2.78.
+fn decode_vgc_sca_record(record: &[u8]) -> Result<Option<(u8, u8)>, Malformed> {
+    if record.len() != 2 {
+        return Err(Malformed("an EF.VGCSCA record is not 2 octets"));
+    }
+    if record == [0xFF, 0xFF] {
+        return Ok(None);
+    }
+    Ok(Some((record[0], record[1])))
+}
+
+/// One used EF.LI record: the 2-octet language code as a string.
+pub fn decode_li(bytes: &[u8]) -> Result<(Vec<String>, Vec<u8>), Malformed> {
+    decode_records(bytes, 2, decode_li_record)
+}
+
+/// One used EF.RPLMNAcT record: the named access technologies.
+pub fn decode_rplmn_act(bytes: &[u8]) -> Result<(Vec<Vec<&'static str>>, Vec<u8>), Malformed> {
+    decode_records(bytes, 2, decode_act_record)
+}
+
+/// One used EF.VGCSCA / EF.VBSCA record: the two algorithm octets.
+pub fn decode_vgc_sca(bytes: &[u8]) -> Result<(Vec<CipheringRecord>, Vec<u8>), Malformed> {
+    decode_records(bytes, 2, decode_vgc_sca_record)
+}
+
+/// A ciphering-algorithm record (alg_v_ki_1, alg_v_ki_2).
+pub type CipheringRecord = (u8, u8);
+
 /// Which service table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Table {
@@ -1073,6 +1212,22 @@ pub fn decode_sst(bytes: &[u8]) -> (Vec<u16>, Vec<u16>) {
 // Decoded values, evidence and JSON
 // ---------------------------------------------------------------------------
 
+/// One decoded record of a TransRecEF.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransRecRecord {
+    /// EF.LI: a 2-character language code.
+    Language(String),
+    /// EF.RPLMNAcT: the named access technologies of a 2-octet AcT field.
+    Act(Vec<&'static str>),
+    /// EF.VGCSCA / EF.VBSCA: the two ciphering-algorithm octets.
+    Ciphering {
+        /// First ciphering-algorithm octet.
+        alg_v_ki_1: u8,
+        /// Second ciphering-algorithm octet.
+        alg_v_ki_2: u8,
+    },
+}
+
 /// A decoded EF.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decoded {
@@ -1108,6 +1263,18 @@ pub enum Decoded {
     Impi(Option<String>),
     /// The used records of EF.IMPU or EF.P-CSCF.
     Uris(Ef, Vec<String>),
+    /// A TransRecEF (pySim filesystem.py:1259): a transparent EF split into fixed
+    /// 2-octet records. `ef` is one of EF.LI / EF.RPLMNAcT / EF.VGCSCA / EF.VBSCA;
+    /// `records` holds the decoded records, `remainder` the trailing raw octets
+    /// when the body was not a whole number of records.
+    TransRec {
+        /// Which TransRecEF this is.
+        ef: Ef,
+        /// The decoded records.
+        records: Vec<TransRecRecord>,
+        /// Trailing octets when the body was not a whole number of records.
+        remainder: Vec<u8>,
+    },
 }
 
 /// Decodes the bytes read from an EF `ef` (a record per element for a linear
@@ -1184,6 +1351,36 @@ pub fn decode(ef: Ef, records: &[Vec<u8>], mnc_len: Option<u8>) -> Result<Decode
             return Err(Malformed("key file read back empty"))
         }
         Ef::Keys | Ef::KeysPs => Decoded::Raw(first.to_vec()),
+        Ef::Li => {
+            let (langs, remainder) = decode_li(first)?;
+            Decoded::TransRec {
+                ef,
+                records: langs.into_iter().map(TransRecRecord::Language).collect(),
+                remainder,
+            }
+        }
+        Ef::RplmnAct => {
+            let (acts, remainder) = decode_rplmn_act(first)?;
+            Decoded::TransRec {
+                ef,
+                records: acts.into_iter().map(TransRecRecord::Act).collect(),
+                remainder,
+            }
+        }
+        Ef::VgcscA | Ef::Vbsca => {
+            let (algos, remainder) = decode_vgc_sca(first)?;
+            Decoded::TransRec {
+                ef,
+                records: algos
+                    .into_iter()
+                    .map(|(a, b)| TransRecRecord::Ciphering {
+                        alg_v_ki_1: a,
+                        alg_v_ki_2: b,
+                    })
+                    .collect(),
+                remainder,
+            }
+        }
     })
 }
 
@@ -1335,6 +1532,48 @@ impl Decoded {
                     }
                 )
             }
+            Self::TransRec {
+                ef,
+                records,
+                remainder,
+            } => {
+                let kind = match ef {
+                    Ef::Li => "language",
+                    Ef::RplmnAct => "access technology",
+                    _ => "ciphering-algorithm",
+                };
+                let shown: Vec<String> = records
+                    .iter()
+                    .take(EVIDENCE_ITEMS)
+                    .map(|r| match r {
+                        TransRecRecord::Language(l) => l.clone(),
+                        TransRecRecord::Act(names) => format!("[{}]", names.join("+")),
+                        TransRecRecord::Ciphering {
+                            alg_v_ki_1,
+                            alg_v_ki_2,
+                        } => format!("alg_v_ki_1={alg_v_ki_1}, alg_v_ki_2={alg_v_ki_2}"),
+                    })
+                    .collect();
+                let more = records.len().saturating_sub(EVIDENCE_ITEMS);
+                let mut out = format!(
+                    "{} {kind} record(s): {}{}",
+                    records.len(),
+                    if shown.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        shown.join(", ")
+                    },
+                    if more > 0 {
+                        format!(" (+{more} more)")
+                    } else {
+                        String::new()
+                    },
+                );
+                if !remainder.is_empty() {
+                    out.push_str(&format!(" remainder: {}", hex(remainder)));
+                }
+                out
+            }
         }
     }
 
@@ -1425,6 +1664,47 @@ impl Decoded {
                     service_name(s.table, *n).map(|name| json!({ "service": n, "name": name }))
                 }).collect::<Vec<_>>(),
             }),
+            Self::TransRec {
+                ef,
+                records,
+                remainder,
+            } => {
+                let mut out = match ef {
+                    Ef::Li => {
+                        let langs: Vec<String> = records
+                            .iter()
+                            .filter_map(|r| {
+                                if let TransRecRecord::Language(l) = r {
+                                    Some(l.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        json!({ "languages": langs })
+                    }
+                    Ef::RplmnAct => json!({
+                        "records": records.iter().map(|r| match r {
+                            TransRecRecord::Act(names) => json!({ "act": names }),
+                            _ => json!({}),
+                        }).collect::<Vec<_>>()
+                    }),
+                    Ef::VgcscA | Ef::Vbsca => json!({
+                        "records": records.iter().map(|r| match r {
+                            TransRecRecord::Ciphering { alg_v_ki_1, alg_v_ki_2 } => json!({
+                                "alg_v_ki_1": alg_v_ki_1,
+                                "alg_v_ki_2": alg_v_ki_2,
+                            }),
+                            _ => json!({}),
+                        }).collect::<Vec<_>>()
+                    }),
+                    _ => json!({}),
+                };
+                if !remainder.is_empty() {
+                    out["remainder"] = json!(hex(remainder));
+                }
+                out
+            }
         }
     }
 }
@@ -2173,5 +2453,98 @@ mod tests {
             Some(Ef::RoutingIndicator)
         );
         assert_eq!(classify(&path("7FFF/5F3B/4F07")), None);
+    }
+
+    // --- TransRecEF (pySim filesystem.py:1259): transparent EFs that hold
+    // fixed-size 2-octet records. Each record is decoded on its own, with a short
+    // trailing remainder shown raw when the body is not a whole number of records.
+
+    #[test]
+    fn transrec_ef_are_classified_below_the_usim() {
+        let p = |s: &str| s.parse::<Path>().unwrap();
+        // Under the USIM application (`7FFF`):
+        assert_eq!(classify(&p("3F00/7FFF/6F05")), Some(Ef::Li));
+        assert_eq!(classify(&p("3F00/7FFF/6F65")), Some(Ef::RplmnAct));
+        assert_eq!(classify(&p("3F00/7FFF/6FD4")), Some(Ef::VgcscA));
+        assert_eq!(classify(&p("3F00/7FFF/6FD5")), Some(Ef::Vbsca));
+        // Under DF.GSM (`7F20`): EF.LI / EF.RPLMNAcT also exist there (TS 51.011),
+        // matching the `adf || gsm` pattern every other EF here uses.
+        assert_eq!(classify(&p("3F00/7F20/6F05")), Some(Ef::Li));
+        // Not these files: under DF.5GS, where the file IDs mean something else.
+        assert_eq!(classify(&p("3F00/7FFF/5FC0/6F05")), None);
+    }
+
+    #[test]
+    fn ef_li_splits_the_transparent_body_into_two_char_language_records() {
+        // TS 31.102 clause 4.2.60, EF.LI: each 2-octet record is a 2-character
+        // language code (ISO 639-1 as ASCII on the card). "de" + "en" as two
+        // records; FF FF is an unused record.
+        let body = *b"deen\xff\xfffr";
+        let d = decode(Ef::Li, &[body.to_vec()], None).unwrap();
+        // 4 records of 2 octets: "de", "en", FF FF (unused, skipped), "fr".
+        assert_eq!(d.evidence(), "3 language record(s): de, en, fr");
+        assert_eq!(
+            d.fields()["languages"],
+            serde_json::json!(["de", "en", "fr"])
+        );
+        // A whole record of FF is unused and skipped.
+        let unused = decode(Ef::Li, &[vec![0xFF, 0xFF]], None).unwrap();
+        assert_eq!(unused.evidence(), "0 language record(s): none");
+        // A trailing odd octet is the remainder, shown raw.
+        let rem = decode(Ef::Li, &[vec![0x64, 0x65, 0x65, 0x6E, 0x41]], None).unwrap();
+        assert_eq!(rem.fields()["remainder"], "41");
+    }
+
+    #[test]
+    fn ef_rplmn_act_decodes_each_record_through_dec_act() {
+        // TS 31.102 clause 4.2.56, EF.RPLMNAcT: each 2-octet record is an AcT field
+        // decoded with the same bit table as EF.OPLMNwAcT (TS 31.102 clause 4.2.5).
+        // 80 80 -> UTRAN + GSM; 40 00 -> E-UTRAN; FF FF unused (skipped).
+        let body = [0x80, 0x80, 0x40, 0x00, 0xFF, 0xFF];
+        let d = decode(Ef::RplmnAct, &[body.to_vec()], None).unwrap();
+        assert_eq!(
+            d.evidence(),
+            "2 access technology record(s): [UTRAN+GSM], [E-UTRAN]"
+        );
+        assert_eq!(
+            d.fields()["records"][0]["act"],
+            serde_json::json!(["UTRAN", "GSM"])
+        );
+        assert_eq!(
+            d.fields()["records"][1]["act"],
+            serde_json::json!(["E-UTRAN"])
+        );
+        // Unused record dropped.
+        let unused = decode(Ef::RplmnAct, &[vec![0xFF, 0xFF]], None).unwrap();
+        assert_eq!(unused.evidence(), "0 access technology record(s): none");
+    }
+
+    #[test]
+    fn ef_vgc_sca_decodes_each_record_as_two_algorithm_octets() {
+        // TS 31.102 clause 4.2.77, EF.VGCSCA: each 2-octet record is alg_v_ki_1,
+        // alg_v_ki_2 (one octet each). 0xFF is "transparent" / not applicable.
+        let body = [0x01, 0x02, 0x03, 0xFF];
+        let d = decode(Ef::VgcscA, &[body.to_vec()], None).unwrap();
+        assert_eq!(d.fields()["records"][0]["alg_v_ki_1"], 1);
+        assert_eq!(d.fields()["records"][0]["alg_v_ki_2"], 2);
+        assert_eq!(d.fields()["records"][1]["alg_v_ki_1"], 3);
+        assert_eq!(d.fields()["records"][1]["alg_v_ki_2"], 0xFF);
+        assert_eq!(
+            decode(Ef::Vbsca, &[body.to_vec()], None).unwrap().evidence(),
+            "2 ciphering-algorithm record(s): alg_v_ki_1=1, alg_v_ki_2=2, alg_v_ki_1=3, alg_v_ki_2=255"
+        );
+    }
+
+    #[test]
+    fn transrec_remainder_only_when_body_is_not_a_whole_record() {
+        // EF.LI record is 2 octets; 3 octets leaves a 1-octet remainder.
+        let rem = decode(Ef::Li, &[vec![0x64, 0x65, 0x65]], None).unwrap();
+        assert_eq!(rem.fields()["remainder"], "65");
+        assert_eq!(rem.fields()["languages"], serde_json::json!(["de"]));
+        // No remainder when the body is a whole number of records.
+        let whole = decode(Ef::Li, &[vec![0x64, 0x65]], None).unwrap();
+        assert!(whole.fields().get("remainder").is_none());
+        // The evidence line reports the trailing remainder raw.
+        assert_eq!(rem.evidence(), "1 language record(s): de remainder: 65");
     }
 }
