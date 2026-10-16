@@ -807,7 +807,7 @@ const PRIVILEGES: [(usize, u8, &str); 15] = [
     (1, 0x40, "authorized_management"),
     (1, 0x20, "token_verification"),
     (1, 0x10, "global_delete"),
-    (1, 0x08, "global_lock"),
+    (1, 0x08, "global_registry"),
     (1, 0x04, "global_registry"),
     (1, 0x02, "final_application"),
 ];
@@ -1423,7 +1423,7 @@ pub fn registry_findings(data: &Value) -> Vec<Value> {
         "card_terminate",
         "card_reset",
         "global_delete",
-        "global_lock",
+        "global_registry",
         "global_registry",
     ];
     let mut out = Vec::new();
@@ -5624,6 +5624,447 @@ pub fn move_object<S: CardSession + ?Sized>(
     Ok(report)
 }
 
+// ---------------------------------------------------------------------------
+// Supplementary Security Domain creation (issue #244)
+// ---------------------------------------------------------------------------
+
+/// The Executable Load File (package) AID of a supplementary Security Domain,
+/// A0000001515350. [V] GlobalPlatformPro GPToolNG line 472, the default
+/// packageAID of --domain when neither --package nor --applet is given.
+pub const SSD_PACKAGE_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x53, 0x50];
+
+/// The Executable Module (applet class) AID of a supplementary Security Domain,
+/// A000000151535041. [V] GlobalPlatformPro GPToolNG line 473.
+pub const SSD_APPLET_AID: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x53, 0x50, 0x41];
+
+/// The value written into the allow-to parameter (tag 82) and the allow-from
+/// parameter (tag 87) when the operator asks for them: every extradition class
+/// allowed. [V] GlobalPlatformPro GPToolNG line 813, EXTRADITE_ALL.
+///
+/// [U] Card Spec v2.3.1 does not define these two tags. Table 11-49 (line 8470)
+/// lists the Install Parameter tags and neither 82 nor 87 is among them. The
+/// only rule the specification gives for the content of tag C9 when the entity
+/// being installed is a Security Domain is line 8522: the C9 content shall be
+/// BER-TLV encoded, tags 70 to 7E and F0 to FE are reserved for proprietary
+/// usage, and all other tags are reserved by GlobalPlatform for use in
+/// configuration documents. The tag numbers, the two-byte length and the bit
+/// values come from GlobalPlatformPro, not from the specification text.
+pub const SSD_EXTRADITE_ALL: [u8; 2] = [0x20, 0x20];
+
+/// Tag of the allow-to parameter, allowed to be extradited into the new
+/// Security Domain. [U] as SSD_EXTRADITE_ALL: see there.
+pub const SSD_ALLOW_TO_TAG: u16 = 0x82;
+/// Tag of the allow-from parameter, the new Security Domain allowed to be
+/// extradited out of it. [U] as SSD_EXTRADITE_ALL: see there.
+pub const SSD_ALLOW_FROM_TAG: u16 = 0x87;
+/// Tag of the Secure Channel Protocol Information parameter (GP Card Spec
+/// v2.3.1 section H.3). [V] the same tag in GlobalPlatformPro
+/// GPToolNG.domain_install_params.
+pub const SSD_SCP_TAG: u16 = 0x81;
+/// Tag of the Application Specific Parameters, mandatory in the Install
+/// Parameters field (GP Card Spec v2.3.1 Table 11-49, line 8471).
+pub const SSD_APP_PARAMS_TAG: u16 = 0xC9;
+
+/// The privilege names of the three privilege bytes with the byte and the mask
+/// each is set with: (byte, mask, name). GP Card Spec v2.3.1 section 11.1.2,
+/// Tables 11-7, 11-8 and 11-9. [V] The same table as GlobalPlatformPro
+/// GPRegistryEntryNG.Privilege, except that GlobalPlatformPro also offers two
+/// overlapping masks (DAP Verification C0, Mandated DAP Verification C1) where
+/// the specification lists one bit per privilege, so every name here is exactly
+/// one bit.
+const PRIVILEGE_BITS: [(u8, u8, &str); 24] = [
+    (0, 0x80, "security_domain"),
+    (0, 0x40, "dap_verification"),
+    (0, 0x20, "delegated_management"),
+    (0, 0x10, "card_lock"),
+    (0, 0x08, "card_terminate"),
+    (0, 0x04, "card_reset"),
+    (0, 0x02, "cvm_management"),
+    (0, 0x01, "mandated_dap_verification"),
+    (1, 0x80, "trusted_path"),
+    (1, 0x40, "authorized_management"),
+    (1, 0x20, "token_verification"),
+    (1, 0x10, "global_delete"),
+    (1, 0x08, "global_registry"),
+    (1, 0x04, "global_registry"),
+    (1, 0x02, "final_application"),
+    (1, 0x01, "global_service"),
+    (2, 0x80, "receipt_generation"),
+    (2, 0x40, "ciphered_load_file_data_block"),
+    (2, 0x20, "contactless_activation"),
+    (2, 0x10, "contactless_self_activation"),
+    (2, 0x08, "privacy_trusted"),
+    (2, 0x04, "reserved"),
+    (2, 0x02, "reserved"),
+    (2, 0x01, "reserved"),
+];
+
+/// The three privilege bytes of `privileges`, the bytes not supplied taking
+/// the defaults of section 6.6.2, Table 6-2 (line 3746).
+fn privilege_bytes(privileges: &[u8]) -> [u8; 3] {
+    match privileges {
+        [a] => [*a, 0x00, 0x00],
+        [a, b, c] => [*a, *b, *c],
+        _ => [0x00, 0x00, 0x00],
+    }
+}
+
+/// The privilege names set in `privileges`, in Tables 11-7 to 11-9 order.
+pub fn privilege_names(privileges: &[u8]) -> Vec<&'static str> {
+    let bits = privilege_bytes(privileges);
+    PRIVILEGE_BITS
+        .iter()
+        .filter(|(byte, mask, name)| bits[*byte as usize] & mask != 0 && *name != "reserved")
+        .map(|(_, _, name)| *name)
+        .collect()
+}
+
+/// The privileges of a new Security Domain: what the operator asked for, with
+/// byte 1 bit b8, the Security Domain privilege of Table 11-7, always set.
+///
+/// # Errors
+///
+/// BuildError::Privileges unless `privileges` is 1 or 3 bytes, and
+/// BuildError::PrivilegeRefused for Card Lock or Card Terminate, which this
+/// command does not grant, for the same reason as gp install.
+pub fn sd_privileges(privileges: &[u8]) -> Result<[u8; 3], BuildError> {
+    if !matches!(privileges.len(), 1 | 3) {
+        return Err(BuildError::Privileges(privileges.len()));
+    }
+    if privileges.first().is_some_and(|b| b & 0x18 != 0) {
+        return Err(BuildError::PrivilegeRefused(
+            "Card Lock and Card Terminate are not granted by gp create-sd",
+        ));
+    }
+    let mut bits = privilege_bytes(privileges);
+    bits[0] |= 0x80;
+    Ok(bits)
+}
+
+/// What gp create-sd creates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateSdRequest {
+    /// The AID of the supplementary Security Domain to create.
+    pub domain_aid: Vec<u8>,
+    /// The Executable Load File (package) AID, SSD_PACKAGE_AID by default.
+    pub load_file_aid: Vec<u8>,
+    /// The Executable Module (applet class) AID, SSD_APPLET_AID by default.
+    pub module_aid: Vec<u8>,
+    /// The privileges to give the new Security Domain, 1 or 3 bytes, before the
+    /// Security Domain privilege is added.
+    pub privileges: Vec<u8>,
+    /// Extra Install Parameter TLVs, without a C9 tag, sent inside the C9.
+    pub params: Vec<u8>,
+    /// Secure Channel Protocol Information (tag 81) for the new domain.
+    pub scp: Option<Vec<u8>>,
+    /// Add allow-to (tag 82): content may be extradited INTO the new domain.
+    pub allow_to: bool,
+    /// Add allow-from (tag 87): the new domain may be extradited OUT of it.
+    pub allow_from: bool,
+}
+
+/// The Install Parameters field of the INSTALL [for install and make
+/// selectable] that creates the Security Domain: C9 around the extra
+/// parameters, then Secure Channel Protocol Information (tag 81) when asked
+/// for, then allow-to (tag 82), then allow-from (tag 87).
+///
+/// The order is the order GlobalPlatformPro GPToolNG.domain_install_params
+/// (line 825) amends the tree in: 81, then 82, then 87, each appended when
+/// absent. The C9 wrapper is the mandatory Application Specific Parameters of
+/// GP Card Spec v2.3.1 Table 11-49 (line 8471); the C9 content holds the
+/// parameters for the entity being installed and, when that entity is a
+/// Security Domain, is BER-TLV encoded (line 8520 to 8524).
+///
+/// # Errors
+///
+/// BuildError::InstallParameters when `params` is not a well formed TLV
+/// sequence or already holds a C9 tag.
+pub fn sd_install_parameters(
+    params: &[u8],
+    scp: Option<&[u8]>,
+    allow_to: bool,
+    allow_from: bool,
+) -> Result<Vec<u8>, BuildError> {
+    let mut tlvs: Vec<(u16, Vec<u8>)> = if params.is_empty() {
+        Vec::new()
+    } else {
+        match parse_tlvs(params) {
+            Some(t) if !t.iter().any(|(tag, _)| *tag == SSD_APP_PARAMS_TAG) => t
+                .into_iter()
+                .map(|(tag, data)| (tag, data.to_vec()))
+                .collect(),
+            _ => return Err(BuildError::InstallParameters),
+        }
+    };
+    if let Some(scp) = scp {
+        tlvs.push((SSD_SCP_TAG, scp.to_vec()));
+    }
+    if allow_to {
+        tlvs.push((SSD_ALLOW_TO_TAG, SSD_EXTRADITE_ALL.to_vec()));
+    }
+    if allow_from {
+        tlvs.push((SSD_ALLOW_FROM_TAG, SSD_EXTRADITE_ALL.to_vec()));
+    }
+    let mut inner = Vec::new();
+    for (tag, data) in &tlvs {
+        inner.push(*tag as u8);
+        inner.extend_from_slice(&ber_len(data.len()));
+        inner.extend_from_slice(data);
+    }
+    let mut out = vec![SSD_APP_PARAMS_TAG as u8];
+    out.extend_from_slice(&ber_len(inner.len()));
+    out.extend_from_slice(&inner);
+    Ok(out)
+}
+
+/// What one parameter TLV inside the Install Parameters field carries.
+fn parameter_meaning(tag: u16) -> &'static str {
+    match tag {
+        SSD_APP_PARAMS_TAG => "C9 Application Specific Parameters (Table 11-49)",
+        SSD_SCP_TAG => "Secure Channel Protocol Information (section H.3, [U] tag from GlobalPlatformPro)",
+        SSD_ALLOW_TO_TAG => "allow-to: any class may be extradited into this Security Domain ([V] GlobalPlatformPro)",
+        SSD_ALLOW_FROM_TAG => "allow-from: any class may be extradited out of this Security Domain ([V] GlobalPlatformPro)",
+        _ => "operator supplied Install Parameter (Table 11-49 leaves the content to configuration documents)",
+    }
+}
+
+/// The Install Parameters field TLV by TLV, with what each one carries, for the
+/// dry run and for the target object.
+fn sd_parameters_json(parameters: &[u8]) -> Value {
+    let Some(tlvs) = parse_tlvs(parameters) else {
+        return Value::Array(Vec::new());
+    };
+    Value::Array(
+        tlvs.into_iter()
+            .map(|(tag, data)| {
+                if tag == SSD_APP_PARAMS_TAG {
+                    json!({
+                        "tag": format!("{tag:02X}"),
+                        "name": parameter_meaning(tag),
+                        "length": data.len(),
+                        "value": hex_of(data),
+                        "inner": sd_parameters_json(data),
+                    })
+                } else {
+                    json!({
+                        "tag": format!("{tag:02X}"),
+                        "name": parameter_meaning(tag),
+                        "length": data.len(),
+                        "value": hex_of(data),
+                    })
+                }
+            })
+            .collect(),
+    )
+}
+
+/// Builds, and does not send, the single INSTALL [for install and make
+/// selectable] that creates a supplementary Security Domain: 80 E6 0C 00 Lc
+/// <data> 00, with data = LV(load file AID) LV(module AID) LV(application AID)
+/// LV(privileges) BERLV(install parameters) BERLV(install token), the install
+/// token empty.
+///
+/// CLA 80, INS E6 and P2 00 from Table 11-40 (line 8117) and section 11.5.2.2
+/// (line 8172); P1 0C is b3 install and b4 make selectable of Table 11-41
+/// (line 8136); the data field is Table 11-43 (line 8231) and the install
+/// parameters Table 11-49 (line 8470). The Application AID here is the AID of
+/// the new Security Domain: a supplementary Security Domain is an on-card
+/// entity of the same kind as an Application, registered by the OPEN on
+/// installation (section 7.4.2 line 4282, section 9.3.6 line 5154).
+///
+/// # Errors
+///
+/// BuildError for an AID, privileges or parameters that cannot be built.
+pub fn create_sd_command(req: &CreateSdRequest) -> Result<Command, BuildError> {
+    let bits = sd_privileges(&req.privileges)?;
+    let parameters = sd_install_parameters(
+        &req.params,
+        req.scp.as_deref(),
+        req.allow_to,
+        req.allow_from,
+    )?;
+    install_for_install(
+        &req.load_file_aid,
+        &req.module_aid,
+        &req.domain_aid,
+        &bits,
+        &parameters,
+        true,
+    )
+}
+
+fn create_sd_plan_steps(req: &CreateSdRequest) -> Result<Vec<Planned>, BuildError> {
+    let command = create_sd_command(req)?;
+    if command.data().len() + scp03::MAC_LEN > 0xFF {
+        return Err(BuildError::InstallTooLong(command.data().len()));
+    }
+    Ok(vec![Planned {
+        step: "create_sd",
+        command,
+    }])
+}
+
+fn create_sd_target(req: &CreateSdRequest) -> Value {
+    let bits = sd_privileges(&req.privileges).unwrap_or_else(|_| {
+        let mut b = privilege_bytes(&req.privileges);
+        b[0] |= 0x80;
+        b
+    });
+    let parameters = sd_install_parameters(
+        &req.params,
+        req.scp.as_deref(),
+        req.allow_to,
+        req.allow_from,
+    )
+    .unwrap_or_default();
+    json!({
+        "domain_aid": hex_of(&req.domain_aid),
+        "load_file_aid": hex_of(&req.load_file_aid),
+        "module_aid": hex_of(&req.module_aid),
+        "privileges": hex_of(&bits),
+        "privilege_names": privilege_names(&bits),
+        "install_parameters": hex_of(&parameters),
+        "install_parameters_tlvs": sd_parameters_json(&parameters),
+    })
+}
+
+/// gp create-sd without keys: the offline dry run. Builds every TLV, sends
+/// nothing and does not touch a card.
+///
+/// # Errors
+///
+/// BuildError for an AID, privileges or parameters that cannot be built.
+pub fn create_sd_dry_run(req: &CreateSdRequest) -> Result<Value, BuildError> {
+    let plan = create_sd_plan_steps(req)?;
+    let bits = sd_privileges(&req.privileges)?;
+    let mut data = offline_dry_run(
+        "create-sd",
+        create_sd_target(req),
+        &plan,
+        "no keys were given, so the card was not contacted and the registry was not checked; the security domain is assumed to be the default ISD AID; add --keys-file or --keys-env to check the registry, and --yes to send",
+    );
+    data["target"]["privileges"] = hex_of(&bits);
+    data["target"]["privilege_names"] = json!(privilege_names(&bits));
+    data["security_domain"] = hex_of(ISD_AIDS[0]);
+    Ok(data)
+}
+
+/// The privilege bits a registry entry holds, from its privilege names.
+fn entry_privilege_bits(entry: &Value) -> Option<[u8; 3]> {
+    let plain = |s: &str| -> String { s.chars().filter(|c| *c != 95u8 as char).collect() };
+    let names = entry["privilege_names"].as_array()?;
+    let mut bits = [0u8; 3];
+    for name in names.iter().filter_map(Value::as_str) {
+        let name = plain(&name.to_ascii_lowercase());
+        if let Some((byte, mask, _)) = PRIVILEGE_BITS.iter().find(|(_, _, k)| plain(k) == name) {
+            bits[*byte as usize] |= mask;
+        }
+    }
+    Some(bits)
+}
+
+/// The privileges of `wanted` that `issuer` does not hold: a Security Domain is
+/// granted a subset of the privileges of the Security Domain that creates it
+/// (GP Card Spec v2.3.1 section 6.6.2, line 3760). Empty when the issuer
+/// privileges are unknown.
+fn privileges_beyond_issuer(wanted: &[u8], issuer: Option<&[u8; 3]>) -> Vec<&'static str> {
+    let Some(issuer) = issuer else {
+        return Vec::new();
+    };
+    let bits = privilege_bytes(wanted);
+    PRIVILEGE_BITS
+        .iter()
+        .filter(|(byte, mask, name)| {
+            bits[*byte as usize] & mask != 0
+                && issuer[*byte as usize] & mask == 0
+                && *name != "reserved"
+        })
+        .map(|(_, _, name)| *name)
+        .collect()
+}
+
+/// gp create-sd over SCP03: authenticate once, GET STATUS, refuse with nothing
+/// sent when the registry cannot be read in full (registry-unreadable), the
+/// domain AID is already in the registry (domain-already-exists), the load file
+/// or module AID collides with an existing one (aid-collision), or the
+/// privileges asked for are not held by the issuer security domain
+/// (privileges-beyond-issuer); a dry run unless `yes`; otherwise the one
+/// INSTALL, MACd, sent once and never retried, then a re-read that must list the
+/// new AID as a SELECTABLE application, else verify-failed.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are data.error.
+pub fn create_sd<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &CreateSdRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let domain_hex = hex::encode_upper(&req.domain_aid);
+    let load_hex = hex::encode_upper(&req.load_file_aid);
+    let module_hex = hex::encode_upper(&req.module_aid);
+    let bits = sd_privileges(&req.privileges).unwrap_or([0x80, 0x00, 0x00]);
+    write(
+        session,
+        trace,
+        auth,
+        yes,
+        "create-sd",
+        create_sd_target(req),
+        |_| create_sd_plan_steps(req),
+        |registry| {
+            if !registry_complete(registry) {
+                return Err((
+                    "registry-unreadable",
+                    "the registry could not be read in full, so a clash cannot be ruled out; nothing was sent".into(),
+                ));
+            }
+            if registry_entry(registry, &domain_hex).is_some() {
+                return Err((
+                    "domain-already-exists",
+                    format!("{domain_hex} is already in the registry; nothing was sent"),
+                ));
+            }
+            for (name, hex) in [("load file", &load_hex), ("module", &module_hex)] {
+                if registry_entry(registry, hex).is_some() {
+                    return Err((
+                        "aid-collision",
+                        format!(
+                            "the {name} AID {hex} is already in the registry; nothing was sent"
+                        ),
+                    ));
+                }
+            }
+            let issuer = registry
+                .iter()
+                .find(|s| s["scope"] == "isd")
+                .and_then(|s| s["entries"].get(0));
+            let issuer_bits = issuer.and_then(entry_privilege_bits);
+            let beyond = privileges_beyond_issuer(&bits, issuer_bits.as_ref());
+            if !beyond.is_empty() {
+                return Err((
+                    "privileges-beyond-issuer",
+                    format!(
+                        "the issuer security domain does not hold {}, which the new domain asks for; nothing was sent",
+                        beyond.join(", ")
+                    ),
+                ));
+            }
+            Ok(json!({
+                "domain_present": false,
+                "requested_privileges": hex_of(&bits),
+                "issuer_privileges": issuer_bits.as_ref().map_or(Value::Null, |b| hex_of(b)),
+            }))
+        },
+        |after| {
+            registry_entry(after, &domain_hex).is_some_and(|(scope, e)| {
+                scope == "applications" && e["lifecycle_name"] == "SELECTABLE"
+            })
+        },
+    )
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -10993,4 +11434,137 @@ mod crs_tests {
         let r = crs_set_status(&mut ok, true, &request(APP2, true), &auth(&good), false).unwrap();
         assert!(r.data.get("error").is_none(), "{:?}", r.data);
     }
+#[cfg(test)]
+mod create_sd_tests {
+    use super::*;
+
+    fn minimal() -> CreateSdRequest {
+        CreateSdRequest {
+            domain_aid: vec![0xD2, 0x76, 0x00, 0x01, 0x51],
+            load_file_aid: SSD_PACKAGE_AID.to_vec(),
+            module_aid: SSD_APPLET_AID.to_vec(),
+            privileges: vec![0x00, 0x00, 0x00],
+            params: Vec::new(),
+            scp: None,
+            allow_to: false,
+            allow_from: false,
+        }
+    }
+
+    // Table 11-43 (line 8231): LV(load file AID) LV(module AID) LV(application
+    // AID) LV(privileges) BERLV(install parameters) BERLV(install token).
+    // Table 11-49 (line 8471): the C9 Application Specific Parameters, empty.
+    // Table 11-7 (line 7900): byte 1 bit b8, the Security Domain privilege.
+    #[test]
+    fn minimal_domain_is_byte_exact() {
+        let cmd = create_sd_command(&minimal()).expect("builds");
+        assert_eq!(
+            hex::encode_upper(&cmd.encode().expect("encodes")[..4]),
+            "80E60C00"
+        );
+        assert_eq!(
+            hex::encode_upper(cmd.data()),
+            concat!(
+                "07A0000001515350",   // LV A0000001515350, the SSD package AID
+                "08A000000151535041", // LV A000000151535041, the SSD applet class
+                "05D276000151",       // LV D276000151, the new domain
+                "03800000",           // LV 80 00 00, Security Domain privilege
+                "02C900",             // BERLV C9 00, empty Application Specific Parameters
+                "00",                 // BERLV 00, no install token
+            )
+        );
+    }
+
+    // The same command with tag 81, tag 82 and tag 87 all present, in the order
+    // GlobalPlatformPro GPToolNG.domain_install_params amends them in.
+    #[test]
+    fn every_install_parameter_is_byte_exact() {
+        let mut req = minimal();
+        req.scp = Some(vec![0x03, 0x88]);
+        req.allow_to = true;
+        req.allow_from = true;
+        let cmd = create_sd_command(&req).expect("builds");
+        assert_eq!(
+            hex::encode_upper(&cmd.encode().expect("encodes")[..4]),
+            "80E60C00"
+        );
+        assert_eq!(
+            hex::encode_upper(cmd.data()),
+            concat!(
+                "07A0000001515350",
+                "08A000000151535041",
+                "05D276000151",
+                "03800000",
+                "0EC90C810203888202202087022020",
+                "00",
+            )
+        );
+    }
+
+    #[test]
+    fn parameters_are_wrapped_in_c9() {
+        let params = sd_install_parameters(&[], Some(&[0x03, 0x88]), true, true).expect("wraps");
+        assert_eq!(hex::encode_upper(&params), "C90C810203888202202087022020");
+    }
+
+    #[test]
+    fn security_domain_privilege_is_always_set() {
+        assert_eq!(
+            sd_privileges(&[0x00, 0x00, 0x00]).expect("ok"),
+            [0x80, 0x00, 0x00]
+        );
+        assert_eq!(sd_privileges(&[0x00]).expect("ok"), [0x80, 0x00, 0x00]);
+        assert_eq!(
+            sd_privileges(&[0x00, 0x04, 0x00]).expect("ok"),
+            [0x80, 0x04, 0x00]
+        );
+        assert!(sd_privileges(&[0x10, 0x00, 0x00]).is_err());
+        assert!(sd_privileges(&[0x08, 0x00, 0x00]).is_err());
+        assert!(sd_privileges(&[]).is_err());
+        assert!(sd_privileges(&[0, 0]).is_err());
+    }
+
+    #[test]
+    fn parameters_refuse_a_second_c9_or_rubbish() {
+        assert!(sd_install_parameters(&[0xC9, 0x00], None, false, false).is_err());
+        assert!(sd_install_parameters(&[0x82], None, false, false).is_err());
+    }
+
+    #[test]
+    fn privileges_beyond_the_issuer_are_named() {
+        let mut bits = [0u8; 3];
+        bits[0] = 0x80;
+        assert!(privileges_beyond_issuer(&bits, Some(&bits)).is_empty());
+        assert!(privileges_beyond_issuer(&bits, None).is_empty());
+        let mut issuer = bits;
+        issuer[1] = 0x40;
+        bits[1] = 0x44;
+        assert_eq!(
+            privileges_beyond_issuer(&bits, Some(&issuer)),
+            vec!["global_registry"]
+        );
+    }
+
+    #[test]
+    fn the_dry_run_touches_no_card_and_names_every_tlv() {
+        let mut req = minimal();
+        req.allow_to = true;
+        req.allow_from = true;
+        let data = create_sd_dry_run(&req).expect("builds");
+        assert_eq!(data["card_touched"], json!(false));
+        assert_eq!(data["sent"], json!(false));
+        assert_eq!(data["dry_run"], json!(true));
+        let tlvs = &data["target"]["install_parameters_tlvs"];
+        assert_eq!(tlvs[0]["tag"], json!("C9"));
+        assert_eq!(tlvs[0]["inner"][0]["tag"], json!("82"));
+        assert_eq!(tlvs[0]["inner"][0]["value"], json!("2020"));
+        assert_eq!(tlvs[0]["inner"][1]["tag"], json!("87"));
+        assert_eq!(tlvs[0]["inner"][1]["value"], json!("2020"));
+        assert_eq!(
+            data["target"]["privilege_names"][0],
+            json!("security_domain")
+        );
+    }
+}
+
 }
