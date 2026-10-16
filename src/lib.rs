@@ -128,6 +128,7 @@ pub mod fix;
 pub mod fs;
 pub mod fuzz;
 pub mod gp;
+pub mod keygen;
 pub mod mcp;
 pub mod notif;
 pub mod ota_expanded;
@@ -198,6 +199,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: aka::NAME,
         owns: "Milenage f1, f1*, f2, f3, f4, f5 and f5* in one call over the milenage crate; known-answer tested; the AUTN builder and AUTS opener are the host side of the card shell's authenticate.",
         depends_on: &[],
+    },
+    ModuleInfo {
+        name: keygen::NAME,
+        owns: "Offline Ki, OPc, ICCID and IMSI for one card from an operator secret: the HKDF key schedule, the ICCID Luhn digit and the IMSI length. Sends nothing.",
+        depends_on: &[aka::NAME],
     },
     ModuleInfo {
         name: transport::NAME,

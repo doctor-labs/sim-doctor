@@ -31,7 +31,7 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, ota_expanded,
+    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, keygen, notif, ota_expanded,
     otacrypto, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
@@ -279,6 +279,23 @@ enum Command {
     /// verified: this command takes no key.
     #[command(name = "ota-expanded")]
     OtaExpanded(OtaExpandedArgs),
+    /// Generate one card's Ki, OPc, ICCID and IMSI from a secret you hold.
+    ///
+    /// Offline and cardless: it opens no reader and sends no APDU. Every byte is
+    /// derived from the secret through HKDF (RFC 5869) - never from the clock and
+    /// never from a fixed seed - so two cards of one batch are unrelated and a
+    /// different secret gives a different batch, while `-j N` makes card N of that
+    /// batch reproducible. The secret comes from a FILE or an ENVIRONMENT VARIABLE
+    /// and is never a value on the command line, because argv is world-readable on
+    /// the box and permanent in the shell history.
+    ///
+    /// The OUTPUT is the card's real key material: it is printed, labelled as such,
+    /// and nothing else prints the secret.
+    ///
+    /// Exit codes: 0 the card was generated; 1 the secret could not be read or the
+    /// PLMN was refused; 129 for a bad command line.
+    #[command(name = "keygen")]
+    Keygen(KeygenArgs),
 
     /// APDU discovery and the OTA/SMS fuzz sweep.
     ///
@@ -2145,6 +2162,42 @@ enum EsimCertAction {
     },
 }
 
+/// Everything `sim-doctor keygen` takes. Exactly one source of the secret, and
+/// never the command line.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("secret_source").required(true)
+    .args(["secret_file", "secret_env"])))]
+struct KeygenArgs {
+    /// File holding the secret (keep it chmod 600). Surrounding whitespace, the
+    /// trailing newline an editor adds, is stripped.
+    #[arg(short = 'z', long = "secret-file", value_name = "PATH")]
+    secret_file: Option<std::path::PathBuf>,
+    /// Environment variable holding the secret.
+    #[arg(long = "secret-env", value_name = "VAR")]
+    secret_env: Option<String>,
+    /// Card number: the Nth card of the batch, which makes every field of it
+    /// reproducible for as long as the secret is. Without it a fresh salt is drawn
+    /// from the OS on each run, the way pySim draws Ki from urandom.
+    #[arg(short = 'j', long, value_name = "N")]
+    index: Option<u32>,
+    /// Random mode's salt, 64 hex digits. It is printed with the card, so this is
+    /// how a printed random card is regenerated. It is a public input, not a secret.
+    #[arg(long, value_name = "HEX")]
+    salt: Option<String>,
+    /// Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3.
+    #[arg(long, default_value = "901", value_name = "DIGITS")]
+    mcc: String,
+    /// Mobile Network Code, at most --mnclen digits, zero-padded to that width.
+    #[arg(long, default_value = "55", value_name = "DIGITS")]
+    mnc: String,
+    /// Width of the MNC: 2 or 3, or 0 to keep the MNC's own length (pySim's `auto`).
+    #[arg(long, default_value_t = 0, value_name = "DIGITS")]
+    mnclen: u8,
+    /// Emit one JSON envelope of kind "keygen" on stdout.
+    #[arg(long)]
+    json: bool,
+}
+
 /// Everything `sim-doctor ota-crypto` takes.
 #[derive(Args)]
 struct OtaCryptoArgs {
@@ -2469,6 +2522,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             } => run_esim_cert_verify(&chain, &root, at.as_deref(), json),
         },
         Command::OtaExpanded(args) => run_ota_expanded(args),
+        Command::Keygen(args) => run_keygen(args),
         Command::Sms(args) => match args.action {
             SmsAction::Decode { hex, tpdu, json } => run_sms_decode(&hex, tpdu, json),
         },
@@ -4910,6 +4964,96 @@ fn run_esim_cert_verify(
         Ok(()) => code,
         Err(message) => refuse(message),
     }
+}
+
+fn run_keygen(args: KeygenArgs) -> contract::ExitCode {
+    const KIND: &str = "keygen";
+
+    let refuse = |message: String, kind: &str| {
+        report_refusal(
+            KIND,
+            &message,
+            serde_json::json!({ "error": { "kind": kind, "message": message } }),
+            args.json,
+        )
+    };
+
+    // The secret never reaches argv, so it is read here and dropped here.
+    let raw = match (&args.secret_file, &args.secret_env) {
+        (Some(path), _) => match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(err) => return refuse(format!("--secret-file: {err}"), "secret-unreadable"),
+        },
+        (None, Some(var)) => match std::env::var(var) {
+            Ok(value) => value.into_bytes(),
+            Err(err) => return refuse(format!("--secret-env: {err}"), "secret-unreadable"),
+        },
+        (None, None) => {
+            return refuse(
+                "the secret comes from --secret-file or --secret-env".to_string(),
+                "secret-unreadable",
+            )
+        }
+    };
+    let trimmed: Vec<u8> = raw
+        .iter()
+        .copied()
+        .skip_while(|b| b.is_ascii_whitespace())
+        .collect();
+    let secret: Vec<u8> = trimmed
+        .iter()
+        .copied()
+        .rev()
+        .skip_while(|b| b.is_ascii_whitespace())
+        .collect::<Vec<u8>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if secret.is_empty() {
+        return refuse("the secret is empty".to_string(), "secret-empty");
+    }
+
+    let mut request = match args.index {
+        Some(index) => keygen::Request::indexed(index),
+        None => keygen::Request::random(),
+    };
+    if let Some(salt) = &args.salt {
+        let bytes: [u8; 32] = match hex::decode(salt) {
+            Ok(bytes) => match bytes.try_into() {
+                Ok(bytes) => bytes,
+                Err(_) => return refuse("--salt must be 64 hex digits".to_string(), "bad-salt"),
+            },
+            Err(err) => return refuse(format!("--salt: {err}"), "bad-salt"),
+        };
+        request = request.with_salt(bytes);
+    }
+
+    let plmn = match keygen::Plmn::new(&args.mcc, &args.mnc, args.mnclen) {
+        Ok(plmn) => plmn,
+        Err(err) => return refuse(err.to_string(), "bad-plmn"),
+    };
+
+    let material = keygen::derive(&secret, request, &plmn);
+
+    if args.json {
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            material.data(),
+        );
+        let line = match envelope.to_json() {
+            Ok(line) => line,
+            Err(err) => return refuse(err.to_string(), "envelope-failed"),
+        };
+        return match emit_stdout(&line, "the keygen result") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message, "stdout-failed"),
+        };
+    }
+
+    print!("{}", material.human());
+    contract::ExitCode::Success
 }
 
 fn run_otacrypto(args: OtaCryptoArgs) -> contract::ExitCode {
