@@ -2605,6 +2605,119 @@ pub fn terminate_card_usage_command(cla: u8) -> apdu::Command {
     terminate_command(cla, 0xFE)
 }
 
+/// The structure of an EF that `create_ef` makes; it fixes the file descriptor byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EfStructure {
+    /// A transparent EF: one body of `size` octets.
+    Transparent,
+    /// A linear-fixed EF: `size / record_length` records of `record_length` octets.
+    LinearFixed,
+    /// A cyclic EF: the geometry of a linear-fixed file, written round a ring.
+    Cyclic,
+}
+
+impl EfStructure {
+    /// The descriptor byte of a non-shareable working EF: `01` transparent, `02` linear fixed (the
+    /// shareable forms, `41` and `42`, are pySim's `82 02 41 21` and `82 05 42 21 ...`), `06` cyclic
+    /// (structure bits `110`, as `fcp.rs` decodes them).
+    const fn descriptor(self) -> u8 {
+        match self {
+            Self::Transparent => 0x01,
+            Self::LinearFixed => 0x02,
+            Self::Cyclic => 0x06,
+        }
+    }
+}
+
+/// A BER-TLV object with a one-octet tag and a short-form length (every value here is under 128 octets).
+fn tlv(tag: u8, value: &[u8]) -> Vec<u8> {
+    let mut out = vec![tag, value.len() as u8];
+    out.extend_from_slice(value);
+    out
+}
+
+/// The FCP template CREATE FILE sends for an EF (TS 102 222 clause 6.3, laid out as pySim-shell lays it
+/// out): `62 { 82 descriptor, 83 file ID, 8A life cycle 05 (operational, activated), 80 file size }`.
+/// A record file's descriptor carries the record length and the record count: `82 05 <fd> 21 <len:2> <count>`.
+/// The security attributes (8B, 8C, AB) are not sent: the card applies its defaults, and a card that
+/// needs them refuses the command with its status word.
+pub fn ef_fcp(
+    file_id: [u8; 2],
+    structure: EfStructure,
+    size: u16,
+    record_length: Option<u16>,
+) -> Result<Vec<u8>, String> {
+    let descriptor = match (structure, record_length) {
+        (EfStructure::Transparent, None) => tlv(0x82, &[0x01, 0x21]),
+        (EfStructure::Transparent, Some(_)) => {
+            return Err("create_ef: a transparent file has no record length; drop --record-length, or use --structure linear or cyclic".into())
+        }
+        (_, None) => return Err("create_ef: a linear or cyclic file needs --record-length".into()),
+        (_, Some(0)) => return Err("create_ef: --record-length must be at least 1".into()),
+        (kind, Some(len)) => {
+            if size % len != 0 {
+                return Err(format!("create_ef: --size {size} is not a multiple of --record-length {len}"));
+            }
+            let count = size / len;
+            if count == 0 || count > 255 {
+                return Err(format!("create_ef: {count} records; a file has 1 to 255"));
+            }
+            let mut v = vec![kind.descriptor(), 0x21];
+            v.extend_from_slice(&len.to_be_bytes());
+            v.push(count as u8);
+            tlv(0x82, &v)
+        }
+    };
+    let mut body = descriptor;
+    body.extend(tlv(0x83, &file_id));
+    body.extend(tlv(0x8A, &[0x05]));
+    body.extend(tlv(0x80, &size.to_be_bytes()));
+    Ok(tlv(0x62, &body))
+}
+
+/// The FCP template CREATE FILE sends for a DF (TS 102 222 clause 6.3): descriptor `38 21`, the file ID,
+/// the DF name (tag 84) when `aid` is given (an application), and life cycle 05.
+pub fn df_fcp(file_id: [u8; 2], aid: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let mut body = tlv(0x82, &[0x38, 0x21]);
+    body.extend(tlv(0x83, &file_id));
+    if let Some(aid) = aid {
+        if aid.is_empty() || aid.len() > 16 {
+            return Err(format!(
+                "create_df: an AID is 1 to 16 octets, not {}",
+                aid.len()
+            ));
+        }
+        body.extend(tlv(0x84, aid));
+    }
+    body.extend(tlv(0x8A, &[0x05]));
+    Ok(tlv(0x62, &body))
+}
+
+/// The FCP template RESIZE FILE sends (TS 102 222 clause 6.10, as pySim-shell builds it): `62 { 83 file ID, 80 size }`.
+pub fn resize_fcp(file_id: [u8; 2], size: u16) -> Vec<u8> {
+    let mut body = tlv(0x83, &file_id);
+    body.extend(tlv(0x80, &size.to_be_bytes()));
+    tlv(0x62, &body)
+}
+
+/// CREATE FILE (TS 102 222 clause 6.3): INS E0, P1 = P2 = 00, the FCP template as the data field, on the channel's class.
+pub fn create_file_command(cla: u8, fcp: &[u8]) -> apdu::Command {
+    apdu::Command::case3(apdu::Header::new(cla, 0xE0, 0x00, 0x00), fcp.to_vec())
+}
+
+/// RESIZE FILE (TS 102 222 clause 6.10): INS D4 in the proprietary class, `cla | 0x80` (pySim sends `80 D4 00 00`).
+pub fn resize_file_command(cla: u8, fcp: &[u8]) -> apdu::Command {
+    apdu::Command::case3(
+        apdu::Header::new(cla | 0x80, 0xD4, 0x00, 0x00),
+        fcp.to_vec(),
+    )
+}
+
+/// DELETE FILE (TS 102 222 clause 6.4): INS E4, P1 = P2 = 00, the two-octet file ID as the data field.
+pub fn delete_file_command(cla: u8, file_id: [u8; 2]) -> apdu::Command {
+    apdu::Command::case3(apdu::Header::new(cla, 0xE4, 0x00, 0x00), file_id.to_vec())
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -2919,6 +3032,35 @@ pub fn grammar() -> clap::Command {
                         .value_name("HEX")
                         .help("the two-octet file identifier, e.g. 6f07"),
                 )
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("create_ef")
+                .about("CREATE FILE for an EF (TS 102 222 clause 6.3): create an elementary file below the selected DF. --size is the file size; a linear or cyclic file also needs --record-length, and the size must be a whole number of records. WARNING: this changes the card; a dry run unless --yes")
+                .arg(Arg::new("file_id").required(true).value_name("HEX").help("the two-octet file identifier, e.g. 6f99"))
+                .arg(Arg::new("size").long("size").required(true).value_name("N").value_parser(clap::value_parser!(u16)).help("the file size in octets"))
+                .arg(Arg::new("structure").long("structure").value_name("KIND").value_parser(["transparent", "linear", "cyclic"]).default_value("transparent").help("transparent (default), linear (fixed records) or cyclic"))
+                .arg(Arg::new("record_length").long("record-length").value_name("N").value_parser(clap::value_parser!(u16)).help("the record length in octets, for a linear or cyclic file"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("create_df")
+                .about("CREATE FILE for a DF (TS 102 222 clause 6.3): create a dedicated file below the selected DF; --aid makes it an application. WARNING: this changes the card; a dry run unless --yes")
+                .arg(Arg::new("file_id").required(true).value_name("HEX").help("the two-octet file identifier, e.g. 7f21"))
+                .arg(Arg::new("aid").long("aid").value_name("HEX").help("the DF name (AID), 1 to 16 octets, for an application"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("resize_ef")
+                .about("RESIZE FILE (TS 102 222 clause 6.10): change the size of an EF below the selected DF. WARNING: a smaller size can permanently discard the file's data; a dry run unless --yes")
+                .arg(Arg::new("file_id").required(true).value_name("HEX").help("the two-octet file identifier of the EF"))
+                .arg(Arg::new("size").long("size").required(true).value_name("N").value_parser(clap::value_parser!(u16)).help("the new file size in octets"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("delete_file")
+                .about("DELETE FILE (TS 102 222 clause 6.4): delete the EF or DF with this two-octet identifier below the selected DF. WARNING: DELETE FILE PERMANENTLY removes the file and its data (deleting a DF takes everything below it); a dry run unless --yes")
+                .arg(Arg::new("file_id").required(true).value_name("HEX").help("the two-octet file identifier, e.g. 6f99"))
                 .arg(yes_arg()),
         )
         .subcommand(
@@ -3280,6 +3422,10 @@ impl Shell {
             "close_channel" => self.cmd_close_channel(args),
             "channel" => self.cmd_channel(args),
             "activate_file" => self.cmd_activate_file(args),
+            "create_ef" => self.cmd_create_ef(args),
+            "create_df" => self.cmd_create_df(args),
+            "resize_ef" => self.cmd_resize_ef(args),
+            "delete_file" => self.cmd_delete_file(args),
             "deactivate_file" => self.cmd_deactivate_file(args),
             "query_card_key" => self.cmd_query_card_key(args),
             other => Err(CmdErr::new(format!("`{other}` is not implemented"))),
@@ -3445,6 +3591,108 @@ impl Shell {
             format!("card reset on {} ({} profile)", card.reader, profile.id()),
             json!({ "reader": card.reader, "atr": atr, "profile": profile.id(), "sent": false }),
         ))
+    }
+
+    /// The two-octet file identifier an argument names.
+    fn fid_arg(args: &clap::ArgMatches) -> Result<[u8; 2], CmdErr> {
+        let text = args.get_one::<String>("file_id").expect("required");
+        let bytes = parse_hex(text).map_err(CmdErr::new)?;
+        <[u8; 2]>::try_from(bytes.as_slice()).map_err(|_| {
+            CmdErr::new(format!(
+                "file identifier {text} is {} octets; exactly 2 are required",
+                bytes.len()
+            ))
+        })
+    }
+
+    /// The shared path of CREATE FILE, RESIZE FILE and DELETE FILE: a dry run that prints the APDU unless
+    /// `--yes`; a refusal is an error whose data keeps the status word, as TERMINATE does.
+    fn cmd_file_write(
+        &mut self,
+        args: &clap::ArgMatches,
+        command: apdu::Command,
+        what: &str,
+        warning: &str,
+    ) -> CmdResult {
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
+        let hex = hex_upper(&wire);
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {hex} ({what}: {warning}; add --yes to send)"),
+                json!({ "sent": false, "apdu": hex }),
+            ));
+        }
+        let ex = card.send(&command)?;
+        let sw = ex.status();
+        let data = json!({ "sent": true, "apdu": hex, "sw": sw.map(|s| s.to_string()) });
+        if sw.is_some_and(StatusWord::is_success) {
+            return Ok(Reply::ok(format!("{what} done"), data));
+        }
+        Err(CmdErr {
+            message: format!("{what} refused: {}", sw_text(sw)),
+            data,
+        })
+    }
+
+    fn cmd_create_ef(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let file_id = Self::fid_arg(args)?;
+        let structure = match args.get_one::<String>("structure").map(String::as_str) {
+            Some("linear") => EfStructure::LinearFixed,
+            Some("cyclic") => EfStructure::Cyclic,
+            _ => EfStructure::Transparent,
+        };
+        let size = *args.get_one::<u16>("size").expect("required");
+        let record_length = args.get_one::<u16>("record_length").copied();
+        let fcp = ef_fcp(file_id, structure, size, record_length).map_err(CmdErr::new)?;
+        let cla = self.equipped()?.cla();
+        self.cmd_file_write(
+            args,
+            create_file_command(cla, &fcp),
+            "CREATE FILE (EF)",
+            "WARNING: this allocates a new file on the card, and it stays until DELETE FILE removes it",
+        )
+    }
+
+    fn cmd_create_df(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let file_id = Self::fid_arg(args)?;
+        let aid = args
+            .get_one::<String>("aid")
+            .map(|text| parse_hex(text).map_err(CmdErr::new))
+            .transpose()?;
+        let fcp = df_fcp(file_id, aid.as_deref()).map_err(CmdErr::new)?;
+        let cla = self.equipped()?.cla();
+        self.cmd_file_write(
+            args,
+            create_file_command(cla, &fcp),
+            "CREATE FILE (DF)",
+            "WARNING: this allocates a new directory on the card, and it stays until DELETE FILE removes it",
+        )
+    }
+
+    fn cmd_resize_ef(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let file_id = Self::fid_arg(args)?;
+        let size = *args.get_one::<u16>("size").expect("required");
+        let fcp = resize_fcp(file_id, size);
+        let cla = self.equipped()?.cla();
+        self.cmd_file_write(
+            args,
+            resize_file_command(cla, &fcp),
+            "RESIZE FILE",
+            "WARNING: a smaller size can permanently discard the file's data",
+        )
+    }
+
+    fn cmd_delete_file(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let file_id = Self::fid_arg(args)?;
+        let cla = self.equipped()?.cla();
+        self.cmd_file_write(
+            args,
+            delete_file_command(cla, file_id),
+            "DELETE FILE",
+            "WARNING: DELETE FILE PERMANENTLY removes the file and its data; a DF takes everything below it, and this cannot be undone",
+        )
     }
 
     fn cmd_equip(&mut self, args: &clap::ArgMatches) -> CmdResult {
@@ -5561,5 +5809,90 @@ mod tests {
                 "{what}: the query is the bare header, no data"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod file_management_tests {
+    use super::testcard::*;
+
+    #[test]
+    fn create_ef_is_a_dry_run_that_prints_the_apdu_then_sends_with_yes() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("create_ef 6f99 --size 16");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(
+            r.text.contains("WARNING") && r.text.contains("--yes"),
+            "{}",
+            r.text
+        );
+        assert!(r.text.contains("00E000001162"), "{}", r.text);
+        assert!(log.borrow().is_empty(), "nothing reached the card");
+        // the test card does not know CREATE FILE and answers 6D00: the refusal is reported
+        let r = sh.exec("create_ef 6f99 --size 16 --yes");
+        assert!(!r.ok, "{}", r.text);
+        assert_eq!(r.data["sw"], "6D00");
+        assert_eq!(log.borrow().len(), 1, "one CREATE FILE");
+        assert_eq!(log.borrow()[0][..5], [0x00, 0xE0, 0x00, 0x00, 0x11]);
+    }
+
+    #[test]
+    fn create_ef_refuses_a_bad_geometry_before_anything_is_sent() {
+        let (mut sh, log) = shell_log();
+        assert!(
+            !sh.exec("create_ef 6f99 --size 16 --structure linear --yes")
+                .ok
+        );
+        assert!(
+            !sh.exec("create_ef 6f99 --size 17 --structure linear --record-length 4 --yes")
+                .ok
+        );
+        assert!(
+            !sh.exec("create_ef 6f99 --size 16 --record-length 4 --yes")
+                .ok
+        );
+        assert!(
+            !sh.exec("create_ef 6f9 --size 16 --yes").ok,
+            "a file ID is two octets"
+        );
+        assert!(log.borrow().is_empty());
+    }
+
+    #[test]
+    fn create_df_and_resize_ef_are_dry_runs_and_sent_with_yes() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("create_df 7f21");
+        assert!(
+            r.ok && r.data["sent"] == false && r.text.contains("WARNING"),
+            "{}",
+            r.text
+        );
+        let r = sh.exec("resize_ef 6f99 --size 32");
+        assert!(
+            r.ok && r.data["sent"] == false && r.text.contains("permanently"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty());
+        let r = sh.exec("resize_ef 6f99 --size 32 --yes");
+        assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
+        assert_eq!(log.borrow()[0][..4], [0x80, 0xD4, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn delete_file_is_a_dry_run_that_warns_it_is_permanent() {
+        let (mut sh, log) = shell_log();
+        let r = sh.exec("delete_file 6f99");
+        assert!(r.ok && r.data["sent"] == false, "{}", r.text);
+        assert!(
+            r.text.contains("PERMANENTLY") && r.text.contains("--yes"),
+            "{}",
+            r.text
+        );
+        assert!(log.borrow().is_empty());
+        sh.opts.yes = true;
+        let r = sh.exec("delete_file 6f99");
+        assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
+        assert_eq!(log.borrow()[0], [0x00, 0xE4, 0x00, 0x00, 0x02, 0x6F, 0x99]);
     }
 }

@@ -1241,3 +1241,86 @@ fn desc_reports_access_conditions_field() {
     );
     assert_eq!(desc["data"]["access_conditions"], serde_json::Value::Null);
 }
+
+#[test]
+fn create_ef_sends_an_fcp_with_descriptor_id_status_and_size() {
+    use sim_doctor::cardsh::{create_file_command, ef_fcp, EfStructure};
+    // 62 { 82 01 21 (transparent), 83 6F99, 8A 05, 80 0010 }
+    let fcp = ef_fcp([0x6F, 0x99], EfStructure::Transparent, 0x0010, None).unwrap();
+    assert_eq!(
+        fcp,
+        vec![
+            0x62, 0x0F, 0x82, 0x02, 0x01, 0x21, 0x83, 0x02, 0x6F, 0x99, 0x8A, 0x01, 0x05, 0x80,
+            0x02, 0x00, 0x10
+        ]
+    );
+    // CREATE FILE: CLA 00, INS E0, P1 = P2 = 00, Lc, the template
+    let mut wire = vec![0x00, 0xE0, 0x00, 0x00, 0x11];
+    wire.extend_from_slice(&fcp);
+    assert_eq!(create_file_command(0x00, &fcp).encode().unwrap(), wire);
+}
+
+#[test]
+fn create_ef_linear_fixed_carries_record_length_and_count() {
+    use sim_doctor::cardsh::{ef_fcp, EfStructure};
+    // 110 octets x 5 records = 550 (0x0226); descriptor 02, data coding 21, length 006E, count 05
+    let fcp = ef_fcp([0x6F, 0x99], EfStructure::LinearFixed, 550, Some(110)).unwrap();
+    assert_eq!(
+        fcp,
+        vec![
+            0x62, 0x12, 0x82, 0x05, 0x02, 0x21, 0x00, 0x6E, 0x05, 0x83, 0x02, 0x6F, 0x99, 0x8A,
+            0x01, 0x05, 0x80, 0x02, 0x02, 0x26
+        ]
+    );
+    // the record geometry must describe the size exactly
+    assert!(ef_fcp([0x6F, 0x99], EfStructure::LinearFixed, 551, Some(110)).is_err());
+    assert!(ef_fcp([0x6F, 0x99], EfStructure::Cyclic, 550, None).is_err());
+    assert!(ef_fcp([0x6F, 0x99], EfStructure::Transparent, 550, Some(110)).is_err());
+}
+
+#[test]
+fn create_df_sends_a_df_descriptor_and_an_optional_aid() {
+    use sim_doctor::cardsh::df_fcp;
+    assert_eq!(
+        df_fcp([0x7F, 0x21], None).unwrap(),
+        vec![0x62, 0x0B, 0x82, 0x02, 0x38, 0x21, 0x83, 0x02, 0x7F, 0x21, 0x8A, 0x01, 0x05]
+    );
+    let aid = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+    let with_aid = df_fcp([0x7F, 0x21], Some(&aid)).unwrap();
+    assert_eq!(&with_aid[10..12], &[0x84, 0x07], "DF name is tag 84");
+    assert_eq!(&with_aid[12..19], &aid);
+    assert!(df_fcp([0x7F, 0x21], Some(&[0u8; 17])).is_err());
+}
+
+#[test]
+fn resize_file_is_proprietary_class_ins_d4_with_fid_and_size() {
+    use sim_doctor::cardsh::{resize_fcp, resize_file_command};
+    let fcp = resize_fcp([0x6F, 0x99], 0x0010);
+    assert_eq!(
+        fcp,
+        vec![0x62, 0x08, 0x83, 0x02, 0x6F, 0x99, 0x80, 0x02, 0x00, 0x10]
+    );
+    // RESIZE FILE is in the 8X class (pySim sends 80 D4 00 00); on a channel the class bit stays set
+    assert_eq!(
+        resize_file_command(0x00, &fcp).encode().unwrap(),
+        [vec![0x80, 0xD4, 0x00, 0x00, 0x0A], fcp.clone()].concat()
+    );
+    assert_eq!(resize_file_command(0x01, &fcp).encode().unwrap()[0], 0x81);
+}
+
+#[test]
+fn delete_file_sends_ins_e4_with_the_file_id() {
+    use sim_doctor::cardsh::delete_file_command;
+    assert_eq!(
+        delete_file_command(0x00, [0x6F, 0x99]).encode().unwrap(),
+        vec![0x00, 0xE4, 0x00, 0x00, 0x02, 0x6F, 0x99]
+    );
+}
+
+#[test]
+fn file_management_instructions_are_gated_not_read_only() {
+    use sim_doctor::cardsh::is_read_only;
+    for ins in [0xE0, 0xD4, 0xE4] {
+        assert!(!is_read_only(ins), "INS {ins:02X} changes the card");
+    }
+}
