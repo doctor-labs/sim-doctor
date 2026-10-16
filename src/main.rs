@@ -3000,6 +3000,14 @@ fn run_trace(args: &TraceArgs) -> contract::ExitCode {
     const KIND: &str = "trace";
     let refuse = |m: String| report_refusal(KIND, &m, serde_json::json!({ "error": m }), args.json);
     let mut input = Vec::new();
+    if let Some(path) = args.file.as_deref().filter(|p| *p != "-") {
+        // A FIFO, device or directory is refused before it is opened, so nothing can block the read.
+        if std::fs::metadata(path).is_ok_and(|m| !m.is_file()) {
+            return refuse(format!(
+                "cannot read the trace: {path} is not a regular file"
+            ));
+        }
+    }
     let read = match args.file.as_deref() {
         None | Some("-") => io::stdin().take(MAX_WHY_FILE_BYTES).read_to_end(&mut input),
         Some(path) => std::fs::File::open(path)

@@ -74,7 +74,58 @@ pub fn parse_bytes(input: &[u8]) -> Result<Vec<Pair>, String> {
     }
     let text = std::str::from_utf8(input)
         .map_err(|_| "the trace is neither a pcap/pcapng capture nor UTF-8 text".to_owned())?;
+    if is_tca_loader_log(text) {
+        return parse_tca_loader_log(text);
+    }
     parse(text)
+}
+
+/// Whether a text trace is a TCA Loader log. Hex lines never start with the words `Command` or
+/// `Response`, so the check cannot take a hex trace for a log.
+fn is_tca_loader_log(text: &str) -> bool {
+    text.lines()
+        .any(|line| matches!(line.split_whitespace().next(), Some("Command" | "Response")))
+}
+
+/// Reads a TCA Loader log the way pySim's `TcaLoaderLogApduSource` does: a `Command <hex>` line
+/// followed by a `Response <hex>` line is one exchange, and every other line is ignored. A command
+/// with no response (the next line is another `Command`, or the log ends) is kept with an empty
+/// response, so the caller warns about it instead of dropping it.
+///
+/// # Errors
+///
+/// A missing or non-hex value on a `Command` or `Response` line, or a log with no such lines.
+pub fn parse_tca_loader_log(input: &str) -> Result<Vec<Pair>, String> {
+    let hex_value = |word: Option<&str>, n: usize| {
+        let word = word.ok_or_else(|| format!("line {n}: Command or Response has no hex value"))?;
+        hex::decode(word).map_err(|e| format!("line {n}: {e}"))
+    };
+    let mut pairs = Vec::new();
+    let mut pending: Option<Vec<u8>> = None;
+    for (i, line) in input.lines().enumerate() {
+        let n = i + 1;
+        let mut words = line.split_whitespace();
+        match words.next() {
+            Some("Command") => {
+                if let Some(orphan) = pending.replace(hex_value(words.next(), n)?) {
+                    pairs.push((None, orphan, Vec::new()));
+                }
+            }
+            Some("Response") => {
+                if let Some(command) = pending.take() {
+                    pairs.push((None, command, hex_value(words.next(), n)?));
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(orphan) = pending {
+        pairs.push((None, orphan, Vec::new()));
+    }
+    if pairs.is_empty() {
+        return Err("the TCA Loader log has no Command and Response lines".to_owned());
+    }
+    Ok(pairs)
 }
 
 /// Reads a trace: JSON (array of `{step,command,response}`, `{trace:[..]}` or a
@@ -641,6 +692,41 @@ mod tests {
 
     fn run(input: &str) -> Vec<Decoded> {
         decode(&parse(input).unwrap())
+    }
+
+    #[test]
+    fn tca_loader_log_pairs_each_command_with_its_response() {
+        let log = "TCA Loader 1.2 started\n\
+            Command A0A40000023F00\n\
+            Response 9F16\n\
+            Stray Response 9000\n\
+            Command A0C0000016\n\
+            Response 000000000000000000000000000000000000000000009000\n\
+            Command A0A40000026F07\n";
+        let pairs = parse_bytes(log.as_bytes()).unwrap();
+        assert_eq!(pairs.len(), 3);
+        assert_eq!(pairs[0].1, hex::decode("A0A40000023F00").unwrap());
+        assert_eq!(pairs[0].2, hex::decode("9F16").unwrap());
+        assert_eq!(pairs[1].2.len(), 24);
+        // A command the log ends on keeps an empty response, so it can be flagged.
+        assert!(pairs[2].2.is_empty());
+        let rows = decode(&pairs);
+        assert_eq!(rows[0].name, "SELECT");
+        assert_eq!(rows[0].selected, "3F00");
+        assert_eq!(rows[1].name, "GET RESPONSE");
+        // The SELECT the log ends on has no response, so the selection does not move.
+        assert_eq!(rows[2].selected, "3F00");
+    }
+
+    #[test]
+    fn tca_loader_log_refuses_bad_hex_and_empty_logs() {
+        assert!(parse_tca_loader_log("Command A0A4\nResponse ZZ\n")
+            .unwrap_err()
+            .contains("line 2"));
+        assert!(parse_tca_loader_log("Command\n")
+            .unwrap_err()
+            .contains("line 1"));
+        assert!(parse_tca_loader_log("just a banner\n").is_err());
     }
 
     #[test]
