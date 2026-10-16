@@ -75,6 +75,10 @@ pub struct Opts {
     pub dialect: TagSet,
     /// The PIN / PUK / ADM values `verify_chv` and `unblock_chv` use (from a file or an environment variable).
     pub secrets: Option<secrets::Secrets>,
+    /// The pySim CardKeyProvider CSV (`--key-file`), loaded once at start-up if it parsed.
+    /// `query_card_key` reads rows from it. Secrets such as KI/OPC/ADM keys are printed only
+    /// when explicitly requested in `--fields`, never in default output.
+    pub card_key: Option<secrets::csv::CardKeyFile>,
 }
 
 /// What `select` learned about a file from its FCP.
@@ -2862,6 +2866,13 @@ pub fn grammar() -> clap::Command {
                 .about("Dump the files of the current DF as JSON: metadata, contents and decoded fields. READ-ONLY: reads files and prints JSON, never writes")
                 .arg(Arg::new("filename").long("filename").value_name("NAME").help("only dump a specific file (by name or path; default: all files in the current DF)"))
         )
+        .subcommand(
+            C::new("query_card_key")
+                .about("Look up a card in the pySim CardKeyProvider CSV (--key-file at startup) by --key/--value and print the requested --fields. Reads the file only, never sends APDUs; secrets are printed only when named in --fields, never by default")
+                .arg(Arg::new("key").long("key").value_name("COLUMN").help("the column to match (default ICCID)"))
+                .arg(Arg::new("value").long("value").value_name("VALUE").required(true).help("the value to match in the key column"))
+                .arg(Arg::new("fields").long("fields").value_name("FIELDS").required(true).help("comma-separated columns to return (pySim field names like ADM1, OTP, ... are echoed verbatim)")),
+        )
 }
 
 /// The display label of a service table (for JSON and text).
@@ -3144,6 +3155,7 @@ impl Shell {
             "channel" => self.cmd_channel(args),
             "activate_file" => self.cmd_activate_file(args),
             "deactivate_file" => self.cmd_deactivate_file(args),
+            "query_card_key" => self.cmd_query_card_key(args),
             other => Err(CmdErr::new(format!("`{other}` is not implemented"))),
         }
     }
@@ -3392,6 +3404,53 @@ impl Shell {
                 "open_channels": channels,
             }),
         ))
+    }
+
+    /// `query_card_key --key KEY --value VAL --fields F1,F2`: look up a row in the
+    /// pySim CardKeyProvider CSV (`--key-file` at start-up) and print the requested fields.
+    /// Reads the file only, never sends APDUs. Secrets (KI/OPC/ADM keys, etc.) are returned
+    /// only when named in `--fields`, never by default.
+    fn cmd_query_card_key(&self, args: &clap::ArgMatches) -> CmdResult {
+        let key = args
+            .get_one::<String>("key")
+            .map(String::as_str)
+            .unwrap_or("ICCID");
+        let value = args.get_one::<String>("value").expect("required");
+        let fields_raw = args.get_one::<String>("fields").expect("required");
+        let field_refs: Vec<&str> = fields_raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if field_refs.is_empty() {
+            return Err(CmdErr::new(
+                "--fields takes one or more comma-separated column names",
+            ));
+        }
+        let file =
+            self.opts.card_key.as_ref().ok_or_else(|| {
+                CmdErr::new("no card key file: start `card` with --key-file PATH")
+            })?;
+        let row = file.get(key, value, &field_refs).map_err(CmdErr::new)?;
+        match row {
+            Some(r) => {
+                let mut data = json!({
+                    "key": key,
+                    "value": r.key,
+                    "found": true,
+                });
+                let mut text = format!("found {}\n", r.key);
+                for (name, val) in &r.fields {
+                    data["fields"][name] = json!(val);
+                    text.push_str(&format!("{}: {}\n", name, val));
+                }
+                Ok(Reply::ok(text.trim_end(), data))
+            }
+            None => Ok(Reply::ok(
+                format!("no card matched {key}={value}"),
+                json!({ "key": key, "value": value, "found": false }),
+            )),
+        }
     }
 
     fn cmd_open_channel(&mut self) -> CmdResult {
@@ -4440,6 +4499,7 @@ mod tests {
                 yes: false,
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
+                card_key: None,
             },
         );
         let r = sh.exec("decode EF.SPN 01414253FFFF");

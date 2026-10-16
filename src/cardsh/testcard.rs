@@ -775,6 +775,7 @@ pub fn shell_log() -> (Shell, Rc<RefCell<Vec<Vec<u8>>>>) {
             yes: false,
             dialect: TagSet::ts_102_221(),
             secrets: None,
+            card_key: None,
         },
     );
     sh.equip(None, Profile::Uicc).unwrap();
@@ -829,6 +830,7 @@ pub fn record(script: &str, yes: bool) -> (String, Vec<Reply>) {
             yes,
             dialect: TagSet::ts_102_221(),
             secrets: Some(crate::cardsh::secrets::Secrets::parse(FIXTURE_SECRETS).unwrap()),
+            card_key: None,
         },
     );
     sh.equip(None, Profile::Uicc).unwrap();

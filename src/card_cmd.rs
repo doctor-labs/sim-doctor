@@ -3,6 +3,7 @@
 use std::io::{self, BufRead, IsTerminal, Write};
 
 use clap::Args;
+use sim_doctor::cardsh::secrets::csv::CardKeyFile;
 use sim_doctor::cardsh::{self, Opts, Profile, Shell};
 use sim_doctor::{contract, scan};
 
@@ -47,6 +48,12 @@ pub struct CardShellArgs {
     #[arg(long, value_name = "VAR")]
     chv_env: Option<String>,
 
+    /// pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row).
+    /// Read and checked before any reader is opened; secrets are never printed unless named in
+    /// --fields. Keep it chmod 600.
+    #[arg(long, value_name = "PATH")]
+    key_file: Option<std::path::PathBuf>,
+
     /// Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...).
     /// Without it they print what they would send and the card is not touched by them.
     #[arg(long)]
@@ -71,6 +78,18 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
             return contract::ExitCode::Error;
         }
     };
+    // The pySim CardKeyProvider CSV for `query_card_key`. Parsed here, not in the shell, so a
+    // malformed file is exit 2 before any reader is opened.
+    let card_key = match &args.key_file {
+        Some(path) => match CardKeyFile::load(path) {
+            Ok(f) => Some(f),
+            Err(message) => {
+                eprintln!("sim-doctor: {message}");
+                return contract::ExitCode::Error;
+            }
+        },
+        None => None,
+    };
     let opener: cardsh::Opener = Box::new(|requested| {
         let (session, reader, atr) = super::open_scan_session(requested).map_err(|f| f.message)?;
         Ok((session, reader.as_str().to_owned(), atr))
@@ -81,6 +100,7 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
             yes: args.yes,
             dialect: args.dialect.tag_set(),
             secrets,
+            card_key,
         },
     );
     let profile = if args.profile == "sim" {
