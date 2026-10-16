@@ -249,6 +249,18 @@ impl Certificate {
         }
     }
 
+    /// The one ECDSA signature check this crate performs: ecdsa-with-SHA256 over NIST P-256.
+    ///
+    /// Public so a caller outside X.509 - the GlobalPlatform card certificate in
+    /// [`crate::gpcert`] - checks signatures here rather than opening a second verifier that
+    /// could come to disagree with this one about the same octets.
+    pub fn verify_ecdsa_p256(point: &[u8], message: &[u8], signature: &Signature) -> bool {
+        let Ok(key) = VerifyingKey::from_sec1_bytes(point) else {
+            return false;
+        };
+        key.verify(message, signature).is_ok()
+    }
+
     /// Check this certificate's signature under `issuer`'s public key.
     pub fn verify_signed_by(&self, issuer: &Certificate) -> SignatureCheck {
         if self.sig_oid != OID_ECDSA_SHA256 {
@@ -260,15 +272,13 @@ impl Certificate {
         let Some(point) = issuer.public_key.as_deref() else {
             return SignatureCheck::Invalid;
         };
-        let Ok(key) = VerifyingKey::from_sec1_bytes(point) else {
-            return SignatureCheck::Invalid;
-        };
         let Ok(sig) = Signature::from_der(&self.signature) else {
             return SignatureCheck::Invalid;
         };
-        match key.verify(&self.tbs, &sig) {
-            Ok(()) => SignatureCheck::Valid,
-            Err(_) => SignatureCheck::Invalid,
+        if Self::verify_ecdsa_p256(point, &self.tbs, &sig) {
+            SignatureCheck::Valid
+        } else {
+            SignatureCheck::Invalid
         }
     }
 

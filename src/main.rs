@@ -889,6 +889,11 @@ struct GpArgs {
 
 #[derive(Subcommand)]
 enum GpAction {
+    /// `gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11).
+    ///
+    /// `read` reads it off the card, read-only. `construct` and `sign` are offline: no
+    /// reader, no network, no clock.
+    Cert(GpCertArgs),
     /// Select the issuer security domain and read CPLC, card data, key
     /// information, IIN and CIN with GET DATA.
     ///
@@ -2795,6 +2800,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::Fix(args) => run_fix(&args),
         Command::Gp(args) => match args.action {
             GpAction::Aram { action } => run_gp_aram(action),
+            GpAction::Cert(c) => run_gp_cert(c),
             GpAction::Info {
                 reader,
                 json,
@@ -7316,4 +7322,307 @@ mod tests {
         };
         assert!(args.walk_limits.break_after_count_match);
     }
+}
+
+/// Everything `sim-doctor gp cert` takes.
+#[derive(Args)]
+struct GpCertArgs {
+    #[command(subcommand)]
+    action: GpCertAction,
+}
+
+#[derive(Subcommand)]
+enum GpCertAction {
+    /// Select the issuer security domain and READ BINARY the `7F21` card certificate, then
+    /// decode it. Read-only: no writing command is sent and no key is needed.
+    Read {
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        #[command(flatten)]
+        channel: GpChannelArg,
+    },
+    /// Build a `7F21` card certificate offline, from the fields given. No card, no network and
+    /// no clock: the dates are yours, and the same inputs produce the same octets every run.
+    Construct {
+        #[command(flatten)]
+        fields: GpCertFieldArgs,
+        /// Print the certificate as one JSON object instead of the table.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or
+    /// an environment variable. Never from the command line, and never printed.
+    Sign {
+        #[command(flatten)]
+        fields: GpCertFieldArgs,
+        #[command(flatten)]
+        key: GpCertKeyArgs,
+        /// Print the certificate as one JSON object instead of the table.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// The `7F21` fields `gp cert construct` and `gp cert sign` share.
+///
+/// Names and tags are the ones GlobalPlatformPro's `GPCertificate.java` lines 27-37 names and
+/// its `GPCommandLineInterface.java` lines 186-227 takes as `--cert-*`. Every date is required
+/// from the operator: this tool has no clock, and a validity period invented at signing time is
+/// not the certificate that was asked for.
+#[derive(Args)]
+struct GpCertFieldArgs {
+    /// Certificate Serial Number, tag 93, as hex.
+    #[arg(long, value_name = "HEX")]
+    cert_serial: String,
+    /// CA Identifier, tag 42, as hex: which issuer's key signs this.
+    #[arg(long, value_name = "HEX")]
+    cert_ca: String,
+    /// Subject Identifier, tag 5F20, as hex: the security domain this certificate names.
+    #[arg(long, value_name = "HEX")]
+    cert_subject: String,
+    /// Key Usage, tag 95: `verification` (82 00) or `agreement` (00). GPC v2.3.1 11.1.9 defines
+    /// no other value.
+    #[arg(long, value_name = "USAGE")]
+    cert_usage: String,
+    /// Effective Date, tag 5F25, as YYYYMMDD.
+    #[arg(long, value_name = "YYYYMMDD")]
+    cert_effective: String,
+    /// Expiration Date, tag 5F24, as YYYYMMDD. Mandatory in every profile of the format.
+    #[arg(long, value_name = "YYYYMMDD")]
+    cert_expires: String,
+    /// Security Domain Image Number, tag 45, as hex.
+    #[arg(long, value_name = "HEX")]
+    cert_image_number: Option<String>,
+    /// Discretionary Data, tag 53, as hex: a field of unspecified format, passed through as given.
+    #[arg(long, value_name = "HEX")]
+    cert_discretionary: Option<String>,
+    /// Authorization rules, tag BF20, as hex, per Amendment F v1.4 Table B-1. Passed through as
+    /// given: this tool does not interpret them.
+    #[arg(long, value_name = "HEX")]
+    cert_authorizations: Option<String>,
+    /// Subject public key, tag 7F49: the uncompressed NIST P-256 point as 130 hex digits
+    /// (04 || X || Y). `gp cert sign` derives it from the signing key and does not need this;
+    /// `gp cert construct` does, and has no key to derive it from.
+    #[arg(long, value_name = "HEX")]
+    cert_pubkey: Option<String>,
+    /// Where to write the certificate: the whole 7F21 TLV. Nothing is written without it.
+    #[arg(long, value_name = "PATH")]
+    cert_out: std::path::PathBuf,
+}
+
+/// Where `gp cert sign` gets the CA private key. Never a value on the command line.
+///
+/// A key on `argv` is in the shell history, in `/proc/*/cmdline` and in every process listing on
+/// the host, so this is a file (keep it chmod 600) or an environment variable. The content is the
+/// 32-octet P-256 scalar as 64 hex digits, as base64, or as 32 raw octets.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("cert_key_source").required(true)
+    .args(["cert_key_file", "cert_key_env"])))]
+struct GpCertKeyArgs {
+    /// File holding the P-256 signing key (chmod 600).
+    #[arg(long, value_name = "PATH")]
+    cert_key_file: Option<std::path::PathBuf>,
+    /// Environment variable holding the P-256 signing key.
+    #[arg(long, value_name = "VAR")]
+    cert_key_env: Option<String>,
+}
+
+impl GpCertKeyArgs {
+    fn source(&self) -> sim_doctor::gpcert::KeySource<'_> {
+        match (&self.cert_key_file, &self.cert_key_env) {
+            (Some(path), _) => sim_doctor::gpcert::KeySource::File(path),
+            // The clap group above requires exactly one of the two.
+            (None, Some(name)) => sim_doctor::gpcert::KeySource::Env(name),
+            (None, None) => sim_doctor::gpcert::KeySource::Env(""),
+        }
+    }
+
+    /// How the source is named in output. The key itself never is.
+    fn label(&self) -> String {
+        sim_doctor::gpcert::source_label(self.source())
+    }
+}
+
+/// What `gp cert sign` prints under the certificate, every time, in either format.
+///
+/// The honest limit of the command, said where the operator will see it: the octets are checked,
+/// the authority behind them is not.
+const GP_CERT_KEY_WARNING: &str = "WARNING: a certificate signed here is only as good as the key it was signed with. This tool checks the octets it writes and nothing else: it does not check that the key belongs to the CA you think it does. Anyone holding that key can issue a card certificate your card will accept. Keep the key out of shell history, process listings and backups, and confirm the fingerprint with the CA before you load anything.";
+
+/// One certificate, built offline, and where its public key came from.
+struct GpCertBuilt {
+    certificate: sim_doctor::gpcert::Certificate,
+    key_source: Option<String>,
+    public_key_source: String,
+}
+
+fn run_gp_cert(args: GpCertArgs) -> contract::ExitCode {
+    match args.action {
+        GpCertAction::Read {
+            reader,
+            json,
+            trace,
+            channel,
+        } => run_gp(
+            "gp cert read",
+            reader.as_deref(),
+            json,
+            trace,
+            channel.channel,
+            |s, t| gp::cert_read(s, t),
+        ),
+        GpCertAction::Construct { fields, json } => gp_cert_build(&fields, None, json),
+        GpCertAction::Sign { fields, key, json } => gp_cert_build(&fields, Some(&key), json),
+    }
+}
+
+fn gp_cert_build(
+    fields: &GpCertFieldArgs,
+    key: Option<&GpCertKeyArgs>,
+    json: bool,
+) -> contract::ExitCode {
+    let built = match gp_cert_built(fields, key) {
+        Ok(built) => built,
+        Err(message) => {
+            eprintln!("sim-doctor gp cert: {message}");
+            return contract::ExitCode::InvalidUsage;
+        }
+    };
+
+    let octets = built.certificate.encode();
+    if let Err(err) = std::fs::write(&fields.cert_out, &octets) {
+        eprintln!(
+            "sim-doctor gp cert: cannot write {}: {err}",
+            fields.cert_out.display()
+        );
+        return contract::ExitCode::Findings;
+    }
+
+    let mut data = sim_doctor::gpcert::to_json(&built.certificate);
+    data["out"] = serde_json::json!(fields.cert_out.display().to_string());
+    data["octets"] = serde_json::json!(octets.len());
+    data["public_key_source"] = serde_json::json!(built.public_key_source);
+    match &built.key_source {
+        Some(label) => {
+            data["signed"] = serde_json::json!(true);
+            data["key_source"] = serde_json::json!(label);
+        }
+        None => {
+            data["signed"] = serde_json::json!(false);
+        }
+    }
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&data).unwrap_or_else(|e| e.to_string())
+        );
+    } else {
+        print!("{}", sim_doctor::gpcert::render(&built.certificate));
+        println!(
+            "written to {} ({} octets)",
+            fields.cert_out.display(),
+            octets.len()
+        );
+        println!("public key (7F49): {}", built.public_key_source);
+        match &built.key_source {
+            Some(label) => {
+                println!();
+                println!("signing key read from {label}; it appears nowhere in this output.");
+            }
+            None => println!("\nnot signed: this certificate has no 5F37."),
+        }
+    }
+
+    if built.key_source.is_some() {
+        println!();
+        println!("{GP_CERT_KEY_WARNING}");
+    }
+    contract::ExitCode::Success
+}
+
+/// Builds, and optionally signs, one `7F21` card certificate. Offline: no session, no clock.
+fn gp_cert_built(
+    fields: &GpCertFieldArgs,
+    key: Option<&GpCertKeyArgs>,
+) -> Result<GpCertBuilt, String> {
+    use sim_doctor::gpcert;
+
+    let hex_field = |flag: &str, value: &str| -> Result<Vec<u8>, String> {
+        hex::decode(value).map_err(|e| format!("{flag} is not hex: {e}"))
+    };
+    let set = |r: Result<(), gpcert::Error>| -> Result<(), String> { r.map_err(|e| e.to_string()) };
+
+    let signing_key = match key {
+        Some(k) => Some(gpcert::load_signing_key(k.source()).map_err(|e| e.to_string())?),
+        None => None,
+    };
+
+    let usage = match fields.cert_usage.as_str() {
+        "verification" => gpcert::Usage::Verification,
+        "agreement" => gpcert::Usage::Agreement,
+        other => {
+            return Err(format!(
+                "--cert-usage {other:?} is neither verification (82 00) nor agreement (00)"
+            ))
+        }
+    };
+
+    let mut builder = gpcert::Builder::new();
+    set(builder.serial(&hex_field("--cert-serial", &fields.cert_serial)?))?;
+    set(builder.ca(&hex_field("--cert-ca", &fields.cert_ca)?))?;
+    set(builder.subject(&hex_field("--cert-subject", &fields.cert_subject)?))?;
+    set(builder.usage(usage))?;
+    set(builder.effective(&fields.cert_effective))?;
+    set(builder.expires(&fields.cert_expires))?;
+    if let Some(value) = &fields.cert_image_number {
+        set(builder.image_number(&hex_field("--cert-image-number", value)?))?;
+    }
+    if let Some(value) = &fields.cert_discretionary {
+        set(builder.discretionary(&hex_field("--cert-discretionary", value)?))?;
+    }
+    if let Some(value) = &fields.cert_authorizations {
+        set(builder.authorizations(&hex_field("--cert-authorizations", value)?))?;
+    }
+
+    // The public key is never guessed: `sign` derives it from the key that will sign, and
+    // `construct` takes the operator's point or says so.
+    let (point, public_key_source) =
+        match (&signing_key, &fields.cert_pubkey) {
+            (Some(k), _) => (
+                gpcert::public_point(k),
+                "derived from the signing key".to_string(),
+            ),
+            (None, Some(hex)) => (
+                hex_field("--cert-pubkey", hex)?,
+                "--cert-pubkey, as given".to_string(),
+            ),
+            (None, None) => return Err(
+                "--cert-pubkey is required: gp cert construct has no key to derive the point from"
+                    .to_string(),
+            ),
+        };
+    set(builder.public_key(&point))?;
+
+    let certificate = match &signing_key {
+        Some(k) => {
+            let dtbs = builder.dtbs().map_err(|e| e.to_string())?;
+            let plain = gpcert::sign_plain(&dtbs, k).map_err(|e| e.to_string())?;
+            builder.sign(&plain).map_err(|e| e.to_string())?
+        }
+        None => builder.unsigned().map_err(|e| e.to_string())?,
+    };
+
+    Ok(GpCertBuilt {
+        certificate,
+        key_source: key.map(GpCertKeyArgs::label),
+        public_key_source,
+    })
 }
