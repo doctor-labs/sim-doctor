@@ -2,8 +2,8 @@
 //! generated from the shell's own test card and checked for drift by a unit test in src/cardsh).
 //! The replay seam (`SIM_DOCTOR_TEST_REPLAY`) is compiled in test builds only.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn card(fixture: &str, args: &[&str]) -> Output {
     let log = format!("{}/tests/corpus/{fixture}", env!("CARGO_MANIFEST_DIR"));
