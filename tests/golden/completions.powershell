@@ -71,6 +71,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--tui', '--tui', [CompletionResultType]::ParameterName, 'Show the findings in an interactive terminal view instead of the report')
             [CompletionResult]::new('--score', '--score', [CompletionResultType]::ParameterName, 'Add one quality score for this card, for CI gating')
             [CompletionResult]::new('--terminal-profile', '--terminal-profile', [CompletionResultType]::ParameterName, 'Send a TERMINAL PROFILE to the card before the TAR audit')
+            [CompletionResult]::new('--sms-deliver-report', '--sms-deliver-report', [CompletionResultType]::ParameterName, 'Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT')
             [CompletionResult]::new('--headless', '--headless', [CompletionResultType]::ParameterName, 'A face in plain text without colour, for CI and pipes')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')

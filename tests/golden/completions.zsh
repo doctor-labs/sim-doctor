@@ -55,6 +55,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--json)--tui[Show the findings in an interactive terminal view instead of the report]' \
 '--score[Add one quality score for this card, for CI gating]' \
 '--terminal-profile[Send a TERMINAL PROFILE to the card before the TAR audit]' \
+'--sms-deliver-report[Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT]' \
 '(--json --tui --face)--headless[A face in plain text without colour, for CI and pipes]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
