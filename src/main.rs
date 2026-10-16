@@ -975,7 +975,8 @@ enum GpAction {
     /// With --keys-file or --keys-env the registry is read over an SCP03 secure
     /// channel (C-MAC) opened with ONE authentication attempt.
     ///
-    /// The key text is `ENC [MAC [DEK]]`, 32 hex digits each (AES-128), split by
+    /// The key text is `ENC [MAC [DEK]]`, 32, 48 or 64 hex digits each (AES-128,
+    /// -192 or -256), split by
     /// spaces, commas or newlines; one key means ENC = MAC. A key may be written
     /// KEY/KCV (6 hex digits); a wrong KCV stops the run before the card is
     /// touched. Keys are never taken from the command line and never printed.
@@ -1736,7 +1737,8 @@ struct GpKeySourceArgs {
 /// Where `gp status` gets ISD keys. Never a value on the command line: it would
 /// land in shell history and the process list.
 ///
-/// The text is `ENC [MAC [DEK]]`, each 32 hex digits (AES-128),
+/// The text is `ENC [MAC [DEK]]`, each 32, 48 or 64 hex digits (AES-128, -192
+/// or -256),
 /// separated by spaces, commas or newlines; one key means ENC = MAC. A key may
 /// be written `KEY/KCV` (6 hex digits); a wrong KCV stops the run before the
 /// card is touched. The channel is C-MAC only. Exactly ONE authentication attempt

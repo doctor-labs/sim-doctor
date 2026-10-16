@@ -35,7 +35,7 @@
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "scp03t";
 
-use crate::scp03::{cmac, BLOCK, MAC_LEN};
+use crate::scp03::{cmac, Key, BLOCK, MAC_LEN};
 use crate::tlv::Length;
 use aes::cipher::{
     block_padding::NoPadding, BlockCipherEncrypt, BlockModeEncrypt, KeyInit, KeyIvInit,
@@ -259,7 +259,10 @@ impl Channel {
                 buf
             }
         };
-        let full = cmac(&self.s_mac, &[&self.chain, &[tag], &length, &body]);
+        let full = cmac(
+            &Key::from_aes128(&self.s_mac),
+            &[&self.chain, &[tag], &length, &body],
+        );
         self.chain = full;
         self.counter = self.counter.wrapping_add(1);
 
@@ -458,14 +461,17 @@ mod tests {
         let tlv = ch.protect(0x88, &[1, 2, 3], Protection::MacOnly).unwrap();
         // 88 | Lcc = 3 + 8 | data | MAC
         assert_eq!(tlv.len(), 1 + 1 + 3 + 8);
-        let full = cmac(&k.mac, &[&k.icv, &[0x88, 0x0b], &[1, 2, 3]]);
+        let full = cmac(
+            &Key::from_aes128(&k.mac),
+            &[&k.icv, &[0x88, 0x0b], &[1, 2, 3]],
+        );
         assert_eq!(&tlv[5..], &full[..8]);
         assert_ne!(&tlv[5..], &full[8..]);
         assert_eq!(ch.chain, full);
 
         // The next segment is chained on the full 16 bytes.
         let next = ch.protect(0x88, &[4], Protection::MacOnly).unwrap();
-        let full2 = cmac(&k.mac, &[&full, &[0x88, 0x09], &[4]]);
+        let full2 = cmac(&Key::from_aes128(&k.mac), &[&full, &[0x88, 0x09], &[4]]);
         assert_eq!(&next[3..], &full2[..8]);
     }
 

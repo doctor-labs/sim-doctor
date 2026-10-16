@@ -240,7 +240,7 @@ impl Bpp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scp03::{cmac, BLOCK};
+    use crate::scp03::{cmac, Key, BLOCK};
     use crate::scp03t::{derive_keys, Eid, HostId, SessionKeys};
     use aes::cipher::{
         block_padding::NoPadding, BlockCipherEncrypt, BlockModeDecrypt, KeyInit, KeyIvInit,
@@ -310,10 +310,10 @@ mod tests {
         let mut chain: [u8; BLOCK] = k.icv;
         for (i, tlv) in tlvs.iter().enumerate() {
             let (tag, len, body, mac) = parts(tlv);
-            let full = cmac(&k.mac, &[&chain, &[tag], &len, &body]);
+            let full = cmac(&Key::from_aes128(&k.mac), &[&chain, &[tag], &len, &body]);
             assert_eq!(mac, full[..8], "TLV {i} chains on the previous full CMAC");
             if i > 0 {
-                let fresh = cmac(&k.mac, &[&k.icv, &[tag], &len, &body]);
+                let fresh = cmac(&Key::from_aes128(&k.mac), &[&k.icv, &[tag], &len, &body]);
                 assert_ne!(
                     mac,
                     fresh[..8],

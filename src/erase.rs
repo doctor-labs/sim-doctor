@@ -1327,7 +1327,12 @@ mod authenticated {
     fn a_secured_command_is_the_plain_one_with_the_mac_after_the_data() {
         // Real keys, derived the way a run derives them, so this is a byte test
         // and not a shape test.
-        let keys = scp03::derive_session_keys(&[0x11; 16], &[0x22; 16], &[0x33; 8], &[0x44; 8]);
+        let keys = scp03::derive_session_keys(
+            &scp03::Key::from_aes128(&[0x11; 16]),
+            &scp03::Key::from_aes128(&[0x22; 16]),
+            &[0x33; 8],
+            &[0x44; 8],
+        );
         let mut channel = scp03::Channel::new(&keys);
         let select = select_by_fid("3f00");
         let (header, data, le) = parts_of(&select).expect("a select");
