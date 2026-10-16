@@ -1,10 +1,14 @@
 //! `sim-doctor card`: the loop around [`sim_doctor::cardsh::Shell`] (PC/SC, stdin, stdout).
 
+use std::fs::File;
 use std::io::{self, BufRead, IsTerminal, Write};
+use std::path::Path;
 
 use clap::Args;
 use sim_doctor::cardsh::secrets::csv::CardKeyFile;
 use sim_doctor::cardsh::{self, Opts, Profile, Shell};
+use sim_doctor::transport::replay::Record;
+use sim_doctor::transport::CardSession;
 use sim_doctor::{contract, scan};
 
 /// Everything `sim-doctor card` takes.
@@ -58,6 +62,26 @@ pub struct CardShellArgs {
     /// Without it they print what they would send and the card is not touched by them.
     #[arg(long)]
     yes: bool,
+
+    /// Write every APDU exchange (command and response, hex) to FILE as JSON lines, in the
+    /// SIM_DOCTOR_RECORD replay format. The data field of secret instructions (VERIFY, CHANGE,
+    /// ENABLE/DISABLE, RESET RETRY COUNTER, AUTHENTICATE) is redacted as FF bytes, and so are the
+    /// response data of AUTHENTICATE (RES, CK, IK, Kc); such lines carry "redacted":true and no
+    /// longer replay byte for byte. --dump-secrets records them raw. The file holds raw card data (ICCID, IMSI, file contents): review it before it goes
+    /// anywhere. Refuses an existing file unless --force; never writes through a symlink or into a
+    /// non-regular file. The file is owner-only (0600).
+    #[arg(long, value_name = "FILE")]
+    dump: Option<std::path::PathBuf>,
+
+    /// Let --dump overwrite an existing regular file.
+    #[arg(long, requires = "dump")]
+    force: bool,
+
+    /// Record PINs and keys in plain text: the data field of VERIFY, CHANGE, ENABLE/DISABLE,
+    /// RESET RETRY COUNTER and AUTHENTICATE, and the response data of AUTHENTICATE (RES, CK, IK,
+    /// Kc), is written raw. Keep the file private. Needs --dump.
+    #[arg(long, requires = "dump")]
+    dump_secrets: bool,
 }
 
 pub fn run(args: CardShellArgs) -> contract::ExitCode {
@@ -90,8 +114,33 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
         },
         None => None,
     };
-    let opener: cardsh::Opener = Box::new(|requested| {
+    let dump = match args
+        .dump
+        .as_deref()
+        .map(|path| open_dump(path, args.force))
+        .transpose()
+    {
+        Ok(file) => file,
+        Err(message) => {
+            eprintln!("sim-doctor: {message}");
+            return contract::ExitCode::Error;
+        }
+    };
+    let dump_secrets = args.dump_secrets;
+    let opener: cardsh::Opener = Box::new(move |requested| {
         let (session, reader, atr) = super::open_scan_session(requested).map_err(|f| f.message)?;
+        let session: Box<dyn CardSession> = match &dump {
+            Some(file) => {
+                let file = file.try_clone().map_err(|err| err.to_string())?;
+                let record = Record::new(session, file);
+                Box::new(if dump_secrets {
+                    record
+                } else {
+                    record.redacting()
+                })
+            }
+            None => session,
+        };
         Ok((session, reader.as_str().to_owned(), atr))
     });
     let mut shell = Shell::new(
@@ -135,6 +184,43 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
         }
     }
     finish(&shell)
+}
+
+/// Opens the `--dump` file. An existing path is refused unless `force`; a symlink or any other
+/// non-regular file is refused always (`O_NOFOLLOW` and `O_EXCL` stop a race from swapping one in).
+fn open_dump(path: &Path, force: bool) -> Result<File, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let shown = path.display();
+    let existed = match std::fs::symlink_metadata(path) {
+        Ok(meta) if !meta.file_type().is_file() => {
+            return Err(format!(
+                "{shown}: not a regular file; refusing to write the dump there"
+            ))
+        }
+        Ok(_) if !force => return Err(format!("{shown} exists; pass --force to overwrite it")),
+        Ok(_) => true,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => false,
+        Err(err) => return Err(format!("{shown}: {err}")),
+    };
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW);
+    if existed {
+        options.truncate(true);
+    } else {
+        options.create_new(true);
+    }
+    let file = options
+        .open(path)
+        .map_err(|err| format!("{shown}: {err}"))?;
+    if !file.metadata().map_err(|err| err.to_string())?.is_file() {
+        return Err(format!(
+            "{shown}: not a regular file; refusing to write the dump there"
+        ));
+    }
+    Ok(file)
 }
 
 fn finish(shell: &Shell) -> contract::ExitCode {

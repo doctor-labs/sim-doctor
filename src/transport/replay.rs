@@ -32,16 +32,68 @@ fn driver(reader: &ReaderName, detail: String) -> Error {
     }
 }
 
+/// Instructions whose data field is secret (PIN, PUK, ADM or key material, or an authentication
+/// challenge): VERIFY, CHANGE REFERENCE DATA, DISABLE/ENABLE VERIFICATION REQ, RESET RETRY
+/// COUNTER, and EXTERNAL / INTERNAL / MUTUAL AUTHENTICATE (ISO/IEC 7816-4 and TS 102 221).
+const SECRET_INS: [u8; 6] = [0x20, 0x24, 0x26, 0x28, 0x2C, 0x82];
+
+/// The command with its secret data field replaced by the same number of `FF` bytes, or `None`
+/// when the command is not a secret instruction or carries no data. CLA, INS, P1, P2 and Lc
+/// (short or extended) are kept; anything after the data field (Le) is kept too.
+pub fn redact_secret_data(command: &[u8]) -> Option<Vec<u8>> {
+    if command.len() < 5 || !SECRET_INS.contains(&command[1]) {
+        return None;
+    }
+    let (header, lc) = if command[4] == 0 && command.len() >= 7 {
+        (7, usize::from(u16::from_be_bytes([command[5], command[6]])))
+    } else {
+        (5, usize::from(command[4]))
+    };
+    let end = (header + lc).min(command.len());
+    if end <= header {
+        return None;
+    }
+    let mut out = command[..header].to_vec();
+    out.extend(std::iter::repeat_n(0xFF, end - header));
+    out.extend_from_slice(&command[end..]);
+    Some(out)
+}
+
+/// The response with its data bytes replaced by `FF` (the status word is kept), or `None` when
+/// there is no data to hide. Used for INTERNAL AUTHENTICATE answers, which carry session keys.
+pub fn redact_auth_response(response: &[u8]) -> Option<Vec<u8>> {
+    let data_len = response.len().checked_sub(2).filter(|n| *n > 0)?;
+    let mut out = vec![0xFF; data_len];
+    out.extend_from_slice(&response[data_len..]);
+    Some(out)
+}
+
 /// Wraps a session and appends every exchange to `log`.
 pub struct Record<S, W: Write> {
     inner: S,
     log: W,
+    redact: bool,
+    /// True while an INTERNAL AUTHENTICATE answer is still being collected with GET RESPONSE.
+    auth_pending: bool,
 }
 
 impl<S: CardSession, W: Write> Record<S, W> {
     /// Forwards to `inner`, writing one JSON line per exchange to `log`.
     pub fn new(inner: S, log: W) -> Self {
-        Self { inner, log }
+        Self {
+            inner,
+            log,
+            redact: false,
+            auth_pending: false,
+        }
+    }
+
+    /// Redacts the secret data field of the instructions in [`redact_secret_data`], and the
+    /// response data of INTERNAL AUTHENTICATE (RES, CK, IK, Kc), see [`redact_auth_response`].
+    /// Such a line carries `"redacted":true` and no longer replays byte for byte.
+    pub fn redacting(mut self) -> Self {
+        self.redact = true;
+        self
     }
 
     /// Gives the log writer back, for example to read a `Vec<u8>` in a test.
@@ -57,11 +109,44 @@ impl<S: CardSession, W: Write> CardSession for Record<S, W> {
 
     fn transmit(&mut self, command: &[u8]) -> Result<Vec<u8>, Error> {
         let response = self.inner.transmit(command)?;
-        let line = format!(
-            "{{\"command\":\"{}\",\"response\":\"{}\"}}\n",
-            hex::encode(command),
-            hex::encode(&response)
-        );
+        let ins = command.get(1).copied();
+        let mut logged_command = command.to_vec();
+        let mut logged_response = response.clone();
+        let mut redacted = false;
+        if self.redact {
+            if let Some(cmd) = redact_secret_data(command) {
+                logged_command = cmd;
+                redacted = true;
+            }
+            let collecting = ins == Some(0xC0) && self.auth_pending;
+            if ins == Some(0x88) || collecting {
+                if let Some(resp) = redact_auth_response(&response) {
+                    logged_response = resp;
+                    redacted = true;
+                }
+            }
+        }
+        // An INTERNAL AUTHENTICATE answer is complete when its last GET RESPONSE ends in
+        // something other than 61 xx.
+        let sw1 = response.len().checked_sub(2).map(|i| response[i]);
+        self.auth_pending = match ins {
+            Some(0x88) => sw1 == Some(0x61),
+            Some(0xC0) if self.auth_pending => sw1 == Some(0x61),
+            _ => false,
+        };
+        let line = if redacted {
+            format!(
+                "{{\"command\":\"{}\",\"response\":\"{}\",\"redacted\":true}}\n",
+                hex::encode(&logged_command),
+                hex::encode(&logged_response)
+            )
+        } else {
+            format!(
+                "{{\"command\":\"{}\",\"response\":\"{}\"}}\n",
+                hex::encode(command),
+                hex::encode(&response)
+            )
+        };
         // Flushed per line so a Ctrl-C mid-scan still leaves a usable prefix.
         self.log
             .write_all(line.as_bytes())

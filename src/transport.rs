@@ -112,6 +112,22 @@ pub trait CardSession {
     fn disconnect(&mut self) -> Result<(), Error>;
 }
 
+/// A boxed session is a session: lets wrappers such as [`replay::Record`] take the
+/// `Box<dyn CardSession>` that the opening code hands out.
+impl<T: CardSession + ?Sized> CardSession for Box<T> {
+    fn reader(&self) -> &ReaderName {
+        (**self).reader()
+    }
+
+    fn transmit(&mut self, command: &[u8]) -> Result<Vec<u8>, Error> {
+        (**self).transmit(command)
+    }
+
+    fn disconnect(&mut self) -> Result<(), Error> {
+        (**self).disconnect()
+    }
+}
+
 /// Everything that can go wrong at or below [`crate::fs`].
 ///
 /// `#[non_exhaustive]` because the PC/SC layer has dozens of documented

@@ -1449,3 +1449,196 @@ fn trace_json_keeps_every_exchange_whatever_the_display_flags() {
         "{v}"
     );
 }
+
+/// The scratch directory for one `--dump` test, under cargo's per-target temp dir.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn corpus(name: &str) -> String {
+    std::fs::read_to_string(format!(
+        "{}/tests/corpus/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
+}
+
+#[test]
+fn dump_writes_every_exchange_in_the_replay_format() {
+    let dump = scratch("dump_writes").join("session.jsonl");
+    let _ = std::fs::remove_file(&dump);
+    let out = card(
+        "cardsh_apdu.jsonl",
+        &["--dump", dump.to_str().unwrap(), "-c", DUMP_SCRIPT],
+    );
+    // The last apdu expects 6Dxx and the card answers 9000: one failed command, exit 1.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&dump).unwrap(),
+        corpus("cardsh_apdu.jsonl")
+    );
+}
+
+#[test]
+fn dump_refuses_an_existing_file_unless_forced() {
+    let dump = scratch("dump_refuses").join("session.jsonl");
+    std::fs::write(&dump, "keep me\n").unwrap();
+    let path = dump.to_str().unwrap();
+    let out = card(
+        "cardsh_apdu.jsonl",
+        &["--dump", path, "-c", "apdu 00A4000C022FE2"],
+    );
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--force"));
+    assert_eq!(std::fs::read_to_string(&dump).unwrap(), "keep me\n");
+
+    let forced = card(
+        "cardsh_apdu.jsonl",
+        &["--dump", path, "--force", "-c", DUMP_SCRIPT],
+    );
+    assert_eq!(forced.status.code(), Some(1));
+    assert_eq!(
+        std::fs::read_to_string(&dump).unwrap(),
+        corpus("cardsh_apdu.jsonl")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn dump_never_writes_through_a_symlink() {
+    let dir = scratch("dump_symlink");
+    let target = dir.join("target.txt");
+    std::fs::write(&target, "untouched\n").unwrap();
+    let link = dir.join("link.jsonl");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let out = card(
+        "cardsh_apdu.jsonl",
+        &[
+            "--dump",
+            link.to_str().unwrap(),
+            "--force",
+            "-c",
+            "apdu 00A4000C022FE2",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "untouched\n");
+}
+
+#[test]
+fn dump_redacts_the_pin_of_verify_unless_dump_secrets_is_given() {
+    const SECRETS: &str = "pin1=1234; pin2=0000; puk1=12345678; new-pin1=4321";
+    let dir = scratch("dump_redacts");
+    let redacted = dir.join("redacted.jsonl");
+    let raw = dir.join("raw.jsonl");
+    let _ = std::fs::remove_file(&redacted);
+    let _ = std::fs::remove_file(&raw);
+    let run = |path: &std::path::PathBuf, extra: &[&str]| {
+        let mut all = vec!["--dump", path.to_str().unwrap()];
+        all.extend_from_slice(extra);
+        all.extend_from_slice(&["--yes", "--chv-env", "SIMDOC_TEST_CHV", "-c", "verify_chv"]);
+        card_chv("cardsh_chv.jsonl", SECRETS, &all)
+    };
+    run(&redacted, &[]);
+    let text = std::fs::read_to_string(&redacted).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    let corpus_lines: Vec<String> = corpus("cardsh_chv.jsonl")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert_eq!(
+        lines[0], corpus_lines[0],
+        "the PIN-less probe is not secret"
+    );
+    assert_eq!(
+        lines[1],
+        r#"{"command":"0020000108ffffffffffffffff","response":"9000","redacted":true}"#
+    );
+    assert!(
+        !text.contains("31323334"),
+        "the PIN must not reach the file: {text}"
+    );
+
+    let out = run(&raw, &["--dump-secrets"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&raw).unwrap(),
+        format!("{}\n{}\n", corpus_lines[0], corpus_lines[1])
+    );
+
+    // INTERNAL AUTHENTICATE: the answer (RES, CK, IK, Kc) comes back by GET RESPONSE.
+    let auth_secrets =
+        "ki=hex:465b5ce8b199b49faa5f0a2ee238a6bc; opc=hex:cd63cb71954a9f4e48a5994e37a02baf";
+    let auth_args = |path: &std::path::PathBuf, extra: &[&str]| {
+        let mut all = vec!["--dump", path.to_str().unwrap()];
+        all.extend_from_slice(extra);
+        all.extend_from_slice(&[
+            "--yes",
+            "--chv-env",
+            "SIMDOC_TEST_CHV",
+            "-c",
+            "authenticate --rand 23553cbe9637a89d218ae64dae47bf35 --sqn 200",
+        ]);
+        card_chv("cardsh_auth.jsonl", auth_secrets, &all)
+    };
+    let auth_redacted = dir.join("auth_redacted.jsonl");
+    let auth_raw = dir.join("auth_raw.jsonl");
+    let _ = std::fs::remove_file(&auth_redacted);
+    let _ = std::fs::remove_file(&auth_raw);
+    let auth_corpus: Vec<serde_json::Value> = corpus("cardsh_auth.jsonl")
+        .lines()
+        .take(2)
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let answer = auth_corpus[1]["response"].as_str().unwrap().to_owned();
+    assert!(answer.len() > 4, "the GET RESPONSE carries the answer");
+
+    let o = auth_args(&auth_raw, &["--dump-secrets"]);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}{}",
+        String::from_utf8_lossy(&o.stderr),
+        String::from_utf8_lossy(&o.stdout)
+    );
+    let raw_text = std::fs::read_to_string(&auth_raw).unwrap();
+    assert!(
+        raw_text.contains(&answer),
+        "raw keeps the answer: {raw_text}"
+    );
+
+    assert_eq!(auth_args(&auth_redacted, &[]).status.code(), Some(0));
+    let text = std::fs::read_to_string(&auth_redacted).unwrap();
+    let redacted_line: serde_json::Value =
+        serde_json::from_str(text.lines().nth(1).unwrap()).unwrap();
+    let want = format!("{}9000", "ff".repeat((answer.len() - 4) / 2));
+    assert_eq!(redacted_line["response"], want.as_str());
+    assert_eq!(redacted_line["redacted"], true);
+    assert_eq!(redacted_line["command"], auth_corpus[1]["command"]);
+    assert!(
+        !text.contains(&answer[..answer.len() - 4]),
+        "the answer must not reach the file"
+    );
+
+    let refused = card("cardsh_chv.jsonl", &["--dump-secrets", "-c", "status"]);
+    assert_ne!(
+        refused.status.code(),
+        Some(0),
+        "--dump-secrets needs --dump"
+    );
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--dump"));
+}
