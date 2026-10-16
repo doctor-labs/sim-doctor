@@ -2612,6 +2612,83 @@ impl Shell {
         Ok(result)
     }
 
+    /// `program_profile --file PATH [--yes]`: writes a profile document (see `cardsh::profile`) through this
+    /// shell's own `select` and `update_binary`, so the `--yes` gate and the read-back are those of every
+    /// other write. A dry run prints the plan and sends nothing.
+    fn cmd_program_profile(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let path = args.get_one::<String>("file").expect("required");
+        let text =
+            std::fs::read_to_string(path).map_err(|err| CmdErr::new(format!("{path}: {err}")))?;
+        let plan = profile::plan(&text)
+            .map_err(|errors| CmdErr::new(format!("profile refused: {}", errors.join("; "))))?;
+        if !self.may_change_card(args) {
+            let steps: Vec<Value> = plan
+                .steps
+                .iter()
+                .map(|s| json!({ "field": s.key, "path": s.path, "octets": s.data.len(), "pad_to_card_size": s.pad_to_size, "octets_hex": hex_upper(&s.data) }))
+                .collect();
+            return Ok(Reply::ok(
+                format!(
+                    "WARNING: programming {} overwrites these files on the card. Dry run, card_touched false: {} write(s) planned; add --yes to send",
+                    plan.target.name(),
+                    plan.steps.len()
+                ),
+                json!({ "card_touched": false, "target": plan.target.name(), "steps": steps, "not_written": plan.not_written }),
+            ));
+        }
+        // Phase 1: every file is selected and its size checked, so a card missing one of them is refused
+        // before the first write. Phase 2 selects each file again (UPDATE BINARY acts on the selection).
+        let mut jobs = Vec::new();
+        for step in &plan.steps {
+            let selected = self.exec(&format!("select {}", step.path));
+            if !selected.ok {
+                return Err(CmdErr::new(format!(
+                    "select {} failed; nothing written: {}",
+                    step.path, selected.text
+                )));
+            }
+            let size =
+                self.equipped()?.ef()?.size.ok_or_else(|| {
+                    CmdErr::new(format!("{}: the card gave no file size", step.path))
+                })?;
+            let size = usize::try_from(size)
+                .map_err(|_| CmdErr::new(format!("{}: file size out of range", step.path)))?;
+            jobs.push((step, fit_to_file(step, size)?));
+        }
+        let mut written: Vec<&'static str> = Vec::new();
+        for (step, data) in &jobs {
+            let selected = self.exec(&format!("select {}", step.path));
+            if !selected.ok {
+                return Err(CmdErr::new(format!(
+                    "select {} failed after {} file(s) written: {}",
+                    step.path,
+                    written.len(),
+                    selected.text
+                )));
+            }
+            let wrote = self.exec(&format!(
+                "update_binary --data {} --read-back --yes",
+                hex_upper(data)
+            ));
+            if !wrote.ok || wrote.data["verified"] != json!(true) {
+                return Err(CmdErr::new(format!(
+                    "{}: not verified by the re-read after {} file(s) written: {}",
+                    step.path,
+                    written.len(),
+                    wrote.text
+                )));
+            }
+            written.push(step.path);
+        }
+        Ok(Reply::ok(
+            format!(
+                "profile programmed: {} file(s) written, each re-read and verified",
+                written.len()
+            ),
+            json!({ "card_touched": true, "target": plan.target.name(), "written": written, "not_written": plan.not_written }),
+        ))
+    }
+
     fn cmd_update_record(&mut self, args: &clap::ArgMatches) -> CmdResult {
         let data =
             parse_hex(args.get_one::<String>("data").expect("required")).map_err(CmdErr::new)?;
@@ -3915,6 +3992,12 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("program_profile")
+                .about("Program a profile document (--file, `key = value` lines) onto the card: IMSI, ICCID, ACC, FPLMN (sim, usim) or IMPI, domain (isim). WARNING: overwrites those files on the card. A dry run unless --yes; each file is re-read and verified")
+                .arg(Arg::new("file").long("file").value_name("PATH").required(true).help("the profile document; it holds Ki and OPc too, so keep it chmod 600"))
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("update_record")
                 .about("UPDATE RECORD number N of the selected record EF (--record, --data hex); a dry run unless --yes; --read-back verifies")
                 .arg(Arg::new("record").long("record").value_name("N").required(true).value_parser(clap::value_parser!(u16).range(1..=254)))
@@ -4653,6 +4736,7 @@ impl Shell {
             "read_binary" => self.cmd_read_binary(args),
             "read_record" => self.cmd_read_record(args),
             "update_binary" => self.cmd_update_binary(args),
+            "program_profile" => self.cmd_program_profile(args),
             "update_record" => self.cmd_update_record(args),
             "update_imsi_plmn" => self.cmd_update_imsi_plmn(args),
             "read_records" => self.cmd_read_records(args),
@@ -6146,6 +6230,21 @@ fn run_hook(cmd: &str) -> Option<i32> {
         .and_then(|s| s.code())
 }
 
+/// The octets to write to a file of `size` octets: a padded TLV value, or exactly the file's length.
+/// Refused when they do not fit, so nothing is written to that file.
+fn fit_to_file(step: &profile::Step, size: usize) -> Result<Vec<u8>, CmdErr> {
+    if step.data.len() > size || (!step.pad_to_size && step.data.len() != size) {
+        return Err(CmdErr::new(format!(
+            "{}: the card's file is {size} octets and the profile needs {}; nothing written to this file",
+            step.path,
+            step.data.len()
+        )));
+    }
+    let mut data = step.data.clone();
+    data.resize(size, 0xFF);
+    Ok(data)
+}
+
 /// `9000 (normal processing)` or `no status word`.
 pub fn sw_text(sw: Option<StatusWord>) -> String {
     sw.map_or_else(
@@ -6223,6 +6322,7 @@ pub mod decode;
 mod efs;
 pub mod keycsv;
 pub mod names;
+pub mod profile;
 pub mod secrets;
 
 #[cfg(test)]
