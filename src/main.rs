@@ -5860,7 +5860,7 @@ fn run_profile_probe(
             )
         }
     };
-    let reader = match pick_reader(&readers, reader.as_deref()) {
+    let reader = match pick_reader(&readers, reader.as_deref(), None) {
         Ok(reader) => reader,
         Err(failure) => return report_refusal(kind, &failure.message, failure.data(), json),
     };
