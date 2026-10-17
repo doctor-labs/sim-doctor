@@ -80,6 +80,19 @@ pub struct CardShellArgs {
     /// process can use the card while this shell is open. Off by default, which shares it.
     #[arg(short = 'X', long)]
     exclusive: bool,
+    /// CSV card key provider, as pySim's `--csv`: a version-marked CSV whose key columns are
+    /// encrypted at rest. Answers for the values `--chv-file` / `--chv-env` do not hold.
+    #[arg(long, value_name = "PATH", requires = "card_key_key")]
+    card_key_csv: Option<std::path::PathBuf>,
+
+    /// File holding the per-column transport keys that decrypt the CSV (`PIN1=<hex>` per line,
+    /// keep it chmod 600). Never a value on the command line: it would land in shell history.
+    #[arg(long, value_name = "PATH", conflicts_with = "card_key_key_env")]
+    card_key_key: Option<std::path::PathBuf>,
+
+    /// Environment variable holding the same transport key text.
+    #[arg(long, value_name = "VAR", conflicts_with = "card_key_key")]
+    card_key_key_env: Option<String>,
 
     /// Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...).
     /// Without it they print what they would send and the card is not touched by them.
@@ -137,6 +150,31 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
         },
         None => None,
     };
+    let card_keys = match (
+        &args.card_key_csv,
+        &args.card_key_key,
+        &args.card_key_key_env,
+    ) {
+        (None, _, _) => Ok(None),
+        (Some(path), Some(keys), _) => {
+            cardsh::keycsv::CardKeyStore::load(path, &cardsh::secrets::Source::File(keys.clone()))
+                .map(Some)
+        }
+        (Some(path), _, Some(var)) => {
+            cardsh::keycsv::CardKeyStore::load(path, &cardsh::secrets::Source::Env(var.clone()))
+                .map(Some)
+        }
+        (Some(_), None, None) => {
+            Err("--card-key-csv needs --card-key-key PATH or --card-key-key-env VAR".to_owned())
+        }
+    };
+    let card_keys = match card_keys {
+        Ok(s) => s,
+        Err(message) => {
+            eprintln!("sim-doctor: {message}");
+            return contract::ExitCode::Error;
+        }
+    };
     let dump = match args
         .dump
         .as_deref()
@@ -188,6 +226,7 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
             dialect: args.dialect.tag_set(),
             secrets,
             card_key,
+            card_keys,
         },
     );
     let profile = if args.profile == "sim" {

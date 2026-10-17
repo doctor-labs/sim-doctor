@@ -2049,3 +2049,116 @@ fn bulk_script_runs_pre_and_on_stop_actions() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn a_sealed_csv_card_key_provider_answers_verify_chv_and_never_prints_a_key() {
+    let (csv, keys) = sealed_card_keys("chv", "31323334FFFFFFFF", "30303030FFFFFFFF");
+    let out = card_keys(
+        "cardsh_chv.jsonl",
+        &csv,
+        &keys,
+        &[
+            "--json",
+            "--yes",
+            "-c",
+            "verify_chv; verify_chv --pin-nr 2; verify_chv --pin-nr 2",
+        ],
+    );
+    // The same transcript as the PIN source gives: PIN1 verifies, PIN2 is wrong twice.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r[0]["data"]["verified"], true);
+    assert!(r[1]["error"].as_str().unwrap().contains("2 tries left"));
+    assert!(r[2]["error"].as_str().unwrap().contains("1 tries left"));
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for secret in [
+        "1234", "0000", "31323334", "30303030", "ffffffff", "1111", "2222",
+    ] {
+        assert!(!all.contains(secret), "{secret} leaked:\n{all}");
+    }
+    // Nothing was written back: the file still holds exactly what was sealed, and no plaintext.
+    let after = std::fs::read_to_string(&csv).unwrap();
+    assert_eq!(after.lines().count(), 3);
+    assert!(after
+        .lines()
+        .all(|l| !l.contains("31323334") && !l.contains("30303030")));
+    let _ = std::fs::remove_file(&csv);
+    let _ = std::fs::remove_file(&keys);
+}
+
+#[test]
+fn a_card_key_csv_that_cannot_be_opened_is_refused_and_quotes_no_key() {
+    use sim_doctor::cardsh::keycsv::MARKER;
+    let (good_csv, keys) = sealed_card_keys("wrong", "31323334FFFFFFFF", "30303030FFFFFFFF");
+    let sealed = std::fs::read_to_string(&good_csv).unwrap();
+    let dir = std::env::temp_dir();
+    // The layout is right and the key is wrong: the one failure a layout check cannot catch.
+    let wrong = dir.join("simdoc-281-transport-wrong-key.txt");
+    std::fs::write(
+        &wrong,
+        format!("PIN1={}\nPIN2={}\n", "44".repeat(32), "55".repeat(32)),
+    )
+    .unwrap();
+    let path = dir.join("simdoc-281-case.csv");
+    let cases: Vec<(String, std::path::PathBuf, i32, &str)> = vec![
+        (
+            "ICCID,PIN1,PIN2\n,31323334FFFFFFFF,30303030FFFFFFFF\n".to_owned(),
+            keys.clone(),
+            2,
+            "expected the version marker",
+        ),
+        (
+            format!("{sealed}8944,E1\n"),
+            keys.clone(),
+            2,
+            "csv row 2 (line 4): 2 cells for 3 columns",
+        ),
+        (
+            format!("{MARKER}\nICCID,PIN1,PIN2\n,31323334,\n"),
+            keys.clone(),
+            1,
+            "is not sealed with E1",
+        ),
+        (sealed.clone(), wrong.clone(), 1, "does not open"),
+    ];
+    for (csv_text, key_path, code, needle) in cases {
+        std::fs::write(&path, &csv_text).unwrap();
+        let out = card_keys(
+            "cardsh_chv.jsonl",
+            &path,
+            &key_path,
+            &["--json", "--yes", "-c", "verify_chv --pin-nr 1"],
+        );
+        let all = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.status.code(), Some(code), "{needle}: {all}");
+        assert!(all.contains(needle), "{needle} not reported:\n{all}");
+        for secret in ["31323334", "30303030", "1111", "2222", "4444", "5555"] {
+            assert!(!all.contains(secret), "{secret} leaked:\n{all}");
+        }
+    }
+    // A CSV with no transport key named at all would be a plaintext key store, and is refused.
+    let empty = dir.join("simdoc-281-empty.txt");
+    std::fs::write(&empty, "# none\n").unwrap();
+    let out = card_keys("cardsh_chv.jsonl", &good_csv, &empty, &["-c", "status"]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{err}");
+    assert!(err.contains("plaintext key store"), "{err}");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&empty);
+    let _ = std::fs::remove_file(&wrong);
+    let _ = std::fs::remove_file(&good_csv);
+    let _ = std::fs::remove_file(&keys);
+}
