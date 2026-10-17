@@ -31,8 +31,8 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, ota_expanded, otacrypto, rules,
-    saip, scan, session, sms, tar, trace,
+    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, notif, ota_expanded,
+    otacrypto, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
         replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
