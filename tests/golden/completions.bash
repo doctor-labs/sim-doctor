@@ -2307,7 +2307,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__status)
-            opts="-h --reader --json --trace --channel --keys-file --keys-env --key-version --help"
+            opts="-h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
