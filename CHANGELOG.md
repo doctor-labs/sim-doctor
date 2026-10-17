@@ -136,6 +136,8 @@ All notable changes to this project are documented here. The format follows
   returns the value of one tag. Both are read-only, so the command is always sent and takes no `--yes`; a tag the card does
   not hold is reported as a refusal (`6A 82`), and the selected file must be an EF first.
 
+- `gp aram add|delete-all|lock|config`: the ARA-M write side (issue #237). STORE DATA [Command-Store-REF-AR-DO] `80 E2 90 00` adds or replaces one rule, [Command-Delete] `F1 00` removes every rule, the single byte `A1` locks the applet's STORE DATA and GET DATA [Config] `80 CA DF 21` is the configuration handshake, all over an SCP03 channel with the same dry-run/`--yes`/keys-from-file-or-env/one-authentication-attempt pattern as `gp delete`, a rule list read over the secure channel before and after, and `verify-failed` when the card does not show the change. `delete-all` needs `--confirm-delete-all DELETE-ALL` on top of `--yes`; not exposed over MCP.
+
 ## [0.4.0]
 
 sim-doctor now runs on [doctor-kit](https://crates.io/crates/doctor-kit) 0.2.2, the CLI skeleton shared by the doctor

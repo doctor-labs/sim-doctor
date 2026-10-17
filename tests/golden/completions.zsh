@@ -557,6 +557,129 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(aram)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__gp__subcmd__aram_commands" \
+"*::: :->aram" \
+&& ret=0
+
+    case $state in
+    (aram)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-aram-command-$line[1]:"
+        case $line[1] in
+            (add)
+_arguments "${_arguments_options[@]}" : \
+'--aid=[The application the rule is for\: 5 to 16 bytes of hex, or the empty string for the empty AID-REF-DO that names every application]:HEX:_default' \
+'--device-app-id=[The device application'\''s certificate hash or UUID, 20 or 32 bytes of hex. Empty (the default) matches any device application]:HEX:_default' \
+'--pkg-ref=[The Android package name (PKG-REF-DO, an AOSP extension)]:NAME:_default' \
+'(--apdu-never --apdu-always)--apdu-filter=[An APDU filter\: groups of 16 hex digits, 4 for CLA INS P1 P2 then 4 for the mask, repeated]:HEX:_default' \
+'--android-permissions=[The eight Android UICC Carrier Privilege permission bytes (PERM-AR-DO, an AOSP extension)]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'(--aid)--aid-empty[No specific application\: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)]' \
+'(--apdu-always --apdu-filter)--apdu-never[Never allow the application'\''s APDUs (APDU-AR-DO D0 01 00)]' \
+'(--apdu-never --apdu-filter)--apdu-always[Always allow the application'\''s APDUs (APDU-AR-DO D0 01 01)]' \
+'(--nfc-always)--nfc-never[Never deliver the application'\''s NFC events (NFC-AR-DO D1 01 00)]' \
+'(--nfc-never)--nfc-always[Always deliver the application'\''s NFC events (NFC-AR-DO D1 01 01)]' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(delete-all)
+_arguments "${_arguments_options[@]}" : \
+'--confirm-delete-all=[Required acknowledgement beyond --yes\: the literal DELETE-ALL]:TEXT:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(lock)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" : \
+'--major=[The major part of the device interface version to offer]:MAJOR:_default' \
+'--minor=[The minor part of the device interface version to offer]:MINOR:_default' \
+'--patch=[The patch part of the device interface version to offer]:PATCH:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-aram-help-command-$line[1]:"
+        case $line[1] in
+            (add)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete-all)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(lock)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__gp__subcmd__help_commands" \
@@ -640,6 +763,38 @@ _arguments "${_arguments_options[@]}" : \
 (personalize)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
+;;
+(aram)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram_commands" \
+"*::: :->aram" \
+&& ret=0
+
+    case $state in
+    (aram)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-help-aram-command-$line[1]:"
+        case $line[1] in
+            (add)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete-all)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(lock)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
 ;;
 (help)
 _arguments "${_arguments_options[@]}" : \
@@ -1662,6 +1817,38 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(aram)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram_commands" \
+"*::: :->aram" \
+&& ret=0
+
+    case $state in
+    (aram)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-gp-aram-command-$line[1]:"
+        case $line[1] in
+            (add)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete-all)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(lock)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
         esac
     ;;
 esac
@@ -2367,6 +2554,7 @@ _sim-doctor__subcmd__gp_commands() {
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
+'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp commands' commands "$@"
@@ -2375,6 +2563,73 @@ _sim-doctor__subcmd__gp_commands() {
 _sim-doctor__subcmd__gp__subcmd__ara_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp ara commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram_commands() {
+    local commands; commands=(
+'add:Add or replace one access rule\: STORE DATA \[Command-Store-REF-AR-DO\], \`F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }\`' \
+'delete-all:Delete EVERY access rule the ARA-M holds\: STORE DATA \[Command-Delete\] with an empty body (F1 00)' \
+'lock:Lock the ARA-M'\''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim'\''s sysmocom ARA-M fork only' \
+'config:The configuration handshake\: GET DATA \[Config\] (80 CA DF 21) offering the device'\''s interface version. Read-only, no --yes' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor gp aram commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__add_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram add commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__config_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram config commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__delete-all_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__delete-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram delete-all commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help_commands() {
+    local commands; commands=(
+'add:Add or replace one access rule\: STORE DATA \[Command-Store-REF-AR-DO\], \`F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }\`' \
+'delete-all:Delete EVERY access rule the ARA-M holds\: STORE DATA \[Command-Delete\] with an empty body (F1 00)' \
+'lock:Lock the ARA-M'\''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim'\''s sysmocom ARA-M fork only' \
+'config:The configuration handshake\: GET DATA \[Config\] (80 CA DF 21) offering the device'\''s interface version. Read-only, no --yes' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor gp aram help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__add_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram help add commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__config_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram help config commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__delete-all_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__delete-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram help delete-all commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__lock_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__lock_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram help lock commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__aram__subcmd__lock_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__aram__subcmd__lock_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp aram lock commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__channel_commands() {
@@ -2450,6 +2705,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
+'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp help commands' commands "$@"
@@ -2458,6 +2714,36 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__ara_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help ara commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram_commands() {
+    local commands; commands=(
+'add:Add or replace one access rule\: STORE DATA \[Command-Store-REF-AR-DO\], \`F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }\`' \
+'delete-all:Delete EVERY access rule the ARA-M holds\: STORE DATA \[Command-Delete\] with an empty body (F1 00)' \
+'lock:Lock the ARA-M'\''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim'\''s sysmocom ARA-M fork only' \
+'config:The configuration handshake\: GET DATA \[Config\] (80 CA DF 21) offering the device'\''s interface version. Read-only, no --yes' \
+    )
+    _describe -t commands 'sim-doctor gp help aram commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__add_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help aram add commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__config_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help aram config commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__delete-all_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__delete-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help aram delete-all commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help aram lock commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel_commands() {
@@ -2788,6 +3074,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
+'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
     )
     _describe -t commands 'sim-doctor help gp commands' commands "$@"
 }
@@ -2795,6 +3082,36 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__ara_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp ara commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram_commands() {
+    local commands; commands=(
+'add:Add or replace one access rule\: STORE DATA \[Command-Store-REF-AR-DO\], \`F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }\`' \
+'delete-all:Delete EVERY access rule the ARA-M holds\: STORE DATA \[Command-Delete\] with an empty body (F1 00)' \
+'lock:Lock the ARA-M'\''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim'\''s sysmocom ARA-M fork only' \
+'config:The configuration handshake\: GET DATA \[Config\] (80 CA DF 21) offering the device'\''s interface version. Read-only, no --yes' \
+    )
+    _describe -t commands 'sim-doctor help gp aram commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__add_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp aram add commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__config_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp aram config commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__delete-all_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__delete-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp aram delete-all commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp aram lock commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands() {

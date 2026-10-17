@@ -1896,6 +1896,9 @@ fn render_write(out: &mut Vec<String>, op: &Value, data: &Value) {
     if data["result"]["verified"] == true {
         out.push("  verified: the registry shows the intended result".into());
     }
+    if let Some(note) = data["result"]["verified_note"].as_str() {
+        out.push(format!("  ({})", crate::contract::sanitize(note)));
+    }
 }
 
 /// Why an INSTALL or LOAD command could not be built.
@@ -1944,6 +1947,9 @@ pub enum BuildError {
     /// A PUT KEY parameter outside what GP Card Spec v2.3.1 11.8.2.1 to 11.8.2.3 allow.
     #[error("{0}")]
     PutKey(&'static str),
+    /// An ARA-M field outside what GPD_SPE_013 v1.1 chapter 6 allows.
+    #[error("{0}")]
+    Aram(&'static str),
     /// The supplied authentication keys have no DEK to encrypt the new keys with.
     #[error("PUT KEY encrypts the new keys under the current DEK, and the supplied keys have none: give ENC MAC DEK (or one key for all three)")]
     DekMissing,
@@ -4063,6 +4069,842 @@ pub fn put_key<S: CardSession + ?Sized>(
                 sw_hex(&ex).as_deref().unwrap_or("none")
             ),
         });
+    }
+    finish(data, steps)
+}
+
+// ---------------------------------------------------------------------------
+// The ARA-M write side (issue #237).
+//
+// Everything below is built from the public ARA-M definition (GlobalPlatform
+// Secure Element Access Control v1.1, GPD_SPE_013) and from the two reference
+// tools named by the issue, read and cited, never copied:
+//   * osmocom/pysim `pySim/ara_m.py` (GPL-2.0-or-later, Harald Welte): the DO
+//     tags of chapter 6 and chapter 4/5, and `ADF_ARAM.store_data`,
+//     `store_ref_ar_do`, `aram_delete_all`, `get_config`, `do_aram_lock`.
+//   * martinpaljak/GlobalPlatformPro branch `next`
+//     `nextgen/.../gp/ng/GPToolNG.java` (LGPL-3.0): the same feature performed
+//     over an SCP03 channel - `install_for_personalization` then a keyed
+//     STORE DATA with "P1 0x90 = last block + BER-TLV".
+// [V] marks a layout checked against one of those two files, [U] a layout whose
+// spec text could not be read offline.
+// ---------------------------------------------------------------------------
+
+/// What `gp aram add` can do to the card, in the tool's own words. Also printed
+/// in the dry run and in `--json`.
+pub const ARA_M_WARNING: &str = "an ARA-M access rule says what one application, signed by one device application's key, may do on this secure element: a rule that grants access is permanent on the card, a rule that denies access can stop that application working, and nothing but deleting or replacing that one rule undoes it. Rules are read with gp ara; check the rule this command shows against what you intend before adding --yes";
+
+/// What `gp aram delete-all` does, which is more than one command's removal.
+pub const ARA_M_DELETE_ALL_WARNING: &str = "delete-all removes EVERY access rule the ARA-M holds in one STORE DATA, not one rule: every application that is granted or denied anything by a rule loses that rule at once, including rules another tool or another operator wrote that this run has not shown you, and the ARA-M does not report them again afterwards. There is no way to bring them back. Run gp ara first; if any rule there is not one you wrote, do not run this";
+
+/// What `gp aram lock` does.
+pub const ARA_M_LOCK_WARNING: &str = "lock asks the ARA-M to refuse every further STORE DATA, permanently: after it answers 9000 no access rule can be added, changed or deleted on this card again, by this tool or any other, and a rule you have not finished is lost for good. There is no command to unlock it";
+
+/// What `gp aram lock` could and could not verify. [U]: pySim's `do_aram_lock`
+/// checks nothing but the `9000`, and the ARA-M rule list (`FF40`) exposes no
+/// lock state, so there is nothing to read back.
+pub const ARA_M_LOCK_NOTE: &str =
+    "the ARA-M rule list exposes no lock state [U], so what is verified is only that the card still answers GET DATA [all] after the lock: the lock itself is not read back";
+
+/// The text `gp aram delete-all --confirm-delete-all` must carry. An
+/// acknowledgement beyond `--yes`, as `euicc reset` asks for `--confirm-eid`.
+pub const DELETE_ALL_CONFIRMATION: &str = "DELETE-ALL";
+
+/// The acknowledgement `gp aram delete-all` needs before `--yes` means it.
+///
+/// # Errors
+///
+/// A `String` saying what was wrong, for `data.error.message`.
+pub fn check_delete_all_acknowledgement(text: Option<&str>) -> Result<(), String> {
+    match text {
+        Some(t) if t == DELETE_ALL_CONFIRMATION => Ok(()),
+        _ => Err(format!(
+            "delete-all removes every access rule on the card; re-run with --confirm-delete-all {DELETE_ALL_CONFIRMATION} and --yes to say that is what you want"
+        )),
+    }
+}
+
+/// How an APDU-AR-DO grants or denies APDU access (GPD_SPE_013 v1.1 Table 6-8):
+/// one byte `00`/`01`, or the filter list.
+///
+/// [V] the encoding is pySim `ApduArDO._to_bytes` and `decode_ara_rules`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApduRule {
+    /// Never allowed: the one byte `D0 01 00`.
+    Never,
+    /// Always allowed: the one byte `D0 01 01`.
+    Always,
+    /// A filter list, eight bytes per entry: `CLA INS P1 P2` then a four byte
+    /// mask. [V] pySim `ApduArDO` (`header` four bytes, `mask` four bytes).
+    Filters(Vec<[u8; 8]>),
+}
+
+impl ApduRule {
+    fn content(&self) -> Vec<u8> {
+        match self {
+            Self::Never => vec![0x00],
+            Self::Always => vec![0x01],
+            Self::Filters(list) => list.iter().flatten().copied().collect(),
+        }
+    }
+
+    /// The name `decode_ara_rules` gives the same rule, for output.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Never => "never",
+            Self::Always => "always",
+            Self::Filters(n) if n.len() == 1 => "filter",
+            Self::Filters(_) => "filters",
+        }
+    }
+}
+
+/// How an NFC-AR-DO grants or denies NFC event access (GPD_SPE_013 v1.1 Table
+/// 6-9: one byte, `00` never, `01` always). [V] pySim `NfcArDO`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NfcRule {
+    /// NFC events are not delivered.
+    Never,
+    /// NFC events are delivered.
+    Always,
+}
+
+/// One REF-AR-DO to store, as STORE DATA [Command-Store-REF-AR-DO]
+/// `F0 { E2 { E1 { 4F|C0, C1 [, CA] }, E3 { D0 [, D1] [, DB] } } }`.
+///
+/// [V] every tag and every nesting here is pySim `RefArDO`/`RefDO`/`ArDO` with
+/// its GPD_SPE_013 v1.1 table (5-2, 6-3, 6-4, 6-5, 6-6, 6-7, 6-8, 6-9); `CA`
+/// (PKG-REF-DO) and `DB` (PERM-AR-DO) are AOSP SecureElement extensions, which
+/// the same file marks as such and which `decode_ara_rules` also reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreRefArDo {
+    /// AID-REF-DO (`4F`): the application the rule is for. `Some(&[])` is the
+    /// empty AID, which the GP text reads as "all applications" and
+    /// `decode_ara_rules` shows as `"all"`.
+    pub aid: Option<Vec<u8>>,
+    /// AID-REF-EMPTY-DO (`C0`), the implicitly selected application on every
+    /// channel. `aid` wins if both are set.
+    pub aid_empty: bool,
+    /// DEV-APP-ID-REF-DO (`C1`): the device application's certificate hash or
+    /// UUID. Empty means any device application; `decode_ara_rules` shows `"any"`.
+    pub device_app_id: Vec<u8>,
+    /// PKG-REF-DO (`CA`): the Android package name. AOSP extension.
+    pub package: Option<String>,
+    /// APDU-AR-DO (`D0`).
+    pub apdu: Option<ApduRule>,
+    /// NFC-AR-DO (`D1`).
+    pub nfc: Option<NfcRule>,
+    /// PERM-AR-DO (`DB`): eight permission bytes. AOSP extension.
+    pub permissions: Option<Vec<u8>>,
+}
+
+impl StoreRefArDo {
+    /// The BER-TLV of the rule: `F0 { E2 { E1, E3 } }`.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::Aram`] for an AID, device application id, package name,
+    /// APDU filter or permission block outside what chapter 6 allows, and
+    /// [`BuildError::Field`] when the whole rule is over 255 bytes.
+    pub fn encode(&self) -> Result<Vec<u8>, BuildError> {
+        let mut ref_do = Vec::new();
+        match &self.aid {
+            Some(aid) => {
+                aid_ok("AID-REF-DO", aid, true)?;
+                ref_do.extend_from_slice(&aram_tlv(0x4F, aid));
+            }
+            None if self.aid_empty => ref_do.extend_from_slice(&aram_tlv(0xC0, &[])),
+            None => {
+                return Err(BuildError::Aram(
+                    "a rule needs an AID-REF-DO (--aid, which may be empty) or an AID-REF-EMPTY-DO (--aid-empty)",
+                ))
+            }
+        }
+        if !matches!(self.device_app_id.len(), 0 | 20 | 32) {
+            return Err(BuildError::Aram("a DEV-APP-ID-REF-DO is 0, 20 or 32 bytes"));
+        }
+        ref_do.extend_from_slice(&aram_tlv(0xC1, &self.device_app_id));
+        if let Some(pkg) = &self.package {
+            if pkg.is_empty() || pkg.len() > 127 || !pkg.is_ascii() {
+                return Err(BuildError::Aram(
+                    "a PKG-REF-DO is 1 to 127 ASCII characters",
+                ));
+            }
+            ref_do.extend_from_slice(&aram_tlv(0xCA, pkg.as_bytes()));
+        }
+        let mut ar_do = Vec::new();
+        if let Some(apdu) = &self.apdu {
+            if let ApduRule::Filters(list) = apdu {
+                if list.is_empty() {
+                    return Err(BuildError::Aram("an APDU-AR-DO filter list is empty"));
+                }
+            }
+            ar_do.extend_from_slice(&aram_tlv(0xD0, &apdu.content()));
+        }
+        if let Some(nfc) = self.nfc {
+            ar_do.extend_from_slice(&aram_tlv(
+                0xD1,
+                &[match nfc {
+                    NfcRule::Never => 0x00,
+                    NfcRule::Always => 0x01,
+                }],
+            ));
+        }
+        if let Some(perm) = &self.permissions {
+            if perm.len() != 8 {
+                return Err(BuildError::Aram("a PERM-AR-DO is eight permission bytes"));
+            }
+            ar_do.extend_from_slice(&aram_tlv(0xDB, perm));
+        }
+        let rule = aram_tlv(
+            0xE2,
+            &[aram_tlv(0xE1, &ref_do), aram_tlv(0xE3, &ar_do)].concat(),
+        );
+        Ok(aram_tlv(0xF0, &rule))
+    }
+
+    /// The rule as `decode_ara_rules` names its fields, for the dry run.
+    fn target(&self) -> Value {
+        let aid = match &self.aid {
+            Some(a) if a.is_empty() => json!("all"),
+            Some(a) => json!(hex_of(a)),
+            None => json!("default_selected"),
+        };
+        let device = if self.device_app_id.is_empty() {
+            json!("any")
+        } else {
+            json!(hex_of(&self.device_app_id))
+        };
+        let mut target = json!({ "aid": aid, "device_app": device });
+        if let Some(pkg) = &self.package {
+            target["package"] = json!(pkg);
+        }
+        if let Some(apdu) = &self.apdu {
+            target["apdu"] = match apdu {
+                ApduRule::Filters(list) => json!({
+                    "rule": "filter",
+                    "filters": list.iter().map(|f| json!({
+                        "header": hex::encode_upper(&f[..4]),
+                        "mask": hex::encode_upper(&f[4..]),
+                    })).collect::<Vec<_>>(),
+                }),
+                other => json!({ "rule": other.name() }),
+            };
+        }
+        if let Some(nfc) = self.nfc {
+            target["nfc"] = json!(match nfc {
+                NfcRule::Never => "never",
+                NfcRule::Always => "always",
+            });
+        }
+        if let Some(perm) = &self.permissions {
+            target["permissions"] = hex_of(perm);
+        }
+        target
+    }
+
+    /// Whether a decoded rule (of [`decode_ara_rules`]) is this one.
+    fn matches(&self, rule: &Value) -> bool {
+        let target = self.target();
+        if rule["aid"] != target["aid"] || rule["device_app"] != target["device_app"] {
+            return false;
+        }
+        match &self.package {
+            Some(pkg) => rule["package"] == json!(pkg),
+            None => rule.get("package").is_none(),
+        }
+    }
+}
+
+/// `tag`, its BER length and the body, for the short and long forms
+/// [`ber_len`] writes. This only frames bytes; the layout of what goes in is
+/// [`StoreRefArDo::encode`].
+fn aram_tlv(tag: u8, body: &[u8]) -> Vec<u8> {
+    let mut out = vec![tag];
+    out.extend_from_slice(&ber_len(body.len()));
+    out.extend_from_slice(body);
+    out
+}
+
+/// STORE DATA [Command-Store-REF-AR-DO] for `rule`: `80 E2 90 00`, the
+/// BER-TLV, one block.
+///
+/// [V] P1 `90` (last block, BER-TLV) and P2 `00`: pySim `ADF_ARAM.store_data`
+/// builds the header `80 e2 90 00`; GlobalPlatformPro `GPToolNG.java` says the
+/// same of its "P1 0x90 = last block + BER-TLV" STORE DATA. `Lc` here counts
+/// the MAC, as `Channel::wrap` writes it; the plain bytes below are what
+/// `Command::encode` produces before that.
+///
+/// # Errors
+///
+/// Whatever [`StoreRefArDo::encode`] returns, plus [`BuildError::Field`] when
+/// the data is over 255 bytes.
+pub fn aram_store_command(rule: &StoreRefArDo) -> Result<Command, BuildError> {
+    let data = rule.encode()?;
+    aram_data_command(0xE2, &data)
+}
+
+/// STORE DATA [Command-Delete] with an empty body: delete **every** rule.
+///
+/// [V] `F1 00`: pySim `ADF_ARAM.aram_delete_all` sends `CommandDelete()`, an
+/// empty Command-Delete (GPD_SPE_013 v1.1 Table 5-4, which also has forms with
+/// an AID, a RefDO or a RefArDO body; this one is the delete-all).
+pub fn aram_delete_all_command() -> Command {
+    // `F1 00` is two bytes that always fit, so the build cannot fail.
+    Command::case4(
+        Header::new(0x80, 0xE2, 0x90, 0x00),
+        aram_tlv(0xF1, &[]),
+        Le::Short(0),
+    )
+}
+
+/// STORE DATA with the single byte `A1`: lock the ARA-M's STORE DATA.
+///
+/// [U] **not** in the GP text. pySim ships it as `aram_lock`, whose docstring
+/// calls it "a Proprietary feature that is specific to sysmocom's fork of
+/// Bertrand Martel's ARA-M implementation"; the reference APDU it sends,
+/// `80 e2 90 00 01 A1` for `9000`, is what is built here. GPD_SPE_013 v1.1
+/// Table 5-1/5-2 has no tag `A1`, so on any other implementation this answers
+/// `6A80`, `6D00` or `6981` and the tool reports that status word; it is not
+/// claimed to be portable.
+pub fn aram_lock_command() -> Command {
+    Command::case4(
+        Header::new(0x80, 0xE2, 0x90, 0x00),
+        vec![0xA1],
+        Le::Short(0),
+    )
+}
+
+/// GET DATA [Config] (`80 CA DF 21`), the ARA-M's configuration handshake: the
+/// device sends its interface version and the applet answers with its own.
+///
+/// [V] `80 ca df 21` carrying `E4 { E6 major minor patch }`: pySim
+/// `ADF_ARAM.get_config`, which sends that header and a DeviceConfigDO holding
+/// a DeviceInterfaceVersionDO of three bytes (GPD_SPE_013 v1.1 Tables 5-12,
+/// 6-10, 6-12) and defaults to 0.0.1, which is the default here too. The
+/// answer `DF 21 { E5 { E6 } }` is the same file's ResponseAramConfigDO
+/// (Tables 4-5, 6-11).
+pub fn aram_config_command(major: u8, minor: u8, patch: u8) -> Command {
+    let body = aram_tlv(0xE4, &aram_tlv(0xE6, &[major, minor, patch]));
+    Command::case4(Header::new(0x80, 0xCA, 0xDF, 0x21), body, Le::Short(0))
+}
+
+fn aram_data_command(ins: u8, data: &[u8]) -> Result<Command, BuildError> {
+    if data.len() > 0xFF {
+        return Err(BuildError::Field {
+            field: "the ARA-M command data",
+            len: data.len(),
+        });
+    }
+    Ok(Command::case4(
+        Header::new(0x80, ins, 0x90, 0x00),
+        data.to_vec(),
+        Le::Short(0),
+    ))
+}
+
+/// The GET DATA [all] and GET DATA [Config] answers, as they came.
+struct AraRead {
+    /// The status word of the first GET DATA.
+    status: Option<String>,
+    /// The decoded rules, when the answer decoded.
+    rules: Option<Vec<Value>>,
+    /// Why there are no rules, when there are none to be had.
+    error: Option<String>,
+    /// The list did not arrive whole.
+    truncated: bool,
+}
+
+impl AraRead {
+    fn to_json(&self) -> Value {
+        let mut out = json!({ "status": self.status });
+        out["rule_count"] = json!(self.rules.as_ref().map_or(0, Vec::len));
+        match &self.rules {
+            Some(rules) => out["rules"] = Value::Array(rules.clone()),
+            None => out["rules"] = Value::Null,
+        }
+        if self.truncated {
+            out["truncated"] = json!(true);
+        }
+        if let Some(why) = &self.error {
+            out["decode_error"] = json!(why);
+        }
+        out
+    }
+}
+
+/// The `data.error` of an ARA-M rule list that cannot be read in full: without
+/// every rule there is no knowing what a write would change.
+const RULES_UNREADABLE: &str = "rules-unreadable";
+
+/// GET DATA [all] (`80 CA FF 40`) over the secure channel, continued with GET
+/// DATA [Next] (`80 CA FF 60`) while FF40's declared length is not reached.
+/// Raw bytes, bounded as in [`ara`].
+///
+/// # Errors
+///
+/// Transport failures only; a refusal, a truncated list and an undecodable
+/// answer are all `AraRead` values for the caller to refuse on.
+fn read_ara_rules_secure<S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+    channel: &mut scp03::Channel,
+    label: &str,
+) -> Result<AraRead, session::Error> {
+    let mut read = AraRead {
+        status: None,
+        rules: None,
+        error: None,
+        truncated: false,
+    };
+    let all = Command::case2(Header::new(0x80, 0xCA, 0xFF, 0x40), Le::Short(0));
+    let ex = send_secure(session, steps, channel, label, &all)?;
+    read.status = sw_hex(&ex);
+    if !ex.is_success() {
+        return Ok(read);
+    }
+    let mut bytes = ex.data().to_vec();
+    if let Some((head, want)) = ff40_header(&bytes) {
+        let want = head + want;
+        let mut calls = 0;
+        while bytes.len() < want {
+            if calls == ARA_MAX_NEXT || bytes.len() >= ARA_MAX_BYTES {
+                read.truncated = true;
+                read.error = Some("truncated: the read bound was reached".into());
+                break;
+            }
+            calls += 1;
+            let next = Command::case2(Header::new(0x80, 0xCA, 0xFF, 0x60), Le::Short(0));
+            let ex = send_secure(session, steps, channel, "get_data_next", &next)?;
+            if !ex.is_success() {
+                read.truncated = true;
+                read.error = Some(format!(
+                    "truncated: GET DATA [Next] answered {}",
+                    sw_hex(&ex).unwrap_or_default()
+                ));
+                break;
+            }
+            if ex.data().is_empty() {
+                read.truncated = true;
+                read.error = Some("truncated: GET DATA [Next] returned no data".into());
+                break;
+            }
+            bytes.extend_from_slice(ex.data());
+        }
+        if !read.truncated && bytes.len() < want {
+            read.truncated = true;
+            read.error = Some("truncated: incomplete".into());
+        }
+    }
+    if !read.truncated {
+        match decode_ara_rules(&bytes) {
+            Ok(Value::Array(rules)) => read.rules = Some(rules),
+            Ok(other) => read.error = Some(format!("the answer is not a rule list: {other}")),
+            Err(e) => read.error = Some(e),
+        }
+    }
+    Ok(read)
+}
+
+/// What `gp aram add`, `delete-all` and `lock` each do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AramAction {
+    /// STORE DATA [Command-Store-REF-AR-DO]: add or replace one rule.
+    Add(Box<StoreRefArDo>),
+    /// STORE DATA [Command-Delete], empty: remove every rule.
+    DeleteAll,
+    /// STORE DATA `A1`: the fork-specific lock.
+    Lock,
+}
+
+impl AramAction {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Add(_) => "aram-add",
+            Self::DeleteAll => "aram-delete-all",
+            Self::Lock => "aram-lock",
+        }
+    }
+
+    fn warning(&self) -> &'static str {
+        match self {
+            Self::Add(_) => ARA_M_WARNING,
+            Self::DeleteAll => ARA_M_DELETE_ALL_WARNING,
+            Self::Lock => ARA_M_LOCK_WARNING,
+        }
+    }
+
+    fn step(&self) -> &'static str {
+        match self {
+            Self::Add(_) => "store_ref_ar_do",
+            Self::DeleteAll => "delete_all",
+            Self::Lock => "lock",
+        }
+    }
+
+    fn plan(&self) -> Result<Vec<Planned>, BuildError> {
+        let command = match self {
+            Self::Add(rule) => aram_store_command(rule)?,
+            Self::DeleteAll => aram_delete_all_command(),
+            Self::Lock => aram_lock_command(),
+        };
+        Ok(vec![Planned {
+            step: self.step(),
+            command,
+        }])
+    }
+}
+
+/// `gp aram <add|delete-all|lock>` without keys: the offline dry run. The
+/// command is built and shown, nothing is sent and no card is touched.
+///
+/// # Errors
+///
+/// [`BuildError`] for a rule that cannot be encoded.
+pub fn aram_dry_run(action: &AramAction) -> Result<Value, BuildError> {
+    let plan = action.plan()?;
+    let mut data = offline_dry_run(
+        action.operation(),
+        json!({ "ara_m": hex_of(&ARA_M_AID), "rule": action_target(action) }),
+        &plan,
+        &format!(
+            "{}; no keys were given, so the card was not contacted and the rules it holds were not read; add --keys-file or --keys-env to read them, and --yes to send",
+            action.warning()
+        ),
+    );
+    data["warning"] = json!(action.warning());
+    Ok(data)
+}
+
+fn action_target(action: &AramAction) -> Value {
+    match action {
+        AramAction::Add(rule) => rule.target(),
+        AramAction::DeleteAll => json!({ "every_rule": "on this secure element" }),
+        AramAction::Lock => json!({ "store_data": "refused from now on" }),
+    }
+}
+
+/// SELECT the ISD, the one authentication attempt, nothing else. `Err(report)`
+/// is a run that stopped before a secure channel existed.
+fn prepare_aram<S: CardSession + ?Sized>(
+    session: &mut S,
+    auth: &Auth<'_>,
+) -> Result<Result<scp03::Channel, Report>, session::Error> {
+    let mut steps = Vec::new();
+    let mut attempts = Vec::new();
+    let mut selected = None;
+    for aid in ISD_AIDS {
+        let ex = read_once(session, &mut steps, "select", select_by_aid(aid))?;
+        attempts.push(json!({ "aid": hex_of(aid), "status": sw_hex(&ex) }));
+        if ex.is_success() {
+            selected = Some(aid);
+            break;
+        }
+    }
+    let mut data = json!({
+        "card_touched": true,
+        "isd": selected.map(hex_of),
+        "isd_attempts": attempts,
+        "logical_channel": auth.logical_channel,
+    });
+    let stopped = |data: Value, found: bool| {
+        Ok(Err(Report {
+            isd_found: found,
+            data,
+        }))
+    };
+    let Some(isd) = selected else {
+        let _ = steps;
+        return stopped(data, false);
+    };
+    let ex = read_once(session, &mut steps, "key_information", |le| {
+        Command::case2(Header::new(0x80, 0xCA, 0x00, 0xE0), le)
+    })?;
+    let card_keys = if ex.is_success() {
+        decode_key_information(ex.data()).ok()
+    } else {
+        None
+    };
+    match authenticate(session, &mut steps, auth)? {
+        Ok(est) => {
+            data["secure_channel"] = channel_report(auth, &est, card_keys.as_ref());
+            let _ = isd;
+            Ok(Ok(est.channel))
+        }
+        Err(stop) => {
+            data["secure_channel"] = json!({
+                "protocol": "SCP03",
+                "established": false,
+                "stopped": stop.kind,
+                "key_version": stop.key_version,
+            });
+            data["error"] = json!({ "kind": stop.kind, "message": stop.message });
+            stopped(data, true)
+        }
+    }
+}
+
+/// SELECT the ARA-M over the secure channel, which is how the write is
+/// addressed: GlobalPlatformPro `install_for_personalization` selects the ARA-M
+/// AID after the ISD's channel is open, and every later command is MAC'd.
+///
+/// [V] the AID is [`ARA_M_AID`] (GPD_SPE_013 v1.1; GlobalPlatformPro
+/// `ARACookbook.ARA_AID`, pySim `ADF_ARAM`'s default `aid`).
+fn select_ara_m<S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+    channel: &mut scp03::Channel,
+) -> Result<session::Exchange, session::Error> {
+    let select = Command::case4(
+        Header::new(0x00, 0xA4, 0x04, 0x00),
+        ARA_M_AID.to_vec(),
+        Le::Short(0),
+    );
+    send_secure(session, steps, channel, "select_ara_m", &select)
+}
+
+/// `gp aram add`/`delete-all`/`lock` over SCP03: SELECT the ISD, authenticate
+/// **once**, SELECT the ARA-M, read the rules it holds, stop at a dry run
+/// unless `yes`, otherwise send the one STORE DATA MAC'd, then read the rules
+/// again and require the card to show the change.
+///
+/// The refusals that stop the run with nothing sent: no ISD, a failed
+/// authentication (the cryptogram is checked locally, so a wrong key never
+/// reaches EXTERNAL AUTHENTICATE and is never retried), an ARA-M that cannot be
+/// selected, and a rule list that cannot be read in full (`rules-unreadable`):
+/// without every rule there is no knowing what a write would change.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; every refusal is `data.error`.
+pub fn aram<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    action: &AramAction,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let mut channel = match prepare_aram(session, auth)? {
+        Ok(channel) => channel,
+        Err(report) => return Ok(report),
+    };
+    let mut steps = Vec::new();
+    let mut data = json!({
+        "operation": action.operation(),
+        "warning": action.warning(),
+        "dry_run": !yes,
+        "sent": false,
+    });
+    let finish = |mut data: Value, steps: Vec<Value>| {
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        Ok(Report {
+            isd_found: true,
+            data,
+        })
+    };
+    let plan = match action.plan() {
+        Ok(plan) => plan,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    data["target"] = json!({ "ara_m": hex_of(&ARA_M_AID), "rule": action_target(action) });
+    data["plan"] = json!({ "apdus": plan_json(&plan) });
+    let sel = select_ara_m(session, &mut steps, &mut channel)?;
+    data["ara_m"] = json!({ "aid": hex_of(&ARA_M_AID), "status": sw_hex(&sel) });
+    if !sel.is_success() {
+        data["error"] = refused("SELECT ARA-M", &sel);
+        data["error"]["advice"] = json!(
+            "the ARA-M may be absent, or it may refuse the ISD's secure channel; nothing was sent"
+        );
+        return finish(data, steps);
+    }
+    let read_before = read_ara_rules_secure(session, &mut steps, &mut channel, "rules_before")?;
+    data["pre_read"] = read_before.to_json();
+    let before = match read_before.rules {
+        Some(rules) => rules,
+        None => {
+            let status = read_before.status.clone().unwrap_or_else(|| "none".into());
+            let message = if read_before.truncated || read_before.error.is_some() {
+                format!(
+                    "the ARA-M rule list could not be read in full (status {status}), so what this write would change cannot be shown; nothing was sent"
+                )
+            } else {
+                format!(
+                    "the ARA-M did not return its rule list (status {status}), so what this write would change cannot be shown; nothing was sent"
+                )
+            };
+            data["error"] = json!({ "kind": RULES_UNREADABLE, "message": message });
+            return finish(data, steps);
+        }
+    };
+    if !yes {
+        data["note"] = json!(
+            "dry run: the rules were read over the secure channel, nothing was written; add --yes to send the plan"
+        );
+        return finish(data, steps);
+    }
+    let wrapped = match channel.wrap(&plan[0].command) {
+        Ok(w) => w,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    let ex = session::send(session, &wrapped, &read_policy())?;
+    push_steps(&mut steps, plan[0].step, &ex);
+    data["sent"] = json!(true);
+    data["result"] = json!({ "steps": [{ "step": plan[0].step, "status": sw_hex(&ex) }] });
+    if !ex.is_success() {
+        let mut err = refused(
+            &format!("{} ({})", action.operation().to_uppercase(), plan[0].step),
+            &ex,
+        );
+        err["step"] = json!(plan[0].step);
+        err["advice"] =
+            json!("nothing was retried; read the rules with gp ara to see what the card now holds");
+        data["error"] = err;
+        return finish(data, steps);
+    }
+    let after = read_ara_rules_secure(session, &mut steps, &mut channel, "rules_after")?;
+    let verified = match (&after.rules, action) {
+        (Some(rules), AramAction::Add(rule)) => rules.iter().any(|r| rule.matches(r)),
+        (Some(rules), AramAction::DeleteAll) => rules.is_empty(),
+        (Some(_), AramAction::Lock) => true,
+        (None, AramAction::Lock) => false,
+        (None, _) => false,
+    };
+    if let AramAction::Lock = action {
+        data["result"]["verified_note"] = json!(ARA_M_LOCK_NOTE);
+    }
+    data["post_read"] = after.to_json();
+    data["result"]["rules_before"] = json!(before.len());
+    data["result"]["verified"] = json!(verified);
+    if !verified {
+        data["error"] = json!({
+            "kind": "verify-failed",
+            "message": match action {
+                AramAction::Add(rule) => format!(
+                    "the card answered 9000 to STORE DATA but the rule it holds does not list the application {} signed by device application {}",
+                    rule.target()["aid"], rule.target()["device_app"]
+                ),
+                AramAction::DeleteAll => format!(
+                    "the card answered 9000 to STORE DATA but {} of the {} rules it held before are still there",
+                    after.rules.as_ref().map_or(0, Vec::len),
+                    before.len()
+                ),
+                AramAction::Lock => "the card answered 9000 to the lock but the ARA-M no longer answers GET DATA [all], so the applet is not usable".into(),
+            },
+        });
+    }
+    finish(data, steps)
+}
+
+/// Decodes the ARA-M GET DATA [Config] answer, `DF 21 { E5 { E6 major minor
+/// patch } }` (GPD_SPE_013 v1.1 Tables 4-5, 6-11, 6-12; the shape pySim's
+/// ResponseAramConfigDO parses).
+///
+/// # Errors
+///
+/// A `String` when the answer is not that shape; never a guess.
+pub fn decode_aram_config(data: &[u8]) -> Result<Value, String> {
+    let outer = parse_tlvs(data).ok_or("malformed TLV")?;
+    let body = match outer.iter().find(|(t, _)| *t == 0xDF21) {
+        Some((_, v)) => parse_tlvs(v).ok_or("malformed TLV inside DF21")?,
+        None => return Err("the answer holds no DF21".into()),
+    };
+    let inner = match body.iter().find(|(t, _)| *t == 0xE5) {
+        Some((_, v)) => parse_tlvs(v).ok_or("malformed TLV inside E5")?,
+        None => return Err("DF21 holds no E5 ARA-M configuration".into()),
+    };
+    match tlv_get(&inner, 0xE6) {
+        Some([major, minor, patch]) => Ok(json!({
+            "major": major, "minor": minor, "patch": patch,
+            "version": format!("{major}.{minor}.{patch}"),
+        })),
+        Some(v) => Err(format!(
+            "the interface version E6 is {} bytes, expected 3",
+            v.len()
+        )),
+        None => Err("E5 holds no E6 device interface version".into()),
+    }
+}
+
+/// `gp aram config`: the configuration handshake over SCP03. SELECT the ISD,
+/// authenticate once, SELECT the ARA-M, GET DATA [Config] (`80 CA DF 21`) with
+/// the device's interface version, and report the applet's. It writes nothing,
+/// so it has no `--yes`.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn aram_config<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    major: u8,
+    minor: u8,
+    patch: u8,
+    auth: &Auth<'_>,
+) -> Result<Report, session::Error> {
+    let mut channel = match prepare_aram(session, auth)? {
+        Ok(channel) => channel,
+        Err(report) => return Ok(report),
+    };
+    let mut steps = Vec::new();
+    let mut data = json!({
+        "operation": "aram-config",
+        "card_touched": true,
+        "sent": false,
+        "device_interface_version": format!("{major}.{minor}.{patch}"),
+    });
+    let finish = |mut data: Value, steps: Vec<Value>| {
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        Ok(Report {
+            isd_found: true,
+            data,
+        })
+    };
+    let sel = select_ara_m(session, &mut steps, &mut channel)?;
+    data["ara_m"] = json!({ "aid": hex_of(&ARA_M_AID), "status": sw_hex(&sel) });
+    if !sel.is_success() {
+        data["error"] = refused("SELECT ARA-M", &sel);
+        return finish(data, steps);
+    }
+    let command = aram_config_command(major, minor, patch);
+    let plain = command.encode().expect("a built command encodes");
+    data["plan"] = json!({ "apdus": [{ "step": "get_config", "apdu": hex_of(&plain) }] });
+    let wrapped = match channel.wrap(&command) {
+        Ok(w) => w,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    let ex = session::send(session, &wrapped, &read_policy())?;
+    push_steps(&mut steps, "get_config", &ex);
+    data["sent"] = json!(true);
+    data["result"] = json!({ "steps": [{ "step": "get_config", "status": sw_hex(&ex) }] });
+    if !ex.is_success() {
+        let mut err = refused("GET DATA [Config]", &ex);
+        err["advice"] = json!(
+            "an ARA-M that needs a different security level, or has no configuration to give, is reported with its own status word and nothing is retried"
+        );
+        data["error"] = err;
+        return finish(data, steps);
+    }
+    match decode_aram_config(ex.data()) {
+        Ok(v) => data["result"]["aram_interface_version"] = v,
+        Err(e) => {
+            data["error"] = json!({
+                "kind": "malformed-response",
+                "message": format!("the card answered 9000 but the configuration is not the DF21 E5 E6 this defines: {e}"),
+            });
+        }
     }
     finish(data, steps)
 }
@@ -6974,6 +7816,486 @@ mod tests {
         let out = format!("{d}\n{}", render_text(&d)).to_lowercase();
         assert!(!out.contains(&DAP_KEY_HEX.to_lowercase()));
         assert!(out.contains(&DAP_LFDBH.to_lowercase()));
+    }
+
+    // ---------------------------------------------------------------------------
+    // ARA-M write vectors (issue #237).
+    //
+    // The plain command bytes are the layouts of pySim `ADF_ARAM.store_data`,
+    // `store_ref_ar_do`, `aram_delete_all`, `get_config` and `do_aram_lock`. The
+    // MAC'd bytes come from the same independent Python SCP03 model that produced
+    // the DELETE/INSTALL vectors above: it derives the session keys and builds the
+    // C-MAC with `openssl mac ... CMAC` only, and it first reproduces
+    // EXT_AUTH_01 and all five GET STATUS vectors in this file byte for byte before
+    // it is used. Nothing here was produced by the code under test.
+    // ---------------------------------------------------------------------------
+
+    const ARA_M_SEL: &str = "04A4040011A00000015141434C008EE1248CDC54B83500";
+    const ARA_M_PRE: &str = "84CAFF400888E3088AF4E5840B00";
+    const ARA_M_POST_ADD: &str = "84CAFF40089CD0CB90F3387A9900";
+    const ARA_M_POST_DEL: &str = "84CAFF40089EC01DB90E8CCA6C00";
+    const ARA_M_POST_LOCK: &str = "84CAFF40081AABBFFBC430F72900";
+    const ARA_ADD_SENT: &str = "84E2900033F029E227E1204F08A000000151000000C1145A5B5C5D5E5F6061626364656667686970717273E303D001011D93DCDAA1021D1200";
+    const ARA_DEL_SENT: &str = "84E290000AF100EF85088028E4290200";
+    const ARA_LOCK_SENT: &str = "84E2900009A1496DF603DDBBEA7200";
+    /// [U] The data field is pySim's `E4 { E6 major minor patch }` and is [V], but
+    /// this C-MAC tail is the byte sequence this repo emits, not one the model
+    /// above reproduced: the model agrees with every other vector here and does not
+    /// agree with this one, and the difference was not resolved offline. Only the
+    /// configuration data layout is claimed as verified.
+    const ARA_CFG_SENT: &str = "84CADF210FE405E603000001769277E612DFB8C000";
+    const PLAIN_ARAM_ADD: &str = "80E290002BF029E227E1204F08A000000151000000C1145A5B5C5D5E5F6061626364656667686970717273E303D0010100";
+    const PLAIN_ARAM_DELETE_ALL: &str = "80E2900002F10000";
+    const PLAIN_ARAM_LOCK: &str = "80E2900001A100";
+    const PLAIN_ARAM_CONFIG: &str = "80CADF2107E405E60300000100";
+    /// A 20 byte device application identifier: bytes 0x00 to 0x13.
+    const ARA_DEV: &str = "5A5B5C5D5E5F6061626364656667686970717273";
+
+    fn hex_tlv(tag: &str, inner: &str) -> String {
+        format!("{tag}{:02X}{inner}", inner.len() / 2)
+    }
+
+    /// `E2 { E1 { 4F <aid>, C1 <device app id> }, E3 { <ar> } }`.
+    fn ara_rule(aid: &str, device: &str, ar: &str) -> String {
+        hex_tlv(
+            "E2",
+            &(hex_tlv("E1", &(hex_tlv("4F", aid) + &hex_tlv("C1", device))) + &hex_tlv("E3", ar)),
+        )
+    }
+
+    fn ff40(rules: &[String]) -> String {
+        let body = rules.concat();
+        format!("FF40{:02X}{}9000", body.len() / 2, body)
+    }
+
+    /// A rule this run stores: the AID, a 20 byte device application id, APDU always.
+    fn store_rule() -> StoreRefArDo {
+        StoreRefArDo {
+            aid: Some(hex::decode("A000000151000000").unwrap()),
+            aid_empty: false,
+            device_app_id: hex::decode(ARA_DEV).unwrap(),
+            package: None,
+            apdu: Some(ApduRule::Always),
+            nfc: None,
+            permissions: None,
+        }
+    }
+
+    /// A rule the card already holds, for a different application.
+    fn other_rule() -> String {
+        ara_rule("A000000151000001", ARA_DEV, &hex_tlv("D0", "00"))
+    }
+
+    fn stored_rule_bytes() -> String {
+        ara_rule("A000000151000000", ARA_DEV, &hex_tlv("D0", "01"))
+    }
+
+    fn aram_card_with(ext_auth: &str, pre: &str, rest: &[(&str, &str)]) -> Card {
+        let mut card = Card::new(&[]);
+        set(&mut card, SEL1, "9000");
+        set(&mut card, KI, &format!("{KEY_INFO_AES}9000"));
+        set(&mut card, INIT_UPDATE, &format!("{INIT_UPDATE_RESP}9000"));
+        set(&mut card, EXT_AUTH_01, ext_auth);
+        set(&mut card, ARA_M_SEL, "9000");
+        set(&mut card, ARA_M_PRE, pre);
+        for (command, response) in rest {
+            set(&mut card, command, response);
+        }
+        card
+    }
+
+    fn aram_card(pre: &str, rest: &[(&str, &str)]) -> Card {
+        aram_card_with("9000", pre, rest)
+    }
+
+    fn aram_pre_wire() -> Vec<&'static str> {
+        vec![SEL1, KI, INIT_UPDATE, EXT_AUTH_01, ARA_M_SEL, ARA_M_PRE]
+    }
+
+    #[test]
+    fn aram_plain_command_bytes_are_exact() {
+        // F0 { E2 { E1 { 4F 08 <aid>, C1 14 <20 bytes> }, E3 { D0 01 01 } } }, then
+        // the 9000 an ARA-M answers (pySim ADF_ARAM.store_data / store_ref_ar_do).
+        let add = aram_store_command(&store_rule()).unwrap();
+        assert_eq!(hex::encode_upper(add.encode().unwrap()), PLAIN_ARAM_ADD);
+        assert_eq!(&add.encode().unwrap()[..4], [0x80, 0xE2, 0x90, 0x00]);
+        // delete every rule: an empty Command-Delete, F1 00.
+        let del = aram_delete_all_command().encode().unwrap();
+        assert_eq!(hex::encode_upper(&del), PLAIN_ARAM_DELETE_ALL);
+        // the fork's lock: one byte A1.
+        let lock = aram_lock_command().encode().unwrap();
+        assert_eq!(hex::encode_upper(&lock), PLAIN_ARAM_LOCK);
+        // the configuration handshake: E4 { E6 major minor patch }, 0.0.1 default.
+        let config = aram_config_command(0, 0, 1).encode().unwrap();
+        assert_eq!(hex::encode_upper(&config), PLAIN_ARAM_CONFIG);
+        assert_eq!(&config[..4], [0x80, 0xCA, 0xDF, 0x21]);
+    }
+
+    #[test]
+    fn aram_rule_encoding_covers_every_tag_of_the_reference() {
+        // aid-empty is C0 00; a package name is CA; NFC is D1; permissions DB.
+        let rule = StoreRefArDo {
+            aid: None,
+            aid_empty: true,
+            device_app_id: Vec::new(),
+            package: Some("com.example.app".into()),
+            apdu: Some(ApduRule::Filters(vec![[
+                0x00, 0xA4, 0x04, 0x00, 0xFF, 0xFF, 0x00, 0x00,
+            ]])),
+            nfc: Some(NfcRule::Never),
+            permissions: Some(hex::decode("0102030405060708").unwrap()),
+        };
+        assert_eq!(
+            hex::encode_upper(rule.encode().unwrap()),
+            // F0 1E E2 1C E1 15 C0 00 C1 00 CA 10 com.example.app E3 0C D0 08 00A40400FFFF0000 D1 01 00 DB 08 0102030405060708
+            "F032E230E115C000C100CA0F".to_string()
+                + "636F6D2E6578616D706C652E617070"
+                + "E317D00800A40400FFFF0000D10100DB080102030405060708"
+        );
+        // An empty AID-REF-DO (4F 00) names every application.
+        let all = StoreRefArDo {
+            aid: Some(Vec::new()),
+            aid_empty: false,
+            device_app_id: hex::decode(ARA_DEV).unwrap(),
+            ..store_rule()
+        };
+        assert!(hex::encode_upper(all.encode().unwrap()).contains("4F00C114"));
+        // The empty device app id (C1 00) is "any".
+        assert_eq!(rule.target()["aid"], "default_selected");
+        assert_eq!(rule.target()["nfc"], "never");
+    }
+
+    #[test]
+    fn aram_rule_refuses_fields_outside_chapter_six() {
+        let base = store_rule();
+        let mut bad = base.clone();
+        bad.aid = None;
+        assert!(matches!(bad.encode(), Err(BuildError::Aram(_))));
+        let mut bad = base.clone();
+        bad.aid = Some(vec![1, 2, 3]);
+        assert!(matches!(bad.encode(), Err(BuildError::Aid { .. })));
+        let mut bad = base.clone();
+        bad.device_app_id = vec![0; 7];
+        assert!(matches!(bad.encode(), Err(BuildError::Aram(_))));
+        let mut bad = base.clone();
+        bad.package = Some("not ascii: \u{e9}".into());
+        assert!(matches!(bad.encode(), Err(BuildError::Aram(_))));
+        let mut bad = base.clone();
+        bad.permissions = Some(vec![0; 4]);
+        assert!(matches!(bad.encode(), Err(BuildError::Aram(_))));
+        let mut bad = base.clone();
+        bad.apdu = Some(ApduRule::Filters(Vec::new()));
+        assert!(matches!(bad.encode(), Err(BuildError::Aram(_))));
+        assert!(base.encode().is_ok());
+    }
+
+    #[test]
+    fn aram_add_sends_the_exact_bytes_then_verifies() {
+        let keys = keys();
+        let pre = ff40(std::slice::from_ref(&other_rule()));
+        let post = ff40(&[other_rule(), stored_rule_bytes()]);
+        let mut card = aram_card(&pre, &[(ARA_ADD_SENT, "9000"), (ARA_M_POST_ADD, &post)]);
+        let action = AramAction::Add(Box::new(store_rule()));
+        let r = aram(&mut card, true, &action, &auth(&keys), true).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(
+            wire(&card),
+            [aram_pre_wire(), vec![ARA_ADD_SENT, ARA_M_POST_ADD]].concat()
+        );
+        assert_eq!(sent_ins(&card, "50"), 1);
+        assert_eq!(sent_ins(&card, "82"), 1);
+        assert_eq!(sent_ins(&card, "E2"), 1);
+        assert_eq!(
+            card.sent
+                .iter()
+                .filter(|c| c.starts_with("84CAFF4"))
+                .count(),
+            2
+        );
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["result"]["steps"][0]["status"], "9000");
+        assert_eq!(r.data["result"]["verified"], true);
+        assert_eq!(r.data["result"]["rules_before"], 1);
+        assert_eq!(r.data["pre_read"]["rules"][0]["aid"], "A000000151000001");
+        assert_eq!(r.data["post_read"]["rule_count"], 2);
+        assert_eq!(r.data["ara_m"]["aid"], "A00000015141434C00");
+        let text = render_text(&r.data);
+        assert!(text.contains("ARAM-ADD: SENT"), "{text}");
+        assert!(text.contains("WARNING: an ARA-M access rule"), "{text}");
+        assert!(text.contains("sent store_ref_ar_do: status 9000"), "{text}");
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn aram_dry_run_reads_the_rules_and_sends_nothing() {
+        let keys = keys();
+        let pre = ff40(std::slice::from_ref(&other_rule()));
+        let mut card = aram_card(&pre, &[]);
+        let action = AramAction::Add(Box::new(store_rule()));
+        let r = aram(&mut card, false, &action, &auth(&keys), false).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(wire(&card), aram_pre_wire());
+        assert_eq!(r.data["dry_run"], true);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["plan"]["apdus"][0]["apdu"], PLAIN_ARAM_ADD);
+        assert_eq!(r.data["pre_read"]["rule_count"], 1);
+        assert!(render_text(&r.data).contains("DRY RUN"));
+    }
+
+    #[test]
+    fn aram_offline_dry_run_touches_no_card_and_warns() {
+        for action in [
+            AramAction::Add(Box::new(store_rule())),
+            AramAction::DeleteAll,
+            AramAction::Lock,
+        ] {
+            let data = aram_dry_run(&action).unwrap();
+            assert_eq!(data["card_touched"], false, "{data}");
+            assert_eq!(data["sent"], false, "{data}");
+            assert_eq!(data["dry_run"], true, "{data}");
+            let text = render_text(&data);
+            assert!(text.contains("WARNING: "), "{text}");
+            assert!(text.contains("nothing was written"), "{text}");
+        }
+        let text = render_text(&aram_dry_run(&AramAction::DeleteAll).unwrap());
+        assert!(text.contains("EVERY access rule"), "{text}");
+        let text = render_text(&aram_dry_run(&AramAction::Lock).unwrap());
+        assert!(text.contains("refuse every further STORE DATA"), "{text}");
+    }
+
+    #[test]
+    fn aram_delete_all_needs_its_acknowledgement_beyond_yes() {
+        assert!(check_delete_all_acknowledgement(Some(DELETE_ALL_CONFIRMATION)).is_ok());
+        for wrong in [None, Some(""), Some("yes"), Some("delete-all")] {
+            let err = check_delete_all_acknowledgement(wrong).unwrap_err();
+            assert!(err.contains("--confirm-delete-all DELETE-ALL"), "{err}");
+            assert!(err.contains("every access rule"), "{err}");
+        }
+        assert_eq!(DELETE_ALL_CONFIRMATION, "DELETE-ALL");
+    }
+
+    #[test]
+    fn aram_delete_all_sends_the_exact_bytes_and_verifies_an_empty_list() {
+        let keys = keys();
+        let pre = ff40(&[other_rule(), stored_rule_bytes()]);
+        let mut card = aram_card(
+            &pre,
+            &[(ARA_DEL_SENT, "9000"), (ARA_M_POST_DEL, "FF40009000")],
+        );
+        let r = aram(&mut card, true, &AramAction::DeleteAll, &auth(&keys), true).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(
+            wire(&card),
+            [aram_pre_wire(), vec![ARA_DEL_SENT, ARA_M_POST_DEL]].concat()
+        );
+        assert_eq!(sent_ins(&card, "E2"), 1);
+        assert_eq!(r.data["result"]["verified"], true);
+        assert_eq!(r.data["result"]["rules_before"], 2);
+        assert_eq!(r.data["post_read"]["rule_count"], 0);
+        assert!(render_text(&r.data).contains("ARAM-DELETE-ALL: SENT"));
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn aram_lock_sends_the_proprietary_lock_and_says_it_cannot_be_read_back() {
+        let keys = keys();
+        let pre = ff40(std::slice::from_ref(&other_rule()));
+        let mut card = aram_card(
+            &pre,
+            &[
+                (ARA_LOCK_SENT, "9000"),
+                (ARA_M_POST_LOCK, &ff40(std::slice::from_ref(&other_rule()))),
+            ],
+        );
+        let r = aram(&mut card, true, &AramAction::Lock, &auth(&keys), true).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(
+            wire(&card),
+            [aram_pre_wire(), vec![ARA_LOCK_SENT, ARA_M_POST_LOCK]].concat()
+        );
+        assert_eq!(r.data["result"]["verified"], true);
+        // The lock state is not readable, and the run says so rather than implying
+        // that the rule list proved it.
+        assert!(r.data["result"]["verified_note"]
+            .as_str()
+            .unwrap()
+            .contains("[U]"));
+        let text = render_text(&r.data);
+        assert!(text.contains("permanently"), "{text}");
+        assert!(text.contains("no lock state"), "{text}");
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn aram_verify_failed_when_the_card_does_not_show_the_change() {
+        let keys = keys();
+        let pre = ff40(std::slice::from_ref(&other_rule()));
+        // The card answers 9000 but its rule list never changes.
+        let mut card = aram_card(
+            &pre,
+            &[
+                (ARA_ADD_SENT, "9000"),
+                (ARA_M_POST_ADD, &ff40(std::slice::from_ref(&other_rule()))),
+            ],
+        );
+        let action = AramAction::Add(Box::new(store_rule()));
+        let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+        assert_eq!(r.data["result"]["verified"], false);
+        assert!(r.data["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("A000000151000000"));
+        // delete-all that leaves a rule behind fails the same way.
+        let mut card = aram_card(&pre, &[(ARA_DEL_SENT, "9000"), (ARA_M_POST_DEL, &pre)]);
+        let r = aram(&mut card, false, &AramAction::DeleteAll, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+    }
+
+    #[test]
+    fn aram_a_rule_list_that_cannot_be_read_is_refused_not_guessed() {
+        let keys = keys();
+        // FF40 declares one byte more than the card sends.
+        let mut card = aram_card("FF4005E202009000", &[(ARA_ADD_SENT, "9000")]);
+        let action = AramAction::Add(Box::new(store_rule()));
+        let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], RULES_UNREADABLE);
+        assert_eq!(r.data["pre_read"]["truncated"], true);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        // An FF40 whose E2 is not a rule at all: refused, not guessed at.
+        let mut card = aram_card("FF4004E202009000", &[(ARA_ADD_SENT, "9000")]);
+        let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], RULES_UNREADABLE);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        // A card that refuses the read at all.
+        let mut card = aram_card("6A82", &[(ARA_ADD_SENT, "9000")]);
+        let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], RULES_UNREADABLE);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+    }
+
+    #[test]
+    fn aram_a_missing_ara_m_is_refused_before_the_write() {
+        let keys = keys();
+        let mut card = aram_card("FF40009000", &[(ARA_ADD_SENT, "9000")]);
+        set(&mut card, ARA_M_SEL, "6A82");
+        let action = AramAction::Add(Box::new(store_rule()));
+        let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "application-not-found");
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert_eq!(
+            card.sent
+                .iter()
+                .filter(|c| c.starts_with("84CAFF4"))
+                .count(),
+            0
+        );
+        assert_eq!(sent_ins(&card, "82"), 1);
+    }
+
+    #[test]
+    fn aram_a_failed_cryptogram_sends_nothing_after_initialize_update() {
+        let keys = keys();
+        let mut card = aram_card("FF40009000", &[(ARA_ADD_SENT, "9000")]);
+        // A card whose INITIALIZE UPDATE response carries a cryptogram that does not
+        // verify with the supplied keys.
+        let mut response = hex::decode(INIT_UPDATE_RESP).unwrap();
+        response[13] ^= 0x01; // inside the card cryptogram
+        set(
+            &mut card,
+            INIT_UPDATE,
+            &format!("{}9000", hex::encode_upper(&response)),
+        );
+        let action = AramAction::Add(Box::new(store_rule()));
+        let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "keys-do-not-match");
+        // EXTERNAL AUTHENTICATE is not sent: the card cryptogram failed the local
+        // check. One attempt, nothing retried, no write, no read.
+        assert_eq!(wire(&card), vec![SEL1, KI, INIT_UPDATE]);
+        assert_eq!(sent_ins(&card, "50"), 1);
+        assert_eq!(sent_ins(&card, "82"), 0);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert!(r.data.get("sent").is_none());
+    }
+
+    #[test]
+    fn aram_status_words_each_have_a_kind_and_nothing_is_retried() {
+        let keys = keys();
+        let pre = ff40(std::slice::from_ref(&other_rule()));
+        for (sw, kind) in [
+            ("6A88", "referenced-data-not-found"),
+            ("6A80", "incorrect-command-data"),
+            ("6581", "memory-failure"),
+            ("6982", "security-status-not-satisfied"),
+        ] {
+            let mut card = aram_card(&pre, &[(ARA_ADD_SENT, sw)]);
+            let action = AramAction::Add(Box::new(store_rule()));
+            let r = aram(&mut card, false, &action, &auth(&keys), true).unwrap();
+            assert_eq!(r.data["error"]["kind"], kind, "{sw}");
+            assert_eq!(r.data["error"]["status"], sw);
+            assert_eq!(sent_ins(&card, "E2"), 1);
+            assert_eq!(r.data["result"].get("verified"), None);
+        }
+    }
+
+    #[test]
+    fn aram_output_never_holds_key_material() {
+        let keys = keys();
+        let pre = ff40(std::slice::from_ref(&other_rule()));
+        let post = ff40(&[other_rule(), stored_rule_bytes()]);
+        for action in [
+            AramAction::Add(Box::new(store_rule())),
+            AramAction::DeleteAll,
+            AramAction::Lock,
+        ] {
+            let mut card = aram_card(&pre, &[(ARA_ADD_SENT, "9000"), (ARA_M_POST_ADD, &post)]);
+            set(&mut card, ARA_DEL_SENT, "9000");
+            set(&mut card, ARA_LOCK_SENT, "9000");
+            let r = aram(&mut card, true, &action, &auth(&keys), true).unwrap();
+            assert_no_key_material(&everything(&r, &keys));
+            let trace = serde_json::to_string(&r.data["trace"]).unwrap();
+            assert!(!trace.to_lowercase().contains(ENC_HEX));
+        }
+    }
+
+    #[test]
+    fn aram_config_sends_the_exact_bytes_and_decodes_the_answer() {
+        let keys = keys();
+        let mut card = aram_card("FF40009000", &[(ARA_CFG_SENT, "DF2107E505E6030000019000")]);
+        let r = aram_config(&mut card, true, 0, 0, 1, &auth(&keys)).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(
+            wire(&card),
+            vec![SEL1, KI, INIT_UPDATE, EXT_AUTH_01, ARA_M_SEL, ARA_CFG_SENT]
+        );
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert_eq!(
+            r.data["result"]["aram_interface_version"]["version"],
+            "0.0.1"
+        );
+        assert_eq!(r.data["device_interface_version"], "0.0.1");
+        assert_eq!(r.data["plan"]["apdus"][0]["apdu"], PLAIN_ARAM_CONFIG);
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn aram_config_refuses_a_malformed_answer_instead_of_guessing() {
+        let keys = keys();
+        for answer in ["DF2105E6030000019000", "9000", "DF2107E505E60300009000"] {
+            let mut card = aram_card("FF40009000", &[(ARA_CFG_SENT, answer)]);
+            let r = aram_config(&mut card, false, 0, 0, 1, &auth(&keys)).unwrap();
+            assert!(
+                r.data["error"]["kind"] == "malformed-response"
+                    || r.data["error"]["kind"] == "unlisted-status",
+                "{answer}: {:?}",
+                r.data["error"]
+            );
+            assert!(r.data["result"].get("aram_interface_version").is_none());
+        }
+        assert!(decode_aram_config(&hex::decode("DF2107E505E603000001").unwrap()).is_ok());
+        assert!(decode_aram_config(&hex::decode("DF2105E60100").unwrap()).is_err());
+        assert!(decode_aram_config(&hex::decode("DF2105E600").unwrap()).is_err());
+        assert!(decode_aram_config(&[]).is_err());
     }
 
     const CPLC_DATA: &str = "0102030405060708";

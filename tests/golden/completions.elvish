@@ -213,6 +213,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand put-key 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS'
             cand cplc-set 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC'
             cand personalize 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT'
+            cand aram 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;gp;info'= {
@@ -411,6 +412,93 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
         }
+        &'sim-doctor;gp;aram'= {
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+            cand add 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`'
+            cand delete-all 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)'
+            cand lock 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only'
+            cand config 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;gp;aram;add'= {
+            cand --aid 'The application the rule is for: 5 to 16 bytes of hex, or the empty string for the empty AID-REF-DO that names every application'
+            cand --device-app-id 'The device application''s certificate hash or UUID, 20 or 32 bytes of hex. Empty (the default) matches any device application'
+            cand --pkg-ref 'The Android package name (PKG-REF-DO, an AOSP extension)'
+            cand --apdu-filter 'An APDU filter: groups of 16 hex digits, 4 for CLA INS P1 P2 then 4 for the mask, repeated'
+            cand --android-permissions 'The eight Android UICC Carrier Privilege permission bytes (PERM-AR-DO, an AOSP extension)'
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --keys-file 'File holding the keys (keep it chmod 600)'
+            cand --keys-env 'Environment variable holding the keys'
+            cand --key-version 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set'
+            cand --channel 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it'
+            cand --aid-empty 'No specific application: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)'
+            cand --apdu-never 'Never allow the application''s APDUs (APDU-AR-DO D0 01 00)'
+            cand --apdu-always 'Always allow the application''s APDUs (APDU-AR-DO D0 01 01)'
+            cand --nfc-never 'Never deliver the application''s NFC events (NFC-AR-DO D1 01 00)'
+            cand --nfc-always 'Always deliver the application''s NFC events (NFC-AR-DO D1 01 01)'
+            cand --json 'Emit one JSON envelope of kind "gp" on stdout'
+            cand --trace 'Add every APDU exchange (command and response hex) as data.trace'
+            cand --yes 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;gp;aram;delete-all'= {
+            cand --confirm-delete-all 'Required acknowledgement beyond --yes: the literal DELETE-ALL'
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --keys-file 'File holding the keys (keep it chmod 600)'
+            cand --keys-env 'Environment variable holding the keys'
+            cand --key-version 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set'
+            cand --channel 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it'
+            cand --json 'Emit one JSON envelope of kind "gp" on stdout'
+            cand --trace 'Add every APDU exchange (command and response hex) as data.trace'
+            cand --yes 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;gp;aram;lock'= {
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --keys-file 'File holding the keys (keep it chmod 600)'
+            cand --keys-env 'Environment variable holding the keys'
+            cand --key-version 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set'
+            cand --channel 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it'
+            cand --json 'Emit one JSON envelope of kind "gp" on stdout'
+            cand --trace 'Add every APDU exchange (command and response hex) as data.trace'
+            cand --yes 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;gp;aram;config'= {
+            cand --major 'The major part of the device interface version to offer'
+            cand --minor 'The minor part of the device interface version to offer'
+            cand --patch 'The patch part of the device interface version to offer'
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --keys-file 'File holding the keys (keep it chmod 600)'
+            cand --keys-env 'Environment variable holding the keys'
+            cand --key-version 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set'
+            cand --channel 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it'
+            cand --json 'Emit one JSON envelope of kind "gp" on stdout'
+            cand --trace 'Add every APDU exchange (command and response hex) as data.trace'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;gp;aram;help'= {
+            cand add 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`'
+            cand delete-all 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)'
+            cand lock 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only'
+            cand config 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;gp;aram;help;add'= {
+        }
+        &'sim-doctor;gp;aram;help;delete-all'= {
+        }
+        &'sim-doctor;gp;aram;help;lock'= {
+        }
+        &'sim-doctor;gp;aram;help;config'= {
+        }
+        &'sim-doctor;gp;aram;help;help'= {
+        }
         &'sim-doctor;gp;help'= {
             cand info 'Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA'
             cand ara 'Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA [all], decoded (read-only, no keys)'
@@ -425,6 +513,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand put-key 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS'
             cand cplc-set 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC'
             cand personalize 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT'
+            cand aram 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;gp;help;info'= {
@@ -458,6 +547,20 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;gp;help;cplc-set'= {
         }
         &'sim-doctor;gp;help;personalize'= {
+        }
+        &'sim-doctor;gp;help;aram'= {
+            cand add 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`'
+            cand delete-all 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)'
+            cand lock 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only'
+            cand config 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes'
+        }
+        &'sim-doctor;gp;help;aram;add'= {
+        }
+        &'sim-doctor;gp;help;aram;delete-all'= {
+        }
+        &'sim-doctor;gp;help;aram;lock'= {
+        }
+        &'sim-doctor;gp;help;aram;config'= {
         }
         &'sim-doctor;gp;help;help'= {
         }
@@ -997,6 +1100,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand put-key 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS'
             cand cplc-set 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC'
             cand personalize 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT'
+            cand aram 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES'
         }
         &'sim-doctor;help;gp;info'= {
         }
@@ -1029,6 +1133,20 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;gp;cplc-set'= {
         }
         &'sim-doctor;help;gp;personalize'= {
+        }
+        &'sim-doctor;help;gp;aram'= {
+            cand add 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`'
+            cand delete-all 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)'
+            cand lock 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only'
+            cand config 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes'
+        }
+        &'sim-doctor;help;gp;aram;add'= {
+        }
+        &'sim-doctor;help;gp;aram;delete-all'= {
+        }
+        &'sim-doctor;help;gp;aram;lock'= {
+        }
+        &'sim-doctor;help;gp;aram;config'= {
         }
         &'sim-doctor;help;trace'= {
         }

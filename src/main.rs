@@ -1035,6 +1035,26 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Add, delete or lock the secure element access rules the ARA-M holds:
+    /// STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork's
+    /// lock, all over an SCP03 channel. CHANGES THE CARD'S ACCESS RULES.
+    ///
+    /// A dry run unless --yes; --yes needs --keys-file/--keys-env. One SCP03
+    /// authentication attempt, the card cryptogram checked locally before
+    /// EXTERNAL AUTHENTICATE, keys from a file or environment variable only and
+    /// never printed. The rules are read over the secure channel before the
+    /// write and again after it; a card that does not show the change fails
+    /// `verify-failed`. `delete-all` removes EVERY rule on the card, not one,
+    /// and needs --confirm-delete-all DELETE-ALL on top of --yes. `lock` is the
+    /// proprietary STORE DATA lock of pySim's sysmocom ARA-M fork, not a
+    /// GlobalPlatform command, and is permanent. `config` is the read-only
+    /// configuration handshake and writes nothing. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a verified write, 1 otherwise.
+    Aram {
+        #[command(subcommand)]
+        action: AramAction,
+    },
 }
 
 /// Which CPLC block `gp cplc-set` writes.
@@ -1042,6 +1062,100 @@ enum GpAction {
 enum GpCplcKind {
     PrePerso,
     Perso,
+}
+
+#[derive(Subcommand)]
+enum AramAction {
+    /// Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO],
+    /// `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`.
+    Add {
+        /// The application the rule is for: 5 to 16 bytes of hex, or the empty
+        /// string for the empty AID-REF-DO that names every application.
+        #[arg(long, value_name = "HEX")]
+        aid: Option<String>,
+        /// No specific application: the implicitly selected one on every
+        /// channel (AID-REF-EMPTY-DO, C0).
+        #[arg(long, conflicts_with = "aid")]
+        aid_empty: bool,
+        /// The device application's certificate hash or UUID, 20 or 32 bytes of
+        /// hex. Empty (the default) matches any device application.
+        #[arg(long, value_name = "HEX", default_value = "")]
+        device_app_id: String,
+        /// The Android package name (PKG-REF-DO, an AOSP extension).
+        #[arg(long, value_name = "NAME")]
+        pkg_ref: Option<String>,
+        /// Never allow the application's APDUs (APDU-AR-DO D0 01 00).
+        #[arg(long, conflicts_with_all = ["apdu_always", "apdu_filter"])]
+        apdu_never: bool,
+        /// Always allow the application's APDUs (APDU-AR-DO D0 01 01).
+        #[arg(long, conflicts_with_all = ["apdu_never", "apdu_filter"])]
+        apdu_always: bool,
+        /// An APDU filter: groups of 16 hex digits, 4 for CLA INS P1 P2 then 4
+        /// for the mask, repeated.
+        #[arg(long, value_name = "HEX", conflicts_with_all = ["apdu_never", "apdu_always"])]
+        apdu_filter: Option<String>,
+        /// Never deliver the application's NFC events (NFC-AR-DO D1 01 00).
+        #[arg(long, conflicts_with_all = ["nfc_always"])]
+        nfc_never: bool,
+        /// Always deliver the application's NFC events (NFC-AR-DO D1 01 01).
+        #[arg(long, conflicts_with_all = ["nfc_never"])]
+        nfc_always: bool,
+        /// The eight Android UICC Carrier Privilege permission bytes
+        /// (PERM-AR-DO, an AOSP extension).
+        #[arg(long, value_name = "HEX")]
+        android_permissions: Option<String>,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+    /// Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete]
+    /// with an empty body (F1 00).
+    DeleteAll {
+        /// Required acknowledgement beyond --yes: the literal DELETE-ALL.
+        #[arg(long, value_name = "TEXT")]
+        confirm_delete_all: Option<String>,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+    /// Lock the ARA-M's STORE DATA (the single byte A1), so no rule can ever be
+    /// added, changed or deleted again. pySim's sysmocom ARA-M fork only.
+    Lock {
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+    /// The configuration handshake: GET DATA [Config] (80 CA DF 21) offering
+    /// the device's interface version. Read-only, no --yes.
+    Config {
+        /// The major part of the device interface version to offer.
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8))]
+        major: u8,
+        /// The minor part of the device interface version to offer.
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8))]
+        minor: u8,
+        /// The patch part of the device interface version to offer.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8))]
+        patch: u8,
+        #[command(flatten)]
+        read: GpReadWriteFlags,
+    },
+}
+
+/// What `gp aram config` shares with the writes, minus `--yes`: the handshake
+/// writes nothing, so there is nothing to confirm.
+#[derive(Args)]
+struct GpReadWriteFlags {
+    /// The reader to use, matched against the driver's own name.
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+    /// Emit one JSON envelope of kind "gp" on stdout.
+    #[arg(long)]
+    json: bool,
+    /// Add every APDU exchange (command and response hex) as data.trace.
+    #[arg(long)]
+    trace: bool,
+    #[command(flatten)]
+    keys: GpKeyArgs,
+    #[command(flatten)]
+    channel: GpChannelArg,
 }
 
 #[derive(Subcommand)]
@@ -2182,6 +2296,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::Why(args) => run_why(&args.target, args.json),
         Command::Fix(args) => run_fix(&args),
         Command::Gp(args) => match args.action {
+            GpAction::Aram { action } => run_gp_aram(action),
             GpAction::Info {
                 reader,
                 json,
@@ -3207,6 +3322,231 @@ fn run_gp_rename_isd(new_aid: &str, w: &GpWriteFlags) -> contract::ExitCode {
         w.trace,
         w.channel.channel,
         |s, t| gp::rename_isd(s, t, &req, &auth, w.yes),
+    )
+}
+
+/// `--aid` of `gp aram add`: an AID of 5 to 16 bytes, or the empty string for
+/// the empty AID-REF-DO that names every application (pySim's `--aid ""`).
+fn parse_ara_aid(text: &str) -> Option<Vec<u8>> {
+    let bytes = hex::decode(text.trim()).ok()?;
+    (bytes.is_empty() || (5..=16).contains(&bytes.len())).then_some(bytes)
+}
+
+/// `sim-doctor gp aram add`: the rule's own fields are parsed and range-checked
+/// before a reader is opened.
+#[allow(clippy::too_many_arguments)]
+fn aram_add_request(
+    aid: Option<String>,
+    aid_empty: bool,
+    device_app_id: String,
+    pkg_ref: Option<String>,
+    apdu_never: bool,
+    apdu_always: bool,
+    apdu_filter: Option<String>,
+    nfc_never: bool,
+    nfc_always: bool,
+    android_permissions: Option<String>,
+    json: bool,
+) -> Result<gp::StoreRefArDo, contract::ExitCode> {
+    let refuse = |kind: &str, message: String| {
+        report_refusal(
+            "gp",
+            &message,
+            serde_json::json!({ "error": { "kind": kind, "message": message } }),
+            json,
+        )
+    };
+    let aid = match &aid {
+        None => None,
+        Some(text) => Some(parse_ara_aid(text).ok_or_else(|| {
+            refuse(
+                "bad-aid",
+                "--aid must be 5 to 16 bytes of hex, or the empty string for every application"
+                    .into(),
+            )
+        })?),
+    };
+    let Some(bytes) = hex::decode(device_app_id.trim()).ok() else {
+        return Err(refuse(
+            "bad-hex",
+            "--device-app-id must be hex, 0, 20 or 32 bytes".into(),
+        ));
+    };
+    let apdu = if apdu_never {
+        Some(gp::ApduRule::Never)
+    } else if apdu_always {
+        Some(gp::ApduRule::Always)
+    } else if let Some(text) = apdu_filter {
+        let bytes = hex::decode(text.replace([' ', ':'], "")).map_err(|_| {
+            refuse(
+                "bad-hex",
+                "--apdu-filter must be groups of 16 hex digits: 4 for CLA INS P1 P2 then 4 for the mask".into(),
+            )
+        })?;
+        if bytes.is_empty() || bytes.len() % 8 != 0 {
+            return Err(refuse(
+                "bad-apdu-filter",
+                format!("--apdu-filter is {} bytes, it is groups of 8", bytes.len()),
+            ));
+        }
+        Some(gp::ApduRule::Filters(
+            bytes
+                .chunks(8)
+                .map(|c| <[u8; 8]>::try_from(c).expect("8 bytes"))
+                .collect(),
+        ))
+    } else {
+        None
+    };
+    let nfc = match (nfc_never, nfc_always) {
+        (true, _) => Some(gp::NfcRule::Never),
+        (_, true) => Some(gp::NfcRule::Always),
+        _ => None,
+    };
+    let permissions = match &android_permissions {
+        None => None,
+        Some(text) => Some(hex::decode(text.trim()).map_err(|_| {
+            refuse(
+                "bad-hex",
+                "--android-permissions must be eight hex bytes".into(),
+            )
+        })?),
+    };
+    Ok(gp::StoreRefArDo {
+        aid,
+        aid_empty,
+        device_app_id: bytes,
+        package: pkg_ref,
+        apdu,
+        nfc,
+        permissions,
+    })
+}
+
+/// `sim-doctor gp aram <add|delete-all|lock>`: a dry run unless `--yes`,
+/// offline without keys, and the delete-all acknowledgement is asked for
+/// before any reader is opened.
+fn run_gp_aram(action: AramAction) -> contract::ExitCode {
+    match action {
+        AramAction::Add {
+            aid,
+            aid_empty,
+            device_app_id,
+            pkg_ref,
+            apdu_never,
+            apdu_always,
+            apdu_filter,
+            nfc_never,
+            nfc_always,
+            android_permissions,
+            write,
+        } => match aram_add_request(
+            aid,
+            aid_empty,
+            device_app_id,
+            pkg_ref,
+            apdu_never,
+            apdu_always,
+            apdu_filter,
+            nfc_never,
+            nfc_always,
+            android_permissions,
+            write.json,
+        ) {
+            Ok(rule) => run_aram_write(gp::AramAction::Add(Box::new(rule)), &write),
+            Err(code) => code,
+        },
+        AramAction::DeleteAll {
+            confirm_delete_all,
+            write,
+        } => {
+            if let Err(message) =
+                gp::check_delete_all_acknowledgement(confirm_delete_all.as_deref())
+            {
+                return report_refusal(
+                    "gp",
+                    &message,
+                    serde_json::json!({
+                        "error": { "kind": "delete-all-not-confirmed", "message": message }
+                    }),
+                    write.json,
+                );
+            }
+            run_aram_write(gp::AramAction::DeleteAll, &write)
+        }
+        AramAction::Lock { write } => run_aram_write(gp::AramAction::Lock, &write),
+        AramAction::Config {
+            major,
+            minor,
+            patch,
+            read,
+        } => run_aram_config(major, minor, patch, &read),
+    }
+}
+
+fn run_aram_write(action: gp::AramAction, w: &GpWriteFlags) -> contract::ExitCode {
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::aram_dry_run(&action) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp aram", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp aram",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::aram(s, t, &action, &auth, w.yes),
+    )
+}
+
+fn run_aram_config(major: u8, minor: u8, patch: u8, r: &GpReadWriteFlags) -> contract::ExitCode {
+    let plain = gp::aram_config_command(major, minor, patch)
+        .encode()
+        .expect("a built command encodes");
+    let keys = match load_gp_keys(&r.keys, r.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        let mut data = serde_json::json!({
+            "card_touched": false,
+            "operation": "aram-config",
+            "dry_run": true,
+            "sent": false,
+            "device_interface_version": format!("{major}.{minor}.{patch}"),
+            "plan": {
+                "apdus": [{ "step": "get_config", "apdu": hex::encode_upper(&plain) }],
+                "note": "each APDU is sent with the class byte set for secure messaging and an 8-byte C-MAC appended (SCP03, C-MAC); shown here before that",
+            },
+            "note": "no keys were given, so the card was not contacted; add --keys-file or --keys-env to run the handshake",
+        });
+        if r.channel.channel != 0 {
+            data["logical_channel"] = serde_json::json!(r.channel.channel);
+            gp::retarget_channel(&mut data, r.channel.channel);
+        }
+        return emit_gp("gp aram config", data, r.json);
+    };
+    let auth = gp_auth(&keys, &r.keys, r.channel.channel);
+    run_gp(
+        "gp aram config",
+        r.reader.as_deref(),
+        r.json,
+        r.trace,
+        r.channel.channel,
+        |s, t| gp::aram_config(s, t, major, minor, patch, &auth),
     )
 }
 
