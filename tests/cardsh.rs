@@ -2232,3 +2232,56 @@ fn exclusive_flag_is_documented_on_every_command_that_opens_a_reader() {
         assert!(text.contains("-X, --exclusive"), "{args:?}: {text}");
     }
 }
+
+#[test]
+fn a_provisioning_csv_is_checked_and_its_keys_are_never_printed() {
+    let key = "0123456789ABCDEF0123456789ABCDEF";
+    let csv = csv_fixture(
+        "cardsh_279_prov.csv",
+        &format!(
+            "name,iccid,imsi,ki,opc\nsim one,8944500000000000001,123450123456789,{key},{key}\n"
+        ),
+    );
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--read-csv", csv.to_str().unwrap()],
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.status.code(), Some(0), "{text}");
+    assert!(
+        text.contains("row 2: ok, fields: name iccid imsi ki opc"),
+        "{text}"
+    );
+    assert!(
+        !text.contains(key) && !text.contains("123450123456789"),
+        "{text}"
+    );
+
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--read-csv", csv.to_str().unwrap(), "--yes"],
+    );
+    assert_ne!(out.status.code(), Some(0), "--yes must be refused");
+
+    let short = &key[..30];
+    let bad = csv_fixture(
+        "cardsh_279_prov_bad.csv",
+        &format!("iccid,imsi,ki\n8944500000000000001,123450123456789,{short}\n"),
+    );
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--read-csv", bad.to_str().unwrap()],
+    );
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_ne!(out.status.code(), Some(0), "{text}");
+    assert!(text.contains("row 2: ki must be 32 hex digits"), "{text}");
+    assert!(!text.contains(short), "{text}");
+}
