@@ -789,9 +789,10 @@ Options:
       --cl-display-optional     --cl-display-optional: the display is not required for this application (EF A1 88 01)
       --cl-contact              --cl-contact: enable the contact interface (EF A0 A5 82, bit 80)
       --cl-contactless          --cl-contactless: enable the contactless interface (EF A0 A5 82, bit 40). With --cl-contact the mask is C0, both interfaces
-      --dap-key-file <PATH>     File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)
-      --dap-key-env <VAR>       Environment variable holding the AES DAP key
-      --dap-sd <HEX>            The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default: the issuer security domain being authenticated)
+      --dap-key-file <PATH>     File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)
+      --dap-key-env <VAR>       Environment variable holding the DAP keys
+      --dap-domain <HEX>        The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated
+      --dap-alg <DAP_ALG>       The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1) [default: aes] [possible values: aes, des, ecc]
       --dap-hash <DAP_HASH>     The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha256, sha384, sha512]
       --reader <NAME>           The reader to use, matched against the driver's own name
       --json                    Emit one JSON envelope of kind "gp" on stdout
