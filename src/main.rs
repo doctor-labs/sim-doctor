@@ -4169,7 +4169,7 @@ fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
         addressing: walk::Addressing::PathFromMasterFile,
         candidates: walk::Candidates::SimFamilies,
         meaning: walk::StatusMeaning::default(),
-        break_after_count_match: args.walk_limits.break_after_count_match,
+        limits: limits_from(&args.walk_limits),
         reserved_file_ids: false,
         break_after_count_match: args.walk_limits.break_after_count_match,
         session: session::Policy::default(),
