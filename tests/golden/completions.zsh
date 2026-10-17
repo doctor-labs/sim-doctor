@@ -332,6 +332,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '(--list --info)--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '(--info)--list[Print the registry as a table\: scope, AID, lifecycle, privileges]' \
 '--info[Print each registry entry in detail, with its raw lifecycle and privilege bytes]' \
@@ -392,6 +397,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -407,6 +417,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -528,6 +543,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--related[Also delete related objects (P2 80)\: for a load file, its applications]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -544,6 +564,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -559,6 +584,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -600,6 +630,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--make-default[Make the applet default selected\: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro'\''s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -620,6 +655,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--replace-current-keyset[Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -637,6 +677,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--today[Write today'\''s date (UTC) into the date bytes, overriding those in --data]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -654,6 +699,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -687,6 +737,11 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '(--aid)--aid-empty[No specific application\: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)]' \
 '(--apdu-always --apdu-filter)--apdu-never[Never allow the application'\''s APDUs (APDU-AR-DO D0 01 00)]' \
@@ -696,8 +751,8 @@ _arguments "${_arguments_options[@]}" : \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (delete-all)
@@ -707,12 +762,17 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (lock)
@@ -721,12 +781,17 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (config)
@@ -738,11 +803,16 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (help)
