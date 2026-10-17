@@ -17,14 +17,18 @@
 //! UPDATE (`80 50`) and EXTERNAL AUTHENTICATE (`84 82`) stay forbidden on the live
 //! operator SIM everywhere else.
 //!
-//! **Scope.** AES-128, AES-192 and AES-256 keys (16, 24 or 32 bytes), 8-byte
-//! challenges and 8-byte cryptograms/MACs
-//! (the "i" = 0x00/0x10 profiles). All four protections of Amendment D 6.2: the
-//! C-MAC, C-ENC (the host encrypts the command data; the card's half of that
-//! same bit is C-DECRYPTION), R-MAC (the card MACs the response) and R-ENC
-//! (the host decrypts the response data), at the five levels in
-//! [`SecurityLevel`]. SCP02 and SCP11 are not implemented (tracked as a
-//! follow-up to issue #22).
+//! **Scope.** AES-128, AES-192 and AES-256 keys (16, 24 or 32 bytes), in two
+//! challenge/cryptogram profiles: 8 bytes throughout ("i" bit 0x01 clear, so
+//! the "i" = 0x00/0x10 cards) and S16, 16 bytes throughout, which the card
+//! announces by setting "i" bit 0x01 and which GlobalPlatformPro calls `--s16`
+//! (GPToolNG passes it as `GlobalPlatformCookbook.FORCE_S16`). The 8-byte
+//! profile has all four protections of Amendment D 6.2: the C-MAC, C-ENC (the
+//! host encrypts the command data; the card half of that same bit is
+//! C-DECRYPTION), R-MAC (the card MACs the response) and R-ENC (the host
+//! decrypts the response data), at the five levels in [`SecurityLevel`]. S16 is
+//! C-MAC only (level `01`): the S16 R-MAC length and C-ENC padding are not
+//! verifiable from the repo refmap [U], so a higher level with S16 is refused.
+//! SCP02 and SCP11 are not implemented (tracked as a follow-up to issue #22).
 
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "scp03";
@@ -45,6 +49,56 @@ pub const MAX_KEY_LEN: usize = 32;
 pub const CHALLENGE_LEN: usize = 8;
 /// Length of a cryptogram and of a transmitted C-MAC.
 pub const MAC_LEN: usize = 8;
+/// Length of an S16 challenge: the profile the card announces by setting bit
+/// 0x01 of the "i" parameter.
+pub const CHALLENGE_LEN_S16: usize = 16;
+/// Length of an S16 cryptogram and of a transmitted S16 C-MAC.
+pub const MAC_LEN_S16: usize = 16;
+
+/// Whether an SCP03 "i" parameter announces the S16 profile: bit 0x01, which
+/// makes every challenge, cryptogram and C-MAC 16 bytes instead of 8.
+///
+/// GlobalPlatformPro `InitUpdateResponse.parse`: `s16 = (scpI & 0x01) == 0x01`,
+/// and the challenge and cryptogram are then 16 bytes each (lines 85-91).
+pub fn s16_announced(i_parameter: u8) -> bool {
+    i_parameter & 0x01 == 0x01
+}
+
+/// The SCP03 challenge/cryptogram profile a card speaks: 8 bytes throughout, or
+/// 16 in S16.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Profile {
+    /// The default profile, "i" bit 0x01 clear: 8-byte challenges, cryptograms
+    /// and C-MACs, cryptograms derived with L = 64 bits.
+    S8,
+    /// S16, "i" bit 0x01 set: 16 bytes throughout, cryptograms derived with
+    /// L = 128 bits.
+    S16,
+}
+
+impl Profile {
+    /// The profile an SCP03 "i" parameter announces.
+    pub fn announced(i_parameter: u8) -> Self {
+        if s16_announced(i_parameter) {
+            Self::S16
+        } else {
+            Self::S8
+        }
+    }
+
+    /// The challenge, cryptogram and C-MAC length of the profile.
+    pub fn byte_len(self) -> usize {
+        match self {
+            Self::S8 => CHALLENGE_LEN,
+            Self::S16 => CHALLENGE_LEN_S16,
+        }
+    }
+
+    /// The KDF `L` field, in bits, for a cryptogram of this profile.
+    fn cryptogram_l_bits(self) -> u16 {
+        u16::try_from(self.byte_len() * 8).expect("a profile length fits in u16")
+    }
+}
 
 /// INS of INITIALIZE UPDATE (CLA 80).
 pub const INS_INITIALIZE_UPDATE: u8 = 0x50;
@@ -83,13 +137,22 @@ const DDC_S_RMAC: u8 = 0x07;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// INITIALIZE UPDATE response of an unsupported length.
-    #[error("INITIALIZE UPDATE response is {0} bytes, expected 29 or 32 (before the status word)")]
+    #[error(
+        "INITIALIZE UPDATE response is {0} bytes, expected 29 or 32 for the 8-byte profile and \
+         45 or 48 for S16 (before the status word)"
+    )]
     ResponseLength(usize),
     /// The response's key information does not announce SCP03.
     #[error("key information announces SCP {0:02X}, not 03")]
     NotScp03(u8),
+    /// The response's "i" parameter announces the other challenge profile.
+    #[error("key information announces i={0:02X}, which is not the {1}-byte profile being read")]
+    WrongProfile(u8, usize),
+    /// A host cryptogram that does not match the length the channel MACs with.
+    #[error("host cryptogram is {0} bytes; the channel MACs with {1}-byte C-MACs")]
+    CryptogramLength(usize, usize),
     /// The command data plus the MAC would not fit a short Lc.
-    #[error("command data is {0} bytes; with the 8-byte C-MAC it exceeds a short APDU")]
+    #[error("command data is {0} bytes; with the C-MAC it exceeds a short APDU")]
     TooLong(usize),
     /// The response carries no room for the 8-byte R-MAC.
     #[error("response is {0} bytes: too short to carry the {MAC_LEN}-byte R-MAC")]
@@ -246,19 +309,31 @@ impl std::fmt::Debug for SessionKeys {
     }
 }
 
-fn context(host: &[u8; CHALLENGE_LEN], card: &[u8; CHALLENGE_LEN]) -> [u8; 2 * CHALLENGE_LEN] {
-    let mut out = [0u8; 2 * CHALLENGE_LEN];
-    out[..CHALLENGE_LEN].copy_from_slice(host);
-    out[CHALLENGE_LEN..].copy_from_slice(card);
-    out
+/// The KDF context: the host challenge followed by the card challenge
+/// (Amendment D 6.2.1). Either profile's length, 8 or 16 in S16.
+fn context(host: &[u8], card: &[u8]) -> Vec<u8> {
+    host.iter().chain(card).copied().collect()
 }
 
-/// Derives S-ENC, S-MAC and S-RMAC from the static keys and both challenges.
+/// Derives S-ENC, S-MAC and S-RMAC from the static keys and both 8-byte
+/// challenges.
 pub fn derive_session_keys(
     static_enc: &Key,
     static_mac: &Key,
     host: &[u8; CHALLENGE_LEN],
     card: &[u8; CHALLENGE_LEN],
+) -> SessionKeys {
+    derive_session_keys_with(static_enc, static_mac, host, card)
+}
+
+/// [`derive_session_keys`] for the challenges of either profile: the derivation
+/// is the same in both (L is the static key length in bits for every session key) and only the
+/// context grows with the challenges.
+pub fn derive_session_keys_with(
+    static_enc: &Key,
+    static_mac: &Key,
+    host: &[u8],
+    card: &[u8],
 ) -> SessionKeys {
     let ctx = context(host, card);
     SessionKeys {
@@ -295,14 +370,35 @@ pub fn cryptogram(
     host: &[u8; CHALLENGE_LEN],
     card: &[u8; CHALLENGE_LEN],
 ) -> [u8; MAC_LEN] {
+    let mut out = [0u8; MAC_LEN];
+    out.copy_from_slice(&cryptogram_with(s_mac, side, host, card, Profile::S8));
+    out
+}
+
+/// The `profile`-length authentication cryptogram of one side, keyed with
+/// S-MAC: 8 bytes with the KDF's `L` = 64 bits, 16 in S16 with `L` = 128, where
+/// the whole CMAC is the cryptogram.
+///
+/// GlobalPlatformPro `GlobalPlatformCookbook.authenticate_scp03` derives both
+/// cryptograms of a session with `response.s16() ? 128 : 64`.
+pub fn cryptogram_with(
+    s_mac: &Key,
+    side: Side,
+    host: &[u8],
+    card: &[u8],
+    profile: Profile,
+) -> Vec<u8> {
     let constant = match side {
         Side::Card => DDC_CARD_CRYPTOGRAM,
         Side::Host => DDC_HOST_CRYPTOGRAM,
     };
-    let full = kdf(s_mac, constant, 64, &context(host, card));
-    let mut out = [0u8; MAC_LEN];
-    out.copy_from_slice(&full[..MAC_LEN]);
-    out
+    let full = kdf(
+        s_mac,
+        constant,
+        profile.cryptogram_l_bits(),
+        &context(host, card),
+    );
+    full[..profile.byte_len()].to_vec()
 }
 
 /// Compares two byte strings without an early exit.
@@ -317,7 +413,22 @@ pub fn verify_card_cryptogram(
     card: &[u8; CHALLENGE_LEN],
     received: &[u8],
 ) -> bool {
-    ct_eq(&cryptogram(&keys.mac, Side::Card, host, card), received)
+    verify_card_cryptogram_with(keys, host, card, Profile::S8, received)
+}
+
+/// [`verify_card_cryptogram`] for the challenges and cryptogram length of
+/// either profile.
+pub fn verify_card_cryptogram_with(
+    keys: &SessionKeys,
+    host: &[u8],
+    card: &[u8],
+    profile: Profile,
+    received: &[u8],
+) -> bool {
+    ct_eq(
+        &cryptogram_with(&keys.mac, Side::Card, host, card, profile),
+        received,
+    )
 }
 
 /// Pads to a whole number of `block`-byte blocks with `80` then zeroes
@@ -506,6 +617,7 @@ pub struct Channel {
     block_nr: u64,
     level: SecurityLevel,
     logical: u8,
+    mac_len: usize,
 }
 
 // Key material must not reach logs through `{:?}`, as in `SessionKeys`.
@@ -523,14 +635,29 @@ impl std::fmt::Debug for Channel {
 impl Channel {
     /// A fresh channel at [`SecurityLevel::C_MAC`]: the level every live path
     /// used before C-ENC, R-MAC and R-ENC existed, and the one whose bytes
-    /// [`Channel::wrap`] still produces.
+    /// [`Channel::wrap`] still produces. Transmits 8-byte MACs.
     pub fn new(keys: &SessionKeys) -> Self {
         Self::at_level(keys, SecurityLevel::C_MAC)
     }
 
+    /// A fresh S16 channel at C-MAC: a zero chaining value and 16-byte MACs.
+    pub fn new_s16(keys: &SessionKeys) -> Self {
+        Self::with_mac_len(keys, MAC_LEN_S16)
+    }
+
+    /// A fresh C-MAC channel transmitting `mac_len`-byte MACs: 8 for the default
+    /// profile, 16 for the one a card announces with "i" bit 0x01. Only the
+    /// C-MAC level is defined for 16 (see the module scope).
+    pub fn with_mac_len(keys: &SessionKeys, mac_len: usize) -> Self {
+        let mut ch = Self::at_level(keys, SecurityLevel::C_MAC);
+        ch.mac_len = mac_len;
+        ch
+    }
+
     /// A fresh channel that builds `level` from the start, with a zero chaining
-    /// value and a zero encryption counter.
+    /// value and a zero encryption counter, transmitting 8-byte MACs.
     pub fn at_level(keys: &SessionKeys, level: SecurityLevel) -> Self {
+        let mac_len = MAC_LEN;
         Self {
             s_enc: keys.enc,
             s_mac: keys.mac,
@@ -539,7 +666,13 @@ impl Channel {
             block_nr: 0,
             level,
             logical: 0,
+            mac_len,
         }
+    }
+
+    /// The transmitted C-MAC length: 8, or 16 in S16.
+    pub fn mac_len(&self) -> usize {
+        self.mac_len
     }
 
     /// Wraps for logical channel `channel` (0 to 19): the MAC covers the class
@@ -670,12 +803,16 @@ impl Channel {
     }
 
     /// Adds the C-MAC to `command`: sets the secure messaging bit (0x04) in
-    /// CLA, appends the 8-byte MAC to the data and advances the chain. At a
-    /// C-ENC level the data is encrypted first and the counter advances.
+    /// CLA, appends the MAC to the data and advances the chain. The MAC is
+    /// [`Channel::mac_len`] bytes: 8, or 16 in S16. At a C-ENC level the data is
+    /// encrypted first and the counter advances (8-byte profile only).
     ///
     /// MAC input (Amendment D 6.2.4): `chain || CLA' INS P1 P2 Lc' || data`,
     /// where `CLA'` has the bit set, `Lc'` counts the MAC, and `data` is the
-    /// data as it goes on the wire (the ciphertext, at a C-ENC level).
+    /// data as it goes on the wire (the ciphertext, at a C-ENC level). The
+    /// chaining value stays the full 16-byte CMAC in both profiles, as
+    /// GlobalPlatformPro `SCP03.wrap` does (it copies the 16-byte CMAC into the
+    /// chaining value and only then truncates the transmitted MAC).
     ///
     /// # Errors
     ///
@@ -712,13 +849,13 @@ impl Channel {
         } else {
             data.to_vec()
         };
-        let lc = u8::try_from(body.len() + MAC_LEN).map_err(|_| Error::TooLong(body.len()))?;
+        let lc = u8::try_from(body.len() + self.mac_len).map_err(|_| Error::TooLong(body.len()))?;
         let full = cmac(
             &self.s_mac,
             &[&self.chain, &header.to_bytes(), &[lc], &body],
         );
         self.chain = full;
-        body.extend_from_slice(&full[..MAC_LEN]);
+        body.extend_from_slice(&full[..self.mac_len]);
         Ok(match command.le() {
             Some(le) => Command::case4(header, body, le),
             None => Command::case3(header, body),
@@ -771,7 +908,7 @@ impl Channel {
         self.chain = full;
         let mut command = header.to_bytes().to_vec();
         command.extend_from_slice(data);
-        command.extend_from_slice(&full[..MAC_LEN]);
+        command.extend_from_slice(&full[..self.mac_len]);
         if let Some(le) = le {
             command.push(le);
         }
@@ -784,6 +921,12 @@ impl Channel {
 /// `key_version` is the key version number (the keyset identifier); 0 asks the
 /// card for its default keyset.
 pub fn initialize_update(key_version: u8, host: &[u8; CHALLENGE_LEN]) -> Command {
+    initialize_update_with(key_version, host)
+}
+
+/// [`initialize_update`] for a host challenge of either profile's length: the
+/// S16 command carries `Lc` `10` instead of `08`.
+pub fn initialize_update_with(key_version: u8, host: &[u8]) -> Command {
     Command::case4(
         Header::new(0x80, INS_INITIALIZE_UPDATE, key_version, 0x00),
         host.to_vec(),
@@ -791,17 +934,35 @@ pub fn initialize_update(key_version: u8, host: &[u8; CHALLENGE_LEN]) -> Command
     )
 }
 
-/// EXTERNAL AUTHENTICATE (`84 82 <level> 00 10 <host cryptogram> <C-MAC>`),
-/// MAC'd through `channel`, which must be fresh (zero chaining value).
+/// EXTERNAL AUTHENTICATE (`84 82 <level> 00 <Lc> <host cryptogram> <C-MAC>`),
+/// MAC'd through `channel`, which must be fresh (zero chaining value). `Lc` is
+/// `10` for an 8-byte cryptogram and `20` in S16, where 16 bytes of cryptogram
+/// are followed by the 16-byte C-MAC.
 ///
 /// # Errors
 ///
-/// Never in practice; mirrors [`Channel::wrap`].
+/// [`Error::CryptogramLength`] when the cryptogram is not the length the
+/// channel MACs with; otherwise only what [`Channel::wrap`] can return.
 pub fn external_authenticate(
     channel: &mut Channel,
     security_level: u8,
     host_cryptogram: &[u8; MAC_LEN],
 ) -> Result<Command, Error> {
+    external_authenticate_with(channel, security_level, host_cryptogram)
+}
+
+/// [`external_authenticate`] for a host cryptogram of either profile's length.
+pub fn external_authenticate_with(
+    channel: &mut Channel,
+    security_level: u8,
+    host_cryptogram: &[u8],
+) -> Result<Command, Error> {
+    if host_cryptogram.len() != channel.mac_len() {
+        return Err(Error::CryptogramLength(
+            host_cryptogram.len(),
+            channel.mac_len(),
+        ));
+    }
     // The wrap adds the secure-messaging bit, so build the plain 80 82 form.
     channel.wrap_inner(
         &Command::case3(
@@ -813,44 +974,64 @@ pub fn external_authenticate(
 }
 
 /// A parsed INITIALIZE UPDATE response (status word already stripped).
+///
+/// `N` is the profile's challenge and cryptogram length: 8 for the default
+/// profile, 16 for S16, the profile a card announces with bit 0x01 of the "i"
+/// parameter. [`InitializeUpdateResponse`] and [`InitializeUpdateResponseS16`]
+/// name the two.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InitializeUpdateResponse {
+pub struct InitUpdate<const N: usize> {
     /// Key diversification data (10 bytes).
     pub diversification: [u8; 10],
     /// Key version number: the keyset identifier the card selected.
     pub key_version: u8,
     /// The "i" parameter of the SCP.
     pub i_parameter: u8,
-    /// The card challenge.
-    pub card_challenge: [u8; CHALLENGE_LEN],
-    /// The card cryptogram.
-    pub card_cryptogram: [u8; MAC_LEN],
+    /// The card challenge: `N` bytes.
+    pub card_challenge: [u8; N],
+    /// The card cryptogram: `N` bytes.
+    pub card_cryptogram: [u8; N],
     /// Sequence counter, present only for pseudo-random challenges (i bit 0x10).
     pub sequence_counter: Option<[u8; 3]>,
 }
 
-impl InitializeUpdateResponse {
-    /// Parses `10 diversification || kvn || 03 || i || 8 challenge || 8
+/// The 8-byte profile's INITIALIZE UPDATE response.
+pub type InitializeUpdateResponse = InitUpdate<CHALLENGE_LEN>;
+/// The S16 profile's INITIALIZE UPDATE response: a 16-byte challenge and a
+/// 16-byte cryptogram, which the card announces with "i" bit 0x01.
+pub type InitializeUpdateResponseS16 = InitUpdate<CHALLENGE_LEN_S16>;
+
+impl<const N: usize> InitUpdate<N> {
+    /// Parses `10 diversification || kvn || 03 || i || N challenge || N
     /// cryptogram [|| 3 sequence counter]`.
+    ///
+    /// The "i" parameter has to agree with `N`: a card that sets bit 0x01 owes
+    /// 16 bytes of each, so reading it as the 8-byte profile (or the reverse)
+    /// would take its cryptogram from the wrong offset.
     ///
     /// # Errors
     ///
-    /// [`Error::ResponseLength`] or [`Error::NotScp03`].
+    /// [`Error::ResponseLength`], [`Error::NotScp03`] or [`Error::WrongProfile`].
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() != 29 && bytes.len() != 32 {
+        if bytes.len() != 2 * N + 13 && bytes.len() != 2 * N + 16 {
             return Err(Error::ResponseLength(bytes.len()));
         }
         if bytes[11] != 0x03 {
             return Err(Error::NotScp03(bytes[11]));
+        }
+        if s16_announced(bytes[12]) != (N == CHALLENGE_LEN_S16) {
+            return Err(Error::WrongProfile(bytes[12], N));
         }
         // Lengths were checked above, so these conversions cannot fail.
         Ok(Self {
             diversification: bytes[..10].try_into().expect("10 bytes"),
             key_version: bytes[10],
             i_parameter: bytes[12],
-            card_challenge: bytes[13..21].try_into().expect("8 bytes"),
-            card_cryptogram: bytes[21..29].try_into().expect("8 bytes"),
-            sequence_counter: bytes.get(29..32).map(|s| s.try_into().expect("3 bytes")),
+            card_challenge: bytes[13..13 + N].try_into().expect("N bytes"),
+            card_cryptogram: bytes[13 + N..13 + 2 * N].try_into().expect("N bytes"),
+            sequence_counter: bytes
+                .get(13 + 2 * N..16 + 2 * N)
+                .map(|s| s.try_into().expect("3 bytes")),
         })
     }
 }
@@ -1901,5 +2082,264 @@ mod tests {
         assert_eq!(Key::new(&[0; 24]).unwrap().as_bytes().len(), 24);
         assert_eq!(Key::new(&[7; 24]).unwrap().as_aes128(), None);
         assert_eq!(Key::from_aes128(&[7; 16]).as_aes128(), Some(&[7; 16]));
+    }
+
+    // ---- the two profiles are pinned apart --------------------------------
+    //
+    // S16 is a profile of this flow, not a second protocol, and no reference
+    // publishes an S16 byte. What S16 changes, from GlobalPlatformPro:
+    //
+    // 1. the CARD announces it, in the "i" parameter: bit 0x01
+    //    (`InitUpdateResponse.parse` line 73, `s16()` lines 100-101), and then
+    //    owes a 16-byte card challenge and a 16-byte cryptogram (lines 85-91);
+    // 2. the host therefore sends a 16-byte host challenge in INITIALIZE UPDATE
+    //    (`GlobalPlatformCookbook.open_secure_channel`: `FORCE_S16 ? random(16)`,
+    //    with the retry on `67 00` in `init_update` as the automatic route to it);
+    // 3. the cryptograms are derived with L = 128 bits instead of 64
+    //    (`authenticate_scp03` lines 558-562, `scp03_kdf(..., response.s16() ?
+    //    128 : 64)`), so the whole 16-byte CMAC is the cryptogram;
+    // 4. every C-MAC is 16 bytes (`ext_authenticate_scp03` line 479, `SCP03.wrap`
+    //    line 81) while the chaining value stays the full 16-byte CMAC
+    //    (`SCP03.wrap` line 115). The session keys do not change: L = 128 in
+    //    both profiles, only the context grows.
+    //
+    // The expected bytes below come from an independent model of Amendment D
+    // 4.1.5 and 6.2.2-6.2.4 written in Python with AES-CMAC from `openssl mac`,
+    // not from this crate. That model first reproduces the Gp4Net vectors in
+    // this file, the pySim EXTERNAL AUTHENTICATE in
+    // `replays_pysim_scp03_session` and the wire bytes in
+    // `wrap_on_a_logical_channel` byte for byte.
+
+    // **No reference publishes S16 bytes** [U]: the expected values in the S16
+    // tests are that model's, not a published vector. Every rule they follow is
+    // cited above, and every 8-byte expectation in this file is unchanged.
+
+    /// [V-model] session keys and both cryptograms with 16-byte challenges. Same keys
+    /// as the first Gp4Net vector, the challenges grown to 16 bytes.
+    #[test]
+    fn s16_session_keys_and_cryptograms() {
+        let (enc, mac) = (
+            Key::from_aes128(&h("000102030405060708090A0B0C0D0E0F")),
+            Key::from_aes128(&h("101112131415161718191A1B1C1D1E1F")),
+        );
+        let host = h::<16>("000102030405060708090A0B0C0D0E0F");
+        let card = h::<16>("08090A0B0C0D0E0F1011121314151617");
+        let keys = derive_session_keys_with(&enc, &mac, &host, &card);
+        assert_eq!(
+            keys.enc.as_bytes(),
+            h::<16>("E254A3A68FE70D40BA6740BE8498D49E").as_slice()
+        );
+        assert_eq!(
+            keys.mac.as_bytes(),
+            h::<16>("6D7575212D49A55393068F57BDFA1836").as_slice()
+        );
+        assert_eq!(
+            keys.rmac.as_bytes(),
+            h::<16>("6FEBEEA7D397BF4984BEBCCFFBD9587B").as_slice()
+        );
+        let card_cryptogram = cryptogram_with(&keys.mac, Side::Card, &host, &card, Profile::S16);
+        let host_cryptogram = cryptogram_with(&keys.mac, Side::Host, &host, &card, Profile::S16);
+        assert_eq!(
+            card_cryptogram,
+            h::<16>("36551D49713B031FAB420F84427FC9F6").to_vec()
+        );
+        assert_eq!(
+            host_cryptogram,
+            h::<16>("459AE96DC43FB68585F204B31FB9A015").to_vec()
+        );
+        assert!(verify_card_cryptogram_with(
+            &keys,
+            &host,
+            &card,
+            Profile::S16,
+            &card_cryptogram
+        ));
+        assert!(!verify_card_cryptogram_with(
+            &keys,
+            &host,
+            &card,
+            Profile::S16,
+            &host_cryptogram
+        ));
+        // A different session from the 8-byte one, not a longer version of it:
+        // the same 8-byte prefix as the first Gp4Net vector derives other keys.
+        let keys8 = derive_session_keys(
+            &enc,
+            &mac,
+            &h::<8>("0001020304050607"),
+            &h::<8>("08090A0B0C0D0E0F"),
+        );
+        assert_ne!(keys.mac, keys8.mac);
+        let card_cryptogram8 = cryptogram(
+            &keys8.mac,
+            Side::Card,
+            &h::<8>("0001020304050607"),
+            &h::<8>("08090A0B0C0D0E0F"),
+        );
+        assert_ne!(card_cryptogram[..8], card_cryptogram8[..]);
+    }
+
+    /// [V-model] the S16 wire bytes: INITIALIZE UPDATE with Lc `10`, EXTERNAL
+    /// AUTHENTICATE with Lc `20` (16 bytes of cryptogram, 16 of MAC), and the
+    /// next command chaining on the full C-MAC.
+    #[test]
+    fn s16_initialize_update_external_authenticate_and_chain() {
+        let (enc, mac) = (
+            Key::from_aes128(&h("000102030405060708090A0B0C0D0E0F")),
+            Key::from_aes128(&h("101112131415161718191A1B1C1D1E1F")),
+        );
+        let host = h::<16>("000102030405060708090A0B0C0D0E0F");
+        let card = h::<16>("08090A0B0C0D0E0F1011121314151617");
+        assert_eq!(
+            hex::encode_upper(initialize_update_with(0x30, &host).encode().unwrap()),
+            "8050300010000102030405060708090A0B0C0D0E0F00"
+        );
+        let keys = derive_session_keys_with(&enc, &mac, &host, &card);
+        let host_cryptogram = cryptogram_with(&keys.mac, Side::Host, &host, &card, Profile::S16);
+        let mut ch = Channel::new_s16(&keys);
+        assert_eq!(ch.mac_len(), MAC_LEN_S16);
+        let ea = external_authenticate_with(&mut ch, LEVEL_C_MAC, &host_cryptogram).unwrap();
+        assert_eq!(
+            hex::encode_upper(ea.encode().unwrap()),
+            "8482010020459AE96DC43FB68585F204B31FB9A0152871E574C1BAD4EF649A9525ACEA4D24"
+        );
+        // The GET STATUS `gp status` sends, MAC'd on the chaining value the
+        // full 16-byte C-MAC left behind.
+        let get_status = Command::case3(
+            Header::new(0x80, 0xF2, 0x80, 0x02),
+            hex::decode("024F0000").unwrap(),
+        );
+        let wrapped = ch.wrap(&get_status).unwrap();
+        assert_eq!(
+            hex::encode_upper(wrapped.encode().unwrap()),
+            "84F2800214024F000085656DC5799C407D33E411218690737F"
+        );
+    }
+
+    /// [V] which profile a response belongs to, and the reader that refuses the
+    /// other one. `i` bit 0x01 is the card's own announcement.
+    #[test]
+    fn s16_announced_by_the_i_parameter_and_the_profiles_do_not_mix() {
+        assert!(!s16_announced(0x00));
+        assert!(!s16_announced(0x70));
+        assert!(s16_announced(0x01));
+        assert!(s16_announced(0x11));
+        assert!(s16_announced(0x17));
+        // i = 01: 16-byte challenge, 16-byte cryptogram, 45 bytes.
+        let mut r = vec![0x11; 10];
+        r.extend_from_slice(&[0x30, 0x03, 0x01]);
+        r.extend_from_slice(&[0x22; 16]);
+        r.extend_from_slice(&[0x33; 16]);
+        let p = InitializeUpdateResponseS16::parse(&r).unwrap();
+        assert_eq!(p.key_version, 0x30);
+        assert_eq!(p.i_parameter, 0x01);
+        assert_eq!(p.card_challenge, [0x22; 16]);
+        assert_eq!(p.card_cryptogram, [0x33; 16]);
+        assert_eq!(p.sequence_counter, None);
+        // i = 11 also carries the 3-byte sequence counter: 48 bytes.
+        let mut with_counter = r.clone();
+        with_counter[12] = 0x11;
+        with_counter.extend_from_slice(&[0, 0, 7]);
+        let p = InitializeUpdateResponseS16::parse(&with_counter).unwrap();
+        assert_eq!(p.i_parameter, 0x11);
+        assert_eq!(p.sequence_counter, Some([0, 0, 7]));
+        // The 8-byte reader refuses both S16 shapes rather than read the
+        // cryptogram from the wrong offset.
+        assert_eq!(
+            InitializeUpdateResponse::parse(&r),
+            Err(Error::ResponseLength(45))
+        );
+        assert_eq!(
+            InitializeUpdateResponse::parse(&with_counter),
+            Err(Error::ResponseLength(48))
+        );
+        // and an 8-byte response that claims S16 is refused as well
+        let mut claimed = r[..29].to_vec();
+        claimed[12] = 0x01;
+        assert_eq!(
+            InitializeUpdateResponse::parse(&claimed),
+            Err(Error::WrongProfile(0x01, 8))
+        );
+        assert_eq!(
+            InitializeUpdateResponseS16::parse(&r[..44]),
+            Err(Error::ResponseLength(44))
+        );
+    }
+
+    /// The 8-byte profile keeps every byte it had: the pin that S16 support
+    /// moves nothing in it. Same INITIALIZE UPDATE and EXTERNAL AUTHENTICATE
+    /// (security level 11) that `replays_pysim_scp03_session` replays from
+    /// pySim, plus the first Gp4Net vector's S-MAC.
+    #[test]
+    fn the_eight_byte_profile_is_unchanged() {
+        let (enc, mac) = (
+            Key::from_aes128(&h("000102030405060708090a0b0c0d0e0f")),
+            Key::from_aes128(&h("101112131415161718191a1b1c1d1e1f")),
+        );
+        let host = h::<8>("b13e5f938fc108c4");
+        let card = h::<8>("3eb51047495b249f");
+        // first Gp4Net vector: its S-MAC and host cryptogram
+        let keys = derive_session_keys(
+            &enc,
+            &mac,
+            &h::<8>("0001020304050607"),
+            &h::<8>("08090A0B0C0D0E0F"),
+        );
+        assert_eq!(
+            keys.mac.as_bytes(),
+            h::<16>("E2B6C0D5DC55B27602375D7A983A2B3C").as_slice()
+        );
+        assert_eq!(
+            cryptogram(
+                &keys.mac,
+                Side::Host,
+                &h("0001020304050607"),
+                &h("08090A0B0C0D0E0F")
+            ),
+            h::<8>("C44D56DED351F5A4")
+        );
+        // pySim's recorded exchange: INITIALIZE UPDATE and EXTERNAL AUTHENTICATE
+        let keys = derive_session_keys(&enc, &mac, &host, &card);
+        assert_eq!(
+            hex::encode(initialize_update(0x30, &host).encode().unwrap()),
+            "8050300008b13e5f938fc108c400"
+        );
+        let mut ch = Channel::new(&keys);
+        assert_eq!(ch.mac_len(), MAC_LEN);
+        let ea = external_authenticate(
+            &mut ch,
+            0x11,
+            &cryptogram(&keys.mac, Side::Host, &host, &card),
+        )
+        .unwrap();
+        assert_eq!(
+            hex::encode(ea.encode().unwrap()),
+            "84821100107d5f5826a993ebc89eea24957fa0b3ce"
+        );
+    }
+
+    /// A cryptogram of one profile cannot be sent on a channel of the other.
+    #[test]
+    fn a_channel_refuses_the_other_profile_cryptogram() {
+        let keys = derive_session_keys(
+            &Key::from_aes128(&h("000102030405060708090A0B0C0D0E0F")),
+            &Key::from_aes128(&h("101112131415161718191A1B1C1D1E1F")),
+            &h::<8>("0001020304050607"),
+            &h::<8>("08090A0B0C0D0E0F"),
+        );
+        let mut eight = Channel::new(&keys);
+        assert_eq!(
+            external_authenticate_with(
+                &mut eight,
+                LEVEL_C_MAC,
+                &h::<16>("459AE96DC43FB68585F204B31FB9A015")
+            ),
+            Err(Error::CryptogramLength(16, 8))
+        );
+        let mut s16 = Channel::new_s16(&keys);
+        assert_eq!(
+            external_authenticate_with(&mut s16, LEVEL_C_MAC, &h::<8>("C44D56DED351F5A4")),
+            Err(Error::CryptogramLength(8, 16))
+        );
     }
 }

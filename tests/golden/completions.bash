@@ -1471,7 +1471,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__erase)
-            opts="-h --class --records --dry-run --confirm-iccid --yes --reader --json --keys-file --keys-env --key-version --mode --key-kdf --channel --help"
+            opts="-h --class --records --dry-run --confirm-iccid --yes --reader --json --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2665,7 +2665,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__add)
-            opts="-P -h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2735,7 +2735,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__config)
-            opts="-P -h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --profile --help"
+            opts="-P -h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2797,7 +2797,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all)
-            opts="-P -h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2935,7 +2935,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__lock)
-            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3381,7 +3381,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cplc__subcmd__set)
-            opts="-P -h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3439,7 +3439,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__create__subcmd__sd)
-            opts="-P -h --domain --privileges --allow-to --allow-from --scp --params --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --domain --privileges --allow-to --allow-from --scp --params --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3527,7 +3527,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__activate)
-            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3577,7 +3577,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__deactivate)
-            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3775,7 +3775,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__delete)
-            opts="-P -h --aid --related --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --aid --related --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4423,7 +4423,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__install)
-            opts="-F -P -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-domain --dap-alg --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-F -P -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-domain --dap-alg --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4537,7 +4537,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__make__subcmd__default)
-            opts="-P -h --aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4591,7 +4591,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__move)
-            opts="-P -h --aid --from --to --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --aid --from --to --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4653,7 +4653,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__personalize)
-            opts="-P -h --aid --data --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --aid --data --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4711,7 +4711,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__put__subcmd__key)
-            opts="-P -h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4885,7 +4885,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__rename__subcmd__isd)
-            opts="-P -h --new-aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --new-aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4939,7 +4939,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__secure__subcmd__apdu)
-            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5023,7 +5023,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__status)
-            opts="-P -h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --mode --key-kdf --profile --help"
+            opts="-P -h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --mode --key-kdf --s16 --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5073,7 +5073,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__store__subcmd__data)
-            opts="-P -h --data --dgi-tag --dgi-value --emv-perso --emv-pre-perso --structure --encryption --response --block-size --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-P -h --data --dgi-tag --dgi-value --emv-perso --emv-pre-perso --structure --encryption --response --block-size --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
