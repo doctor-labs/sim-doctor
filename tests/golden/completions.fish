@@ -82,6 +82,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l theme -d 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l color -d 'Colour the face: auto (a terminal and no NO_COLOR), always or never' -r -f -a "auto\t''
 always\t''
 never\t''"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -s X -l exclusive -d 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l json -d 'Emit one JSON envelope on stdout, and nothing else'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tui -d 'Show the findings in an interactive terminal view instead of the report'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -s b -l scan-file-break -l sfb -d 'Break after finding all files the card claims to have (DF count matches)'
@@ -101,9 +102,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and not _
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from list" -l json -d 'Emit one JSON envelope instead of the table'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from probe" -l reader -d 'Which PC/SC reader to use' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from probe" -s X -l exclusive -d 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from probe" -l json -d 'Emit one JSON envelope instead of the report'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from probe" -s h -l help -d 'Print help'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from match" -l reader -d 'Which PC/SC reader to use' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from match" -s X -l exclusive -d 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from match" -l json -d 'Emit one JSON envelope instead of the report'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from match" -s h -l help -d 'Print help'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and __fish_seen_subcommand_from help" -f -a "list" -d 'Print the card-profile database with its provenance. Needs no card'
@@ -147,6 +150,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l batch-na
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l handler -d 'A feeder instead of a person: `get = command`, `done = command` and `error = command`, one per line (`#` starts a comment). The command is run directly, not through a shell' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l chv-file -d 'File holding PINs, PUKs and ADM keys for plan commands that need them (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l chv-env -d 'Environment variable holding the same text (entries separated by `;` or newlines)' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -s X -l exclusive -d 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l yes -d 'Send the batch. Without it, every card\'s plan is printed and not one byte is sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l retry-failed -d 'Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand batch" -l json -d 'Print one JSON envelope on stdout, and nothing else'
@@ -892,6 +896,7 @@ renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -s X -l exclusive -d 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l dry-run -d 'Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l yes -d 'Send the erase. Needs --class, --records, --confirm-iccid and a key source'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l json -d 'Emit one JSON envelope of kind "program-erase" on stdout'

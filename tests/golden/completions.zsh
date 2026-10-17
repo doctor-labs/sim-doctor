@@ -63,6 +63,8 @@ gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
 '(--json --tui)--face=[The human report\: a doctor-kit face (rich, plain or compact), or the full legacy report]:FACE:(rich plain compact legacy)' \
 '(--json --tui)--theme=[The face'\''s colours\: mono, clinical or contrast (default\: the tool'\''s own)]:THEME:_default' \
 '(--json --tui)--color=[Colour the face\: auto (a terminal and no NO_COLOR), always or never]:COLOR:(auto always never)' \
+'-X[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
+'--exclusive[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '(--json)--tui[Show the findings in an interactive terminal view instead of the report]' \
 '-b[Break after finding all files the card claims to have (DF count matches)]' \
@@ -104,6 +106,8 @@ _arguments "${_arguments_options[@]}" : \
 (probe)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[Which PC/SC reader to use]:NAME:_default' \
+'-X[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
+'--exclusive[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--json[Emit one JSON envelope instead of the report]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -112,6 +116,8 @@ _arguments "${_arguments_options[@]}" : \
 (match)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[Which PC/SC reader to use]:NAME:_default' \
+'-X[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
+'--exclusive[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--json[Emit one JSON envelope instead of the report]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -294,6 +300,8 @@ _arguments "${_arguments_options[@]}" : \
 '--handler=[A feeder instead of a person\: \`get = command\`, \`done = command\` and \`error = command\`, one per line (\`#\` starts a comment). The command is run directly, not through a shell]:PATH:_files' \
 '(--chv-env)--chv-file=[File holding PINs, PUKs and ADM keys for plan commands that need them (\`pin1=1234\` per line; keep it chmod 600). Never a value on the command line\: it would land in shell history]:PATH:_files' \
 '--chv-env=[Environment variable holding the same text (entries separated by \`;\` or newlines)]:VAR:_default' \
+'-X[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
+'--exclusive[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--yes[Send the batch. Without it, every card'\''s plan is printed and not one byte is sent]' \
 '--retry-failed[Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this]' \
 '--json[Print one JSON envelope on stdout, and nothing else]' \
@@ -2491,6 +2499,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-X[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
+'--exclusive[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--dry-run[Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send]' \
 '--yes[Send the erase. Needs --class, --records, --confirm-iccid and a key source]' \
 '--json[Emit one JSON envelope of kind "program-erase" on stdout]' \

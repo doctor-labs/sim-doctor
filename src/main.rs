@@ -408,6 +408,10 @@ enum Command {
 /// chose.
 #[derive(Args)]
 struct EraseArgs {
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this runs. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
     /// The pySim card class being erased: it decides which provisioning EFs are
     /// written and their record lengths (18/130/102 for magicsim, 18/74/50 for
     /// supersim, one EF of 18 for fakemagicsim). Required.
@@ -2492,6 +2496,10 @@ struct ProfileListArgs {
 }
 #[derive(Args)]
 struct ProfileProbeArgs {
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this runs. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
     /// Which PC/SC reader to use.
     #[arg(long, value_name = "NAME")]
     reader: Option<String>,
@@ -2501,6 +2509,10 @@ struct ProfileProbeArgs {
 }
 #[derive(Args)]
 struct ProfileMatchArgs {
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this runs. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
     /// The `-t` name, spelled as `sim-doctor profile list` prints it.
     name: String,
     /// Which PC/SC reader to use.
@@ -2613,6 +2625,10 @@ struct Ts48CompareArgs {
 /// Everything `sim-doctor scan` takes.
 #[derive(Args)]
 struct ScanArgs {
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this runs. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
     /// Emit one JSON envelope on stdout, and nothing else.
     ///
     /// Implemented. stdout carries the envelope and not one byte else; every
@@ -2934,6 +2950,10 @@ struct ReadersArgs {
 // What `shell` and `explore` read from the card: a scan's reader, dialect and bounds.
 #[derive(Args)]
 struct CardArgs {
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this runs. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
     /// The reader to use, matched against the driver's own name.
     ///
     /// Defaults to the first reader PC/SC reports.
@@ -3422,9 +3442,11 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::Scan(args) => kit::scan(d, args),
         Command::Profile(args) => match args.action {
             ProfileAction::List(args) => run_profile_list(args),
-            ProfileAction::Probe(args) => run_profile_probe(args.reader, args.json, None),
+            ProfileAction::Probe(args) => {
+                run_profile_probe(args.reader, args.json, None, args.exclusive)
+            }
             ProfileAction::Match(args) => {
-                run_profile_probe(args.reader, args.json, Some(args.name))
+                run_profile_probe(args.reader, args.json, Some(args.name), args.exclusive)
             }
         },
         Command::Batch(args) => run_batch(args),
@@ -5733,7 +5755,7 @@ fn run_erase_on_card(
             return report_refusal(erase::KIND, &failure.message, failure.data(), args.json)
         }
     };
-    let mut session = match PcscSession::open(reader) {
+    let mut session = match PcscSession::open_with(reader, share_mode(args.exclusive)) {
         Ok(session) => session,
         Err(err) => {
             let kind = match err {
@@ -7241,6 +7263,7 @@ fn run_profile_probe(
     reader: Option<String>,
     json: bool,
     only: Option<String>,
+    exclusive: bool,
 ) -> contract::ExitCode {
     let kind = sim_doctor::cardprofile::KIND;
     guard_exchange(kind, json);
@@ -7282,7 +7305,7 @@ fn run_profile_probe(
         Ok(reader) => reader,
         Err(failure) => return report_refusal(kind, &failure.message, failure.data(), json),
     };
-    let mut session = match PcscSession::open(reader) {
+    let mut session = match PcscSession::open_with(reader, share_mode(exclusive)) {
         Ok(session) => session,
         Err(err) => {
             let error = match err {
@@ -9183,6 +9206,10 @@ fn gp_cert_built(
 /// Everything `sim-doctor batch` takes.
 #[derive(Args)]
 struct BatchArgs {
+    /// Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other
+    /// process can use the card while this runs. Off by default, which shares it.
+    #[arg(short = 'X', long)]
+    exclusive: bool,
     /// The plan: a `sim-doctor-batch-plan/1` JSON document naming every card, its ICCID and the
     /// commands to send it. Read and checked in full before any card is touched.
     #[arg(long, value_name = "PATH")]
@@ -9325,10 +9352,11 @@ fn run_batch(args: BatchArgs) -> contract::ExitCode {
                 None
             }
         };
+        let exclusive = args.exclusive;
         cardsh::Shell::new(
-            Box::new(|requested| {
+            Box::new(move |requested| {
                 let (session, reader, atr) =
-                    open_scan_session(requested, false, None).map_err(|f| f.message)?;
+                    open_scan_session(requested, exclusive, None).map_err(|f| f.message)?;
                 Ok((session, reader.as_str().to_owned(), atr))
             }),
             cardsh::Opts {

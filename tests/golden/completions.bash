@@ -1051,7 +1051,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__batch)
-            opts="-h --plan --state --reader --yes --on-failure --retry-failed --batch-name --handler --chv-file --chv-env --json --help"
+            opts="-X -h --exclusive --plan --state --reader --yes --on-failure --retry-failed --batch-name --handler --chv-file --chv-env --json --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1471,7 +1471,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__erase)
-            opts="-h --class --records --dry-run --confirm-iccid --yes --reader --json --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --help"
+            opts="-X -h --exclusive --class --records --dry-run --confirm-iccid --yes --reader --json --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7187,7 +7187,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__profile__subcmd__match)
-            opts="-h --reader --json --help"
+            opts="-X -h --exclusive --reader --json --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7205,7 +7205,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__profile__subcmd__probe)
-            opts="-h --reader --json --help"
+            opts="-X -h --exclusive --reader --json --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7405,7 +7405,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-b -h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --csv --tar --tar-filter --class --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --tar-uncapped --face --theme --color --headless --help"
+            opts="-X -b -h --exclusive --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --csv --tar --tar-filter --class --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --tar-uncapped --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
