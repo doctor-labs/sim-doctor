@@ -461,6 +461,23 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(delete-key)
+_arguments "${_arguments_options[@]}" : \
+'--key-id=[The Key Identifier to delete (GP tag D0). If absent, every key id matches and only --key-version narrows the delete]:HEX:_default' \
+'--key-version=[The Key Version Number to delete (GP tag D2). If absent, every version matches and only --key-id narrows the delete]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--related[Also delete related objects (P2 80)]' \
+'--allow-lockout[Send a delete that would remove the key set this session authenticated with, or every key on the card, as a WARNING instead of refusing it. Still needs --yes; without it nothing is sent]' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (install)
 _arguments "${_arguments_options[@]}" : \
 '--load=[The CAP file (a zip of javacard/*.cap components)]:CAP:_files' \
@@ -599,6 +616,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (rename-isd)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(delete-key)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1524,6 +1545,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(delete-key)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (install)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -2195,6 +2220,7 @@ _sim-doctor__subcmd__gp_commands() {
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
+'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -2261,6 +2287,11 @@ _sim-doctor__subcmd__gp__subcmd__delete_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp delete commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__delete-key_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__delete-key_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp delete-key commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help_commands() {
     local commands; commands=(
@@ -2272,6 +2303,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
+'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -2312,6 +2344,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__cplc-set_commands() {
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__delete_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help delete commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__delete-key_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__delete-key_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help delete-key commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__help_commands() {
@@ -2597,6 +2634,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
+'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -2636,6 +2674,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__cplc-set_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__delete_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp delete commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__delete-key_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__delete-key_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp delete-key commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__info_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__info_commands() {

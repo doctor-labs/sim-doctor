@@ -206,6 +206,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand delete 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT'
             cand make-default 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT'
             cand rename-isd 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
+            cand delete-key 'Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE'
             cand install 'Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT'
             cand put-key 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS'
             cand cplc-set 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC'
@@ -323,6 +324,21 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
         }
+        &'sim-doctor;gp;delete-key'= {
+            cand --key-id 'The Key Identifier to delete (GP tag D0). If absent, every key id matches and only --key-version narrows the delete'
+            cand --key-version 'The Key Version Number to delete (GP tag D2). If absent, every version matches and only --key-id narrows the delete'
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --channel 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it'
+            cand --keys-file 'File holding the keys (keep it chmod 600)'
+            cand --keys-env 'Environment variable holding the keys'
+            cand --related 'Also delete related objects (P2 80)'
+            cand --allow-lockout 'Send a delete that would remove the key set this session authenticated with, or every key on the card, as a WARNING instead of refusing it. Still needs --yes; without it nothing is sent'
+            cand --json 'Emit one JSON envelope of kind "gp" on stdout'
+            cand --trace 'Add every APDU exchange (command and response hex) as data.trace'
+            cand --yes 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
         &'sim-doctor;gp;install'= {
             cand --load 'The CAP file (a zip of javacard/*.cap components)'
             cand --module 'The Executable Module AID (the applet class). Optional when the CAP has one applet'
@@ -401,6 +417,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand delete 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT'
             cand make-default 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT'
             cand rename-isd 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
+            cand delete-key 'Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE'
             cand install 'Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT'
             cand put-key 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS'
             cand cplc-set 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC'
@@ -428,6 +445,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;gp;help;make-default'= {
         }
         &'sim-doctor;gp;help;rename-isd'= {
+        }
+        &'sim-doctor;gp;help;delete-key'= {
         }
         &'sim-doctor;gp;help;install'= {
         }
@@ -915,6 +934,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand delete 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT'
             cand make-default 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT'
             cand rename-isd 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
+            cand delete-key 'Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE'
             cand install 'Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT'
             cand put-key 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS'
             cand cplc-set 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC'
@@ -941,6 +961,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;gp;make-default'= {
         }
         &'sim-doctor;help;gp;rename-isd'= {
+        }
+        &'sim-doctor;help;gp;delete-key'= {
         }
         &'sim-doctor;help;gp;install'= {
         }
