@@ -908,8 +908,27 @@ fn exit_code(code: u8) -> contract::ExitCode {
 }
 
 /// Runs the mounted command: parse the whole command line again as the derive-built `Cli`.
-fn run_cli(d: &SimDoctor, _own: &ArgMatches) -> Result<u8, String> {
+fn run_cli(d: &SimDoctor, own: &ArgMatches) -> Result<u8, String> {
     let cli = Cli::from_arg_matches(&d.root).map_err(|e| e.to_string())?;
+    // Either matches object can be the one holding a subcommand argument, so
+    // both are asked. A missing id is an ordinary answer here, not an error to
+    // propagate: every command has the argument and only one of them was given
+    // it.
+    let spec = d
+        .root
+        .try_get_one::<String>("simulator")
+        .ok()
+        .flatten()
+        .cloned()
+        .or_else(|| {
+            own.try_get_one::<String>("simulator")
+                .ok()
+                .flatten()
+                .cloned()
+        });
+    if let Some(spec) = spec {
+        let _ = crate::SIMULATOR.set(spec);
+    }
     Ok(dispatch(d, cli.command).process_code())
 }
 
@@ -935,6 +954,21 @@ fn usage_exit(err: &clap::Error, argv: &[String]) -> u8 {
     code.process_code()
 }
 
+/// The `--simulator` flag, added to every command.
+///
+/// It is added to each subcommand rather than once on the root: the kit builds
+/// every command its own command tree and hands those trees over, and a global
+/// argument on the root is not propagated into them - so `scan` did not know
+/// the flag existed. A field on `Cli` is worse still, because the derive
+/// insists on finding that argument in every ArgMatches it parses, including
+/// the ones the kit builds for its own `shell` and `explore`.
+fn simulator_arg() -> clap::Arg {
+    clap::Arg::new("simulator")
+        .long("simulator")
+        .value_name("HOST:PORT")
+        .help("Talk to a card simulator at HOST:PORT instead of a PC/SC reader")
+}
+
 /// Run the CLI.
 pub fn run() -> ExitCode {
     let cli = Cli::command();
@@ -952,7 +986,7 @@ pub fn run() -> ExitCode {
         .enumerate()
         // Keeps `--help` listing the commands in the order they are declared in.
         .map(|(i, command)| ExtCommand {
-            command: command.display_order(i),
+            command: command.display_order(i).arg(simulator_arg()),
             run: run_cli,
         })
         .collect();

@@ -46,8 +46,9 @@ Describe the crate module roots and the layering between them
 Usage: sim-doctor modules [OPTIONS]
 
 Options:
-      --json  Emit the JSON envelope on stdout instead of a human-readable table
-  -h, --help  Print help
+      --json                   Emit the JSON envelope on stdout instead of a human-readable table
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
 
 $ sim-doctor readers -h [exit 0]
 List the PC/SC readers by name and index, for --reader or --reader-index
@@ -55,8 +56,9 @@ List the PC/SC readers by name and index, for --reader or --reader-index
 Usage: sim-doctor readers [OPTIONS]
 
 Options:
-      --json  Emit one JSON envelope (type "readers") on stdout, and nothing else
-  -h, --help  Print help (see more with '--help')
+      --json                   Emit one JSON envelope (type "readers") on stdout, and nothing else
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor scan -h [exit 0]
 Select a card's master file, walk everything under it, and report
@@ -64,39 +66,40 @@ Select a card's master file, walk everything under it, and report
 Usage: sim-doctor scan [OPTIONS]
 
 Options:
-      --json                 Emit one JSON envelope on stdout, and nothing else
-      --tui                  Show the findings in an interactive terminal view instead of the report
-      --dialect <TABLE>      Which FCP tag table this card answers SELECT with [default: ts-102-221]
-      --reader <NAME>        The reader to use, matched against the driver's own name
-      --reader-index <N>     The reader to use, by its index in `sim-doctor readers` (counted from 0)
-      --max-depth <N>        Deepest path below the master file the walk descends into
-      --max-children <N>     Identifiers probed per directory
-      --max-nodes <N>        Files the card selected across the whole walk (default 16384)
-      --max-directories <N>  Directories whose children are enumerated
-  -b, --scan-file-break      Break after finding all files the card claims to have (DF count matches) [alias: --sfb]
-      --sffs                 Follow standard identifiers only (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011). When set, the walk probes only the file identifiers defined in the ETSI and 3GPP specifications, plus the files pySim can decode with standard names. This is stricter than the default (SimFamilies), which probes the broader GSM 11.11 family ranges (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx). Corresponds to SIMTester's `-sffs` flag
-      --score                Add one quality score for this card, for CI gating
-      --severity <LEVEL>     Drop findings below this severity
-      --baseline <FILE>      Compare this run against a previous `scan --json` envelope (doctor/1)
-      --fail-on <LEVEL>      Exit 1 (3 under --baseline) when a finding is at or above this severity [default: critical]
-      --sarif <FILE>         Also write the findings to FILE as SARIF 2.1.0
-      --csv <FILE>           The same results as a CSV log, in the layout SIMTester writes
-      --tar <SELECTION>      Which TARs to probe for MSL 0, and how many [default: off]
-      --tar-filter <REGEX>   SIMTester's `-stre`: skip TAR probes whose response matches this regex
-      --terminal-profile     Send a TERMINAL PROFILE to the card before the TAR audit
-      --sms-deliver-report   Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT
-      --reserved-file-ids    Scan reserved file identifiers 7FF0-7FFF inside an application [alias: --sfrv]
-      --tar-uncapped         Raise the 4096-probe bound on the TAR audit to a ceiling of 1 000 000 probes (issue #266)
-      --face <FACE>          The human report: a doctor-kit face (rich, plain or compact), or the full legacy report [possible values: rich, plain, compact, legacy]
-      --theme <THEME>        The face's colours: mono, clinical or contrast (default: the tool's own)
-      --color <COLOR>        Colour the face: auto (a terminal and no NO_COLOR), always or never [possible values: auto, always, never]
-      --headless             A face in plain text without colour, for CI and pipes
-  -h, --help                 Print help (see more with '--help')
+      --json                   Emit one JSON envelope on stdout, and nothing else
+      --tui                    Show the findings in an interactive terminal view instead of the report
+      --dialect <TABLE>        Which FCP tag table this card answers SELECT with [default: ts-102-221]
+      --reader <NAME>          The reader to use, matched against the driver's own name
+      --reader-index <N>       The reader to use, by its index in `sim-doctor readers` (counted from 0)
+      --max-depth <N>          Deepest path below the master file the walk descends into
+      --max-children <N>       Identifiers probed per directory
+      --max-nodes <N>          Files the card selected across the whole walk (default 16384)
+      --max-directories <N>    Directories whose children are enumerated
+  -b, --scan-file-break        Break after finding all files the card claims to have (DF count matches) [alias: --sfb]
+      --sffs                   Follow standard identifiers only (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011). When set, the walk probes only the file identifiers defined in the ETSI and 3GPP specifications, plus the files pySim can decode with standard names. This is stricter than the default (SimFamilies), which probes the broader GSM 11.11 family ranges (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx). Corresponds to SIMTester's `-sffs` flag
+      --score                  Add one quality score for this card, for CI gating
+      --severity <LEVEL>       Drop findings below this severity
+      --baseline <FILE>        Compare this run against a previous `scan --json` envelope (doctor/1)
+      --fail-on <LEVEL>        Exit 1 (3 under --baseline) when a finding is at or above this severity [default: critical]
+      --sarif <FILE>           Also write the findings to FILE as SARIF 2.1.0
+      --csv <FILE>             The same results as a CSV log, in the layout SIMTester writes
+      --tar <SELECTION>        Which TARs to probe for MSL 0, and how many [default: off]
+      --tar-filter <REGEX>     SIMTester's `-stre`: skip TAR probes whose response matches this regex
+      --terminal-profile       Send a TERMINAL PROFILE to the card before the TAR audit
+      --sms-deliver-report     Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT
+      --reserved-file-ids      Scan reserved file identifiers 7FF0-7FFF inside an application [alias: --sfrv]
+      --tar-uncapped           Raise the 4096-probe bound on the TAR audit to a ceiling of 1 000 000 probes (issue #266)
+      --face <FACE>            The human report: a doctor-kit face (rich, plain or compact), or the full legacy report [possible values: rich, plain, compact, legacy]
+      --theme <THEME>          The face's colours: mono, clinical or contrast (default: the tool's own)
+      --color <COLOR>          Colour the face: auto (a terminal and no NO_COLOR), always or never [possible values: auto, always, never]
+      --headless               A face in plain text without colour, for CI and pipes
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor profile -h [exit 0]
 Print the card-profile database, or probe a card against it
 
-Usage: sim-doctor profile <COMMAND>
+Usage: sim-doctor profile [OPTIONS] <COMMAND>
 
 Commands:
   list   Print the card-profile database with its provenance. Needs no card
@@ -105,7 +108,8 @@ Commands:
   help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor profile list -h [exit 0]
 Print the card-profile database with its provenance. Needs no card
@@ -142,14 +146,15 @@ Options:
 $ sim-doctor ts48 -h [exit 0]
 Compare a card against the public GSMA TS.48 test profile
 
-Usage: sim-doctor ts48 <COMMAND>
+Usage: sim-doctor ts48 [OPTIONS] <COMMAND>
 
 Commands:
   compare  Walk the card and diff its file system against the GSMA TS.48 test profile
   help     Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
 
 $ sim-doctor ts48 compare -h [exit 0]
 Walk the card and diff its file system against the GSMA TS.48 test profile
@@ -173,22 +178,24 @@ Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project
 Usage: sim-doctor install [OPTIONS]
 
 Options:
-      --agent <AGENT>  Install for one agent only; omit for all of them [possible values: claude, cursor, codex, opencode]
-      --print-only     Print what would be written instead of writing it
-      --dir <DIR>      Project root to write under (default: the current directory) [default: .]
-  -h, --help           Print help (see more with '--help')
+      --agent <AGENT>          Install for one agent only; omit for all of them [possible values: claude, cursor, codex, opencode]
+      --print-only             Print what would be written instead of writing it
+      --dir <DIR>              Project root to write under (default: the current directory) [default: .]
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor ci -h [exit 0]
 Write the GitHub Actions workflow that runs this repo's action on pull requests
 
-Usage: sim-doctor ci <COMMAND>
+Usage: sim-doctor ci [OPTIONS] <COMMAND>
 
 Commands:
   install  Write .github/workflows/sim-doctor.yml, pinned to this version's tag
   help     Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
 
 $ sim-doctor ci install -h [exit 0]
 Write .github/workflows/sim-doctor.yml, pinned to this version's tag
@@ -218,26 +225,28 @@ Options:
 $ sim-doctor completions -h [exit 0]
 Write a shell completion script to stdout
 
-Usage: sim-doctor completions <SHELL>
+Usage: sim-doctor completions [OPTIONS] <SHELL>
 
 Arguments:
   <SHELL>  The shell to generate for [possible values: bash, elvish, fish, powershell, zsh]
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor mcp -h [exit 0]
 Serve the scan and the rules as MCP tools over stdio
 
-Usage: sim-doctor mcp
+Usage: sim-doctor mcp [OPTIONS]
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor rules -h [exit 0]
 List the rules a scan runs, or explain one, without a card
 
-Usage: sim-doctor rules [COMMAND]
+Usage: sim-doctor rules [OPTIONS] [COMMAND]
 
 Commands:
   list     One row per rule: id, severity, summary
@@ -245,7 +254,8 @@ Commands:
   help     Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor rules list -h [exit 0]
 One row per rule: id, severity, summary
@@ -277,8 +287,9 @@ Arguments:
   <TARGET>  A rule id, or the path of a saved `sim-doctor scan --json` envelope
 
 Options:
-      --json  Emit one JSON envelope of kind "rules" on stdout
-  -h, --help  Print help (see more with '--help')
+      --json                   Emit one JSON envelope of kind "rules" on stdout
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor fix -h [exit 0]
 Hand one finding from a saved scan to a coding agent
@@ -289,15 +300,16 @@ Arguments:
   <RULE_ID>  The rule id to fix, such as gsma/msl-zero-allowed
 
 Options:
-      --from <FILE>     A saved `sim-doctor scan --json` envelope holding a finding for that rule
-      --agent <AGENT>   Start this coding agent with the prompt instead of only printing it [possible values: claude, codex, cursor]
-      --skip-approvals  Pass the agent its flag that skips approval prompts (unverified for every CLI version)
-  -h, --help            Print help (see more with '--help')
+      --from <FILE>            A saved `sim-doctor scan --json` envelope holding a finding for that rule
+      --agent <AGENT>          Start this coding agent with the prompt instead of only printing it [possible values: claude, codex, cursor]
+      --skip-approvals         Pass the agent its flag that skips approval prompts (unverified for every CLI version)
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor gp -h [exit 0]
 Read-only GlobalPlatform queries
 
-Usage: sim-doctor gp <COMMAND>
+Usage: sim-doctor gp [OPTIONS] <COMMAND>
 
 Commands:
   cert          `gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)
@@ -323,7 +335,8 @@ Commands:
   help          Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor gp cert -h [exit 0]
 `gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)
@@ -935,23 +948,25 @@ Arguments:
   [FILE]  A trace file; stdin when omitted or "-"
 
 Options:
-      --json                Emit one JSON envelope of kind "trace" on stdout
-      --show-raw-apdu       Also print each exchange's raw command and response hex in the table
-      --no-suppress-select  Keep SELECT rows in the table. They are hidden by default, as in pySim-trace
-      --no-suppress-status  Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace
-  -h, --help                Print help (see more with '--help')
+      --json                   Emit one JSON envelope of kind "trace" on stdout
+      --show-raw-apdu          Also print each exchange's raw command and response hex in the table
+      --no-suppress-select     Keep SELECT rows in the table. They are hidden by default, as in pySim-trace
+      --no-suppress-status     Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor cat -h [exit 0]
 Decode Card Application Toolkit data offline (no card, no reader)
 
-Usage: sim-doctor cat <COMMAND>
+Usage: sim-doctor cat [OPTIONS] <COMMAND>
 
 Commands:
   decode  Decode CAT data given as hex arguments, or one object per line on stdin
   help    Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor cat decode -h [exit 0]
 Decode CAT data given as hex arguments, or one object per line on stdin
@@ -968,14 +983,15 @@ Options:
 $ sim-doctor sms -h [exit 0]
 `sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing
 
-Usage: sim-doctor sms <COMMAND>
+Usage: sim-doctor sms [OPTIONS] <COMMAND>
 
 Commands:
   decode  Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin
   help    Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
 
 $ sim-doctor sms decode -h [exit 0]
 Decode SMS PDUs (SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT) given as hex, or one per line on stdin
@@ -993,14 +1009,15 @@ Options:
 $ sim-doctor saip -h [exit 0]
 `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing
 
-Usage: sim-doctor saip <COMMAND>
+Usage: sim-doctor saip [OPTIONS] <COMMAND>
 
 Commands:
   parse  Decode a SAIP profile package (DER, the concatenated ProfileElements) offline
   help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
 
 $ sim-doctor saip parse -h [exit 0]
 Decode a SAIP profile package (DER, the concatenated ProfileElements) offline
@@ -1017,7 +1034,7 @@ Options:
 $ sim-doctor ota-crypto -h [exit 0]
 Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them. No card and no reader: pure crypto over hex given on the command line
 
-Usage: sim-doctor ota-crypto <COMMAND>
+Usage: sim-doctor ota-crypto [OPTIONS] <COMMAND>
 
 Commands:
   encrypt  Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex
@@ -1027,7 +1044,8 @@ Commands:
   help     Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
 
 $ sim-doctor ota-crypto encrypt -h [exit 0]
 Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex
@@ -1092,14 +1110,15 @@ Options:
 $ sim-doctor esim-cert -h [exit 0]
 Verify an eSIM certificate chain offline, up to a CI root you supply
 
-Usage: sim-doctor esim-cert <COMMAND>
+Usage: sim-doctor esim-cert [OPTIONS] <COMMAND>
 
 Commands:
   verify  Verify a certificate chain (leaf first) up to a CI root
   help    Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor esim-cert verify -h [exit 0]
 Verify a certificate chain (leaf first) up to a CI root
@@ -1118,7 +1137,7 @@ Options:
 $ sim-doctor ota-expanded -h [exit 0]
 Offline OTA expanded-command and Proof-of-Response decoder, as pySim's OTA layer uses them. No card and no reader: hex in, hex out
 
-Usage: sim-doctor ota-expanded <COMMAND>
+Usage: sim-doctor ota-expanded [OPTIONS] <COMMAND>
 
 Commands:
   encode  Wrap one or more C-APDUs (hex each) in a Command Scripting template
@@ -1127,7 +1146,8 @@ Commands:
   help    Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor ota-expanded encode -h [exit 0]
 Wrap one or more C-APDUs (hex each) in a Command Scripting template
@@ -1173,20 +1193,21 @@ Generate one card's Ki, OPc, ICCID and IMSI from a secret you hold
 Usage: sim-doctor keygen [OPTIONS] <--secret-file <PATH>|--secret-env <VAR>>
 
 Options:
-  -z, --secret-file <PATH>  File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped
-      --secret-env <VAR>    Environment variable holding the secret
-  -j, --index <N>           Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom
-      --salt <HEX>          Random mode's salt, 64 hex digits. It is printed with the card, so this is how a printed random card is regenerated. It is a public input, not a secret
-      --mcc <DIGITS>        Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3 [default: 901]
-      --mnc <DIGITS>        Mobile Network Code, at most --mnclen digits, zero-padded to that width [default: 55]
-      --mnclen <DIGITS>     Width of the MNC: 2 or 3, or 0 to keep the MNC's own length (pySim's `auto`) [default: 0]
-      --json                Emit one JSON envelope of kind "keygen" on stdout
-  -h, --help                Print help (see more with '--help')
+  -z, --secret-file <PATH>     File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped
+      --secret-env <VAR>       Environment variable holding the secret
+  -j, --index <N>              Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom
+      --salt <HEX>             Random mode's salt, 64 hex digits. It is printed with the card, so this is how a printed random card is regenerated. It is a public input, not a secret
+      --mcc <DIGITS>           Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3 [default: 901]
+      --mnc <DIGITS>           Mobile Network Code, at most --mnclen digits, zero-padded to that width [default: 55]
+      --mnclen <DIGITS>        Width of the MNC: 2 or 3, or 0 to keep the MNC's own length (pySim's `auto`) [default: 0]
+      --json                   Emit one JSON envelope of kind "keygen" on stdout
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor fuzz -h [exit 0]
 APDU discovery and the OTA/SMS fuzz sweep
 
-Usage: sim-doctor fuzz <COMMAND>
+Usage: sim-doctor fuzz [OPTIONS] <COMMAND>
 
 Commands:
   apdu     CLA discovery (level 1) or CLA+INS discovery (level 2) over a session
@@ -1196,7 +1217,8 @@ Commands:
   help     Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor fuzz apdu -h [exit 0]
 CLA discovery (level 1) or CLA+INS discovery (level 2) over a session
@@ -1281,7 +1303,7 @@ Options:
 $ sim-doctor euicc -h [exit 0]
 eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
 
-Usage: sim-doctor euicc <COMMAND>
+Usage: sim-doctor euicc [OPTIONS] <COMMAND>
 
 Commands:
   info                        EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)
@@ -1300,7 +1322,8 @@ Commands:
   help                        Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor euicc info -h [exit 0]
 EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)
@@ -1544,23 +1567,24 @@ A pySim-shell style shell over the card: select files, read them, send APDUs
 Usage: sim-doctor card [OPTIONS]
 
 Options:
-      --reader <NAME>      The reader to use, matched against the driver's own name (default: the first reader)
-      --profile <PROFILE>  The command set the card speaks: uicc (class 00) or sim (class A0, GSM 11.11) [default: uicc] [possible values: uicc, sim]
-      --dialect <TABLE>    Which FCP tag table the card answers SELECT with (see `scan --help`) [default: ts-102-221]
-  -c <COMMANDS>            Run these `;`-separated commands and exit
-      --script <PATH>      Run the commands in this file, one per line (`#` starts a comment), and exit
-      --read-csv <PATH>    Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim's provisioning CSV (no ICCID, IMSI or Ki columns). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data
-      --write-csv <PATH>   Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim's provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged
-      --json               Print every reply as one JSON record (for agents)
-      --chv-file <PATH>    File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history
-      --chv-env <VAR>      Environment variable holding the same text (entries separated by `;` or newlines)
-      --key-file <PATH>    pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600
-  -X, --exclusive          Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this shell is open. Off by default, which shares it
-      --yes                Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...). Without it they print what they would send and the card is not touched by them
-      --dump <FILE>        Write every APDU exchange (command and response, hex) to FILE as JSON lines, in the SIM_DOCTOR_RECORD replay format. The data field of secret instructions (VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER, AUTHENTICATE) is redacted as FF bytes, and so are the response data of AUTHENTICATE (RES, CK, IK, Kc); such lines carry "redacted":true and no longer replay byte for byte. --dump-secrets records them raw. The file holds raw card data (ICCID, IMSI, file contents): review it before it goes anywhere. Refuses an existing file unless --force; never writes through a symlink or into a non-regular file. The file is owner-only (0600)
-      --force              Let --dump overwrite an existing regular file
-      --dump-secrets       Record PINs and keys in plain text: the data field of VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER and AUTHENTICATE, and the response data of AUTHENTICATE (RES, CK, IK, Kc), is written raw. Keep the file private. Needs --dump
-  -h, --help               Print help (see more with '--help')
+      --reader <NAME>          The reader to use, matched against the driver's own name (default: the first reader)
+      --profile <PROFILE>      The command set the card speaks: uicc (class 00) or sim (class A0, GSM 11.11) [default: uicc] [possible values: uicc, sim]
+      --dialect <TABLE>        Which FCP tag table the card answers SELECT with (see `scan --help`) [default: ts-102-221]
+  -c <COMMANDS>                Run these `;`-separated commands and exit
+      --script <PATH>          Run the commands in this file, one per line (`#` starts a comment), and exit
+      --read-csv <PATH>        Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim's provisioning CSV (no ICCID, IMSI or Ki columns). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data
+      --write-csv <PATH>       Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim's provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged
+      --json                   Print every reply as one JSON record (for agents)
+      --chv-file <PATH>        File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history
+      --chv-env <VAR>          Environment variable holding the same text (entries separated by `;` or newlines)
+      --key-file <PATH>        pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600
+  -X, --exclusive              Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this shell is open. Off by default, which shares it
+      --yes                    Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...). Without it they print what they would send and the card is not touched by them
+      --dump <FILE>            Write every APDU exchange (command and response, hex) to FILE as JSON lines, in the SIM_DOCTOR_RECORD replay format. The data field of secret instructions (VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER, AUTHENTICATE) is redacted as FF bytes, and so are the response data of AUTHENTICATE (RES, CK, IK, Kc); such lines carry "redacted":true and no longer replay byte for byte. --dump-secrets records them raw. The file holds raw card data (ICCID, IMSI, file contents): review it before it goes anywhere. Refuses an existing file unless --force; never writes through a symlink or into a non-regular file. The file is owner-only (0600)
+      --force                  Let --dump overwrite an existing regular file
+      --dump-secrets           Record PINs and keys in plain text: the data field of VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER and AUTHENTICATE, and the response data of AUTHENTICATE (RES, CK, IK, Kc), is written raw. Keep the file private. Needs --dump
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor erase -h [exit 0]
 Erase the provisioning records before programming: the reference programming tool's -e/--erase, as a command of its own
@@ -1581,6 +1605,7 @@ Options:
       --mode <MODE>            SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>     Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
       --channel <N>            Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
   -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor shell -h [exit 0]

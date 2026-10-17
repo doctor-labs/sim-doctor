@@ -35,7 +35,9 @@ use sim_doctor::{
     ota_expanded, otacrypto, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
-        replay, CardSession, Error as TransportError, ReaderName, ReaderProvider,
+        replay,
+        simulator::SimulatorSession,
+        CardSession, Error as TransportError, ReaderName, ReaderProvider,
     },
     ts48,
     walk::{self, Limits},
@@ -3793,6 +3795,88 @@ fn run_completions(args: CompletionsArgs) -> contract::ExitCode {
 #[cfg(feature = "test-seams")]
 const REPLAY_ENV: &str = "SIM_DOCTOR_TEST_REPLAY";
 
+/// The `--simulator host:port` given on the command line, when one was.
+///
+/// Set once by the dispatcher before any command runs: the flag is
+/// global, and every command that accepts --reader parses its own copy of the
+/// command line, so nothing below the dispatch can see it.
+static SIMULATOR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// A session opened for one command: the session, the reader name commands
+/// report, and the ATR when the transport could supply one.
+type Opened = (Box<dyn CardSession>, ReaderName, Option<Vec<u8>>);
+
+/// Why a session could not be opened, before a command turns it into its own
+/// refusal shape.
+///
+/// The two are facts an operator acts on differently: a PC/SC stack that is
+/// not running, and a reader (or a simulator process) that is there but will
+/// not open.
+enum OpenFailure {
+    /// The PC/SC layer could not be reached at all.
+    Context(String),
+    /// A reader or a simulator was named and could not be used.
+    Card(scan::Failure),
+}
+
+impl OpenFailure {
+    /// The refusal a command reports, in the shape every other refusal in this
+    /// crate uses.
+    fn into_failure(self) -> scan::Failure {
+        match self {
+            OpenFailure::Context(detail) => scan::Failure::new("context-unavailable", detail),
+            OpenFailure::Card(failure) => failure,
+        }
+    }
+}
+
+/// Opens the session a command talks to: the simulator named by --simulator
+/// when one was given, and a PC/SC session against the requested reader
+/// otherwise.
+///
+/// The ATR is an Option for the reason [open_scan_session] keeps one: a
+/// transport that could not read one is a fact about the session, not a reason
+/// to refuse a card that is otherwise answering.
+fn open_transport(
+    requested: Option<&str>,
+    exclusive: bool,
+    index: Option<usize>,
+) -> Result<Opened, OpenFailure> {
+    if let Some(spec) = SIMULATOR.get().map(String::as_str) {
+        if requested.is_some() || index.is_some() {
+            // clap cannot express this one: a conflicts_with naming `reader`
+            // panics the root command, which declares no such argument of its
+            // own, because `reader` belongs to each subcommand separately. The
+            // reference makes the same pair mutually exclusive with
+            // availableUnless(OPT_READER), so the refusal is made here.
+            return Err(OpenFailure::Card(scan::Failure::new(
+                "simulator-and-reader",
+                "--simulator and --reader/--reader-index cannot both be given: the simulator is the reader",
+            )));
+        }
+        // `exclusive` (PC/SC share mode) has no meaning on a socket and is ignored.
+        let session = SimulatorSession::connect(spec).map_err(|err| {
+            OpenFailure::Card(scan::Failure::new("reader-unavailable", err.to_string()))
+        })?;
+        let reader = session.reader().clone();
+        let atr = Some(session.atr().to_vec());
+        return Ok((Box::new(session), reader, atr));
+    }
+    let readers = Pcsc::readers().map_err(|err| OpenFailure::Context(err.to_string()))?;
+    let reader = pick_reader(&readers, requested, index)
+        .map_err(OpenFailure::Card)?
+        .clone();
+    let session = PcscSession::open_with(&reader, share_mode(exclusive)).map_err(|err| {
+        let kind = match err {
+            TransportError::NoCard { .. } => "no-card",
+            _ => "reader-unavailable",
+        };
+        OpenFailure::Card(scan::Failure::new(kind, err.to_string()))
+    })?;
+    let atr = session.atr().ok();
+    Ok((Box::new(session), reader, atr))
+}
+
 /// What [`open_scan_session`] hands `scan`: the session, its reader and the ATR.
 type ScanSession = (Box<dyn CardSession>, ReaderName, Option<Vec<u8>>);
 
@@ -3816,20 +3900,11 @@ fn open_scan_session(
         pick_reader(std::slice::from_ref(&reader), None, index)?;
         return Ok((Box::new(replay), reader, None));
     }
-    let readers = Pcsc::readers()
-        .map_err(|err| scan::Failure::new("context-unavailable", err.to_string()))?;
-    let reader = pick_reader(&readers, requested, index)?.clone();
-    let session = PcscSession::open_with(&reader, share_mode(exclusive)).map_err(|err| {
-        let kind = match err {
-            TransportError::NoCard { .. } => "no-card",
-            _ => "reader-unavailable",
-        };
-        scan::Failure::new(kind, err.to_string())
-    })?;
     // Best effort. An ATR this transport could not read is a fact about the
     // session, not a reason to refuse to scan a card that is otherwise
     // answering, so it is Option rather than an error.
-    let atr = session.atr().ok();
+    let (session, reader, atr) =
+        open_transport(requested, exclusive, index).map_err(OpenFailure::into_failure)?;
 
     // Opt-in capture for issue #120: SIM_DOCTOR_RECORD=<path> logs every
     // exchange of this scan (JSON lines, see transport::replay). The log is
@@ -3844,7 +3919,7 @@ fn open_scan_session(
             })?;
             Box::new(replay::Record::new(session, file))
         }
-        None => Box::new(session),
+        None => session,
     };
     Ok((session, reader, atr))
 }
@@ -3870,28 +3945,14 @@ fn run_gp(
     guard_exchange(KIND, json);
     let refuse =
         |failure: scan::Failure| report_refusal(KIND, &failure.message, failure.data(), json);
-    let readers = match Pcsc::readers() {
-        Ok(readers) => readers,
-        Err(err) => return refuse(scan::Failure::new("context-unavailable", err.to_string())),
-    };
-    let reader = match pick_reader(&readers, reader, None) {
-        Ok(reader) => reader,
-        Err(failure) => return refuse(failure),
-    };
-    let mut session = match PcscSession::open(reader) {
-        Ok(session) => session,
-        Err(err) => {
-            let kind = match err {
-                TransportError::NoCard { .. } => "no-card",
-                _ => "reader-unavailable",
-            };
-            return refuse(scan::Failure::new(kind, err.to_string()));
-        }
+    let (mut session, reader, _) = match open_transport(reader, false, None) {
+        Ok(opened) => opened,
+        Err(failure) => return refuse(failure.into_failure()),
     };
     let result = if channel == 0 {
-        pass(&mut session, trace)
+        pass(&mut *session, trace)
     } else {
-        pass(&mut gp::OnChannel::new(&mut session, channel), trace)
+        pass(&mut gp::OnChannel::new(&mut *session, channel), trace)
     };
     let report = match result {
         Ok(report) => report,
@@ -5569,7 +5630,7 @@ fn run_euicc_replay(args: &ReplayArgs) -> contract::ExitCode {
 /// ISD-R, and prints its data (lpac envelope under `--json`, else `human`).
 fn run_euicc_op(
     flags: &EuiccFlags,
-    op: impl FnOnce(&mut PcscSession, &[u8]) -> Result<serde_json::Value, euicc::Failure>,
+    op: impl FnOnce(&mut dyn CardSession, &[u8]) -> Result<serde_json::Value, euicc::Failure>,
     human: impl FnOnce(&serde_json::Value) -> String,
 ) -> contract::ExitCode {
     const KIND: &str = contract::DEFAULT_KIND;
@@ -5589,25 +5650,11 @@ fn run_euicc_op(
             }
         },
     };
-    let readers = match Pcsc::readers() {
-        Ok(readers) => readers,
-        Err(err) => return refuse(scan::Failure::new("context-unavailable", err.to_string())),
+    let (mut session, reader, _) = match open_transport(flags.reader.as_deref(), false, None) {
+        Ok(opened) => opened,
+        Err(failure) => return refuse(failure.into_failure()),
     };
-    let reader = match pick_reader(&readers, flags.reader.as_deref(), None) {
-        Ok(reader) => reader,
-        Err(failure) => return refuse(failure),
-    };
-    let mut session = match PcscSession::open(reader) {
-        Ok(session) => session,
-        Err(err) => {
-            let kind = match err {
-                TransportError::NoCard { .. } => "no-card",
-                _ => "reader-unavailable",
-            };
-            return refuse(scan::Failure::new(kind, err.to_string()));
-        }
-    };
-    let mut data = match op(&mut session, &aid) {
+    let mut data = match op(&mut *session, &aid) {
         Ok(data) => data,
         Err(failure) => {
             let mut data = failure.data;
@@ -6559,23 +6606,9 @@ fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
     if checkpoint() {
         return report_interrupted(ts48::KIND, args.json);
     }
-    let readers = match Pcsc::readers() {
-        Ok(readers) => readers,
-        Err(err) => return refuse(scan::Failure::new("context-unavailable", err.to_string())),
-    };
-    let reader = match pick_reader(&readers, args.reader.as_deref(), None) {
-        Ok(reader) => reader,
-        Err(failure) => return refuse(failure),
-    };
-    let mut session = match PcscSession::open(reader) {
-        Ok(session) => session,
-        Err(err) => {
-            let kind = match err {
-                TransportError::NoCard { .. } => "no-card",
-                _ => "reader-unavailable",
-            };
-            return refuse(scan::Failure::new(kind, err.to_string()));
-        }
+    let (mut session, reader, _) = match open_transport(args.reader.as_deref(), false, None) {
+        Ok(opened) => opened,
+        Err(failure) => return refuse(failure.into_failure()),
     };
 
     let options = walk::Options {
@@ -6587,7 +6620,7 @@ fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
         break_after_count_match: args.walk_limits.break_after_count_match,
         session: session::Policy::default(),
     };
-    let tree = match walk::walk(&mut session, &args.dialect.tag_set(), &options) {
+    let tree = match walk::walk(&mut *session, &args.dialect.tag_set(), &options) {
         Ok(tree) => tree,
         Err(err) => return refuse(scan::Failure::new("walk-failed", err.to_string())),
     };
@@ -6706,7 +6739,7 @@ fn fuzz_opt_in(safety: &FuzzSafety, reader: Option<&str>) -> Result<(), String> 
 fn open_fuzz_session(
     kind: &str,
     safety: &FuzzSafety,
-) -> Result<(ReaderName, PcscSession), contract::ExitCode> {
+) -> Result<(ReaderName, Box<dyn CardSession>), contract::ExitCode> {
     if let Err(message) = fuzz_opt_in(safety, safety.reader.as_deref()) {
         return Err(report_refusal(
             kind,
@@ -6718,31 +6751,9 @@ fn open_fuzz_session(
     if checkpoint() {
         return Err(report_interrupted(kind, safety.json));
     }
-    let readers = match Pcsc::readers() {
-        Ok(readers) => readers,
-        Err(err) => {
-            return Err(report_failure(
-                &scan::Failure::new("context-unavailable", err.to_string()),
-                safety.json,
-            ))
-        }
-    };
-    let reader = match pick_reader(&readers, safety.reader.as_deref(), None) {
-        Ok(reader) => reader.clone(),
-        Err(failure) => return Err(report_failure(&failure, safety.json)),
-    };
-    let session = match PcscSession::open(&reader) {
-        Ok(session) => session,
-        Err(err) => {
-            let failure_kind = match err {
-                TransportError::NoCard { .. } => "no-card",
-                _ => "reader-unavailable",
-            };
-            return Err(report_failure(
-                &scan::Failure::new(failure_kind, err.to_string()),
-                safety.json,
-            ));
-        }
+    let (session, reader, _) = match open_transport(safety.reader.as_deref(), false, None) {
+        Ok(opened) => opened,
+        Err(failure) => return Err(report_failure(&failure.into_failure(), safety.json)),
     };
     Ok((reader, session))
 }
@@ -6817,8 +6828,15 @@ fn run_fuzz_apdu(args: FuzzApduArgs) -> contract::ExitCode {
     // swSIM fixture - so discovery survives that rather than aborting the
     // whole run: `reconnect` re-opens the session in place, bounded by
     // `apdu_scan::MAX_RECONNECTS`. See `apdu_scan::sweep`.
-    let mut reconnect = |session: &mut PcscSession| -> Result<(), TransportError> {
-        *session = PcscSession::open(&reader)?;
+    let mut reconnect = |session: &mut Box<dyn CardSession>| -> Result<(), TransportError> {
+        let (reopened, _, _) =
+            open_transport(Some(reader.as_str()), false, None).map_err(|failure| {
+                TransportError::Driver {
+                    reader: reader.clone(),
+                    detail: failure.into_failure().message,
+                }
+            })?;
+        *session = reopened;
         Ok(())
     };
 

@@ -27,6 +27,7 @@ pub const NAME: &str = "transport";
 
 pub mod pcsc;
 pub mod replay;
+pub mod simulator;
 
 use std::fmt;
 
@@ -201,6 +202,21 @@ pub enum Error {
     Disconnected {
         /// The reader the closed session was bound to.
         reader: ReaderName,
+    },
+
+    /// A card simulator named by `--simulator host:port` could not be reached,
+    /// or did not answer in the framing the simulator protocol defines.
+    ///
+    /// Distinct from [`Error::ReaderUnavailable`] because nothing physical is
+    /// present or absent here: the peer is a process on the other end of a
+    /// socket, and its refusal is a fact about that process, reported with the
+    /// process's own words.
+    #[error("simulator `{reader}` could not be used: {detail}")]
+    Simulator {
+        /// The `simulator host:port` the refusal came from.
+        reader: ReaderName,
+        /// What the simulator, or the socket under it, said.
+        detail: String,
     },
 
     /// The reader name could not be used as given.
