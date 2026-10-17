@@ -4380,6 +4380,7 @@ fn run_gp_create_sd(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_gp_install(
     load: &std::path::Path,
     module: Option<String>,
