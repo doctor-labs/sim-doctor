@@ -112,6 +112,7 @@ pub mod backend;
 pub mod baseline;
 pub mod bpp;
 pub mod cap;
+pub mod cardprofile;
 pub mod cardsh;
 pub mod cat;
 pub mod cert;
@@ -212,6 +213,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: transport::NAME,
         owns: "Moving opaque bytes to a card and back over a reader session.",
         depends_on: &[],
+    },
+    ModuleInfo {
+        name: cardprofile::NAME,
+        owns: "The pySim card-profile database with the provenance of every entry, and the probe that matches a card against it.",
+        depends_on: &[transport::NAME],
     },
     ModuleInfo {
         name: rules::NAME,
