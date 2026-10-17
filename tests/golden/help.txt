@@ -255,6 +255,7 @@ Commands:
   delete        Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT
   make-default  Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT
   rename-isd    Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT
+  delete-key    Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE
   install       Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT
   put-key       Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'S ADMINISTRATIVE ACCESS
   cplc-set      Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC
@@ -403,6 +404,25 @@ Options:
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help               Print help (see more with '--help')
+
+$ sim-doctor gp delete-key -h [exit 0]
+Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE
+
+Usage: sim-doctor gp delete-key [OPTIONS]
+
+Options:
+      --key-id <HEX>       The Key Identifier to delete (GP tag D0). If absent, every key id matches and only --key-version narrows the delete
+      --key-version <HEX>  The Key Version Number to delete (GP tag D2). If absent, every version matches and only --key-id narrows the delete
+      --related            Also delete related objects (P2 80)
+      --allow-lockout      Send a delete that would remove the key set this session authenticated with, or every key on the card, as a WARNING instead of refusing it. Still needs --yes; without it nothing is sent
+      --reader <NAME>      The reader to use, matched against the driver's own name
+      --json               Emit one JSON envelope of kind "gp" on stdout
+      --trace              Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --keys-file <PATH>   File holding the keys (keep it chmod 600)
+      --keys-env <VAR>     Environment variable holding the keys
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
 
