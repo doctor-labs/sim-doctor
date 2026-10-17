@@ -3872,7 +3872,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sffs --score --severity --baseline --fail-on --sarif --tar --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --face --theme --color --headless --help"
+            opts="-b -h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --tar --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4044,7 +4044,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__ts48__subcmd__compare)
-            opts="-h --json --reader --dialect --max-depth --max-children --max-nodes --max-directories --help"
+            opts="-b -h --json --reader --dialect --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

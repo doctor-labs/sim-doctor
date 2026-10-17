@@ -1255,6 +1255,15 @@ struct WalkLimitArgs {
     /// Directories whose children are enumerated.
     #[arg(long, value_name = "N")]
     max_directories: Option<usize>,
+
+    /// Break after finding all files the card claims to have (DF count matches).
+    ///
+    /// A 2G-format directory response reports its child DFs and EFs (TS 51.011
+    /// clause 9.2.1). Once the scan has found that many under a directory, it stops
+    /// probing that directory's remaining identifiers. The flag is ignored for a
+    /// directory whose response does not report counts (for example 3GPP FCP).
+    #[arg(short = 'b', long = "scan-file-break", visible_alias = "sfb")]
+    break_after_count_match: bool,
 }
 
 #[derive(Args)]
@@ -4161,7 +4170,9 @@ fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
         candidates: walk::Candidates::SimFamilies,
         meaning: walk::StatusMeaning::default(),
         limits: limits_from(&args.walk_limits),
-        ..walk::Options::default()
+        reserved_file_ids: false,
+        break_after_count_match: args.walk_limits.break_after_count_match,
+        session: session::Policy::default(),
     };
     let tree = match walk::walk(&mut session, &args.dialect.tag_set(), &options) {
         Ok(tree) => tree,
@@ -5179,5 +5190,38 @@ mod tests {
             panic!("not a scan")
         };
         assert!(!args.sffs);
+    }
+
+    /// `--scan-file-break` (or `-b`) is accepted by the scan command.
+    #[test]
+    fn scan_accepts_scan_file_break_flag() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["sim-doctor", "scan", "--scan-file-break"]).expect("parses");
+        let Command::Scan(args) = cli.command else {
+            panic!("not a scan")
+        };
+        assert!(args.walk_limits.break_after_count_match);
+    }
+
+    /// `--sfb` is the visible alias of `--scan-file-break` (SIMTester's name).
+    #[test]
+    fn scan_accepts_sfb_alias() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["sim-doctor", "scan", "--sfb"]).expect("parses");
+        let Command::Scan(args) = cli.command else {
+            panic!("not a scan")
+        };
+        assert!(args.walk_limits.break_after_count_match);
+    }
+
+    /// `-b` is a short alias for `--scan-file-break`.
+    #[test]
+    fn scan_accepts_b_short_flag() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["sim-doctor", "scan", "-b"]).expect("parses");
+        let Command::Scan(args) = cli.command else {
+            panic!("not a scan")
+        };
+        assert!(args.walk_limits.break_after_count_match);
     }
 }

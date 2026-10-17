@@ -74,6 +74,7 @@ struct Run {
     reader_index: Option<usize>,
     dialect: scan::Dialect,
     limits: Limits,
+    break_after_count_match: bool,
     tar: tar::Selection,
     terminal_profile: bool,
     por: tar::PorMode,
@@ -101,6 +102,7 @@ impl Run {
             reader_index: card.reader_index,
             dialect: card.dialect,
             limits: limits_from(&card.walk_limits),
+            break_after_count_match: card.walk_limits.break_after_count_match,
             tar: card.tar.clone(),
             terminal_profile: false,
             por: tar::PorMode::default(),
@@ -123,6 +125,7 @@ impl Run {
             reader_index: args.reader_index,
             dialect: args.dialect,
             limits: limits_from(&args.walk_limits),
+            break_after_count_match: args.walk_limits.break_after_count_match,
             tar: args.tar.clone(),
             terminal_profile: args.terminal_profile,
             por: if args.sms_deliver_report {
@@ -222,7 +225,8 @@ impl SimDoctor {
             meaning: walk::StatusMeaning::default(),
             limits: args.limits,
             reserved_file_ids: args.reserved_file_ids,
-            ..walk::Options::default()
+            break_after_count_match: args.break_after_count_match,
+            session: session::Policy::default(),
         };
         let mut tree = walk::walk(session, &args.dialect.tag_set(), &options)
             .map_err(|e| refuse("walk-failed", &e))?;

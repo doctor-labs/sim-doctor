@@ -61,6 +61,9 @@ _arguments "${_arguments_options[@]}" : \
 '(--json --tui)--color=[Colour the face\: auto (a terminal and no NO_COLOR), always or never]:COLOR:(auto always never)' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '(--json)--tui[Show the findings in an interactive terminal view instead of the report]' \
+'-b[Break after finding all files the card claims to have (DF count matches)]' \
+'--scan-file-break[Break after finding all files the card claims to have (DF count matches)]' \
+'--sfb[Break after finding all files the card claims to have (DF count matches)]' \
 '--sffs[Follow standard identifiers only (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011). When set, the walk probes only the file identifiers defined in the ETSI and 3GPP specifications, plus the files pySim can decode with standard names. This is stricter than the default (SimFamilies), which probes the broader GSM 11.11 family ranges (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx). Corresponds to SIMTester'\''s \`-sffs\` flag]' \
 '--score[Add one quality score for this card, for CI gating]' \
 '--terminal-profile[Send a TERMINAL PROFILE to the card before the TAR audit]' \
@@ -95,6 +98,9 @@ _arguments "${_arguments_options[@]}" : \
 '--max-nodes=[Files the card selected across the whole walk (default 16384)]:N:_default' \
 '--max-directories=[Directories whose children are enumerated]:N:_default' \
 '--json[Emit one JSON envelope (type "ts48") on stdout, and nothing else]' \
+'-b[Break after finding all files the card claims to have (DF count matches)]' \
+'--scan-file-break[Break after finding all files the card claims to have (DF count matches)]' \
+'--sfb[Break after finding all files the card claims to have (DF count matches)]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
