@@ -9916,6 +9916,7 @@ mod crs_tests {
             host_challenge: HOST_CHALLENGE,
             logical_channel: 0,
             level: scp03::SecurityLevel::C_MAC,
+            kdf: None,
         }
     }
 
