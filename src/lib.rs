@@ -136,6 +136,7 @@ pub mod fs;
 pub mod fuzz;
 pub mod gp;
 pub mod gpcert;
+pub mod hlr;
 pub mod keygen;
 pub mod legacy;
 pub mod mcp;
@@ -188,6 +189,11 @@ pub struct ModuleInfo {
 /// Modules with no dependencies come first because they are the ones a later
 /// feature can build on without inheriting anyone else's assumptions.
 pub const MODULES: &[ModuleInfo] = &[
+    ModuleInfo {
+        name: hlr::NAME,
+        owns: "HLR subscriber provisioning as a reviewable SQL script: validated IMSI/MSISDN/K/OPc, parameterised statements, redacted display, a mode-0600 file that is never overwritten.",
+        depends_on: &[],
+    },
     ModuleInfo {
         name: tlv::NAME,
         owns: "BER-TLV tag, length and value atoms for ISO 7816-4 files and SGP.22 payloads.",
