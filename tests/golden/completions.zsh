@@ -813,6 +813,9 @@ _arguments "${_arguments_options[@]}" : \
 '--params=[The Install Parameters field as TLV with the mandatory C9 tag (default C900\: none; required with --no-felix)]:HEX:_default' \
 '--privileges=[Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused]:HEX:_default' \
 '--bs=[Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split\: the bytes loaded are the same. Shown in the dry run'\''s APDUs]:BYTES:_default' \
+'*--cl-notify=[--cl-notify AID\: add this AID to the CREL notify list (EF A1 A3 4F). Repeatable; the AIDs go into one list in the order given]:AID:_default' \
+'*--cl-notify-remove=[--cl-notify-remove AID\: remove this AID from the CREL notify list (EF A1 A4 4F). Repeatable. An AID given here and to --cl-notify is refused\: the card cannot be told to add and remove the same entry]:AID:_default' \
+'--cl-family=[--cl-family HEX\: the Application Family id, one byte of hex (EF A1 87)]:HEX:_default' \
 '--dap-key-file=[File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
 '--dap-key-env=[Environment variable holding the AES DAP key]:VAR:_default' \
 '--dap-sd=[The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default\: the issuer security domain being authenticated)]:HEX:_default' \
@@ -831,6 +834,10 @@ all\:"33\: all four protections"))' \
 '-F[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
 '--no-felix[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
 '--make-default[Make the applet default selected\: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro'\''s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first]' \
+'--cl-activated[--cl-activated\: set the contactless activation state byte (EF A0 81)]' \
+'--cl-display-optional[--cl-display-optional\: the display is not required for this application (EF A1 88 01)]' \
+'--cl-contact[--cl-contact\: enable the contact interface (EF A0 A5 82, bit 80)]' \
+'--cl-contactless[--cl-contactless\: enable the contactless interface (EF A0 A5 82, bit 40). With --cl-contact the mask is C0, both interfaces]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \

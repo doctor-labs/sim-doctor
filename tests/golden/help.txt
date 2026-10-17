@@ -663,29 +663,36 @@ Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load],
 Usage: sim-doctor gp install [OPTIONS] --load <CAP>
 
 Options:
-      --load <CAP>           The CAP file (a zip of javacard/*.cap components)
-      --module <HEX>         The Executable Module AID (the applet class). Optional when the CAP has one applet
-      --app <HEX>            The application (instance) AID. Defaults to the module AID
-      --params <HEX>         The Install Parameters field as TLV with the mandatory C9 tag (default C900: none; required with --no-felix)
-  -F, --no-felix             Refuse to guess the install parameters: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)
-      --privileges <HEX>     Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused [default: 000000]
-      --make-default         Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro's --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first
-      --bs <BYTES>           Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split: the bytes loaded are the same. Shown in the dry run's APDUs [default: 240]
-      --dap-key-file <PATH>  File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)
-      --dap-key-env <VAR>    Environment variable holding the AES DAP key
-      --dap-sd <HEX>         The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default: the issuer security domain being authenticated)
-      --dap-hash <DAP_HASH>  The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha256, sha384, sha512]
-      --reader <NAME>        The reader to use, matched against the driver's own name
-      --json                 Emit one JSON envelope of kind "gp" on stdout
-      --trace                Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>     File holding the keys (keep it chmod 600)
-      --keys-env <VAR>       Environment variable holding the keys
-      --key-version <HEX>    Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>          SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --key-kdf <TEMPLATE>   Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
-      --channel <N>          Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                  Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help                 Print help (see more with '--help')
+      --load <CAP>              The CAP file (a zip of javacard/*.cap components)
+      --module <HEX>            The Executable Module AID (the applet class). Optional when the CAP has one applet
+      --app <HEX>               The application (instance) AID. Defaults to the module AID
+      --params <HEX>            The Install Parameters field as TLV with the mandatory C9 tag (default C900: none; required with --no-felix)
+  -F, --no-felix                Refuse to guess the install parameters: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)
+      --privileges <HEX>        Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused [default: 000000]
+      --make-default            Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro's --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first
+      --bs <BYTES>              Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split: the bytes loaded are the same. Shown in the dry run's APDUs [default: 240]
+      --cl-activated            --cl-activated: set the contactless activation state byte (EF A0 81)
+      --cl-notify <AID>         --cl-notify AID: add this AID to the CREL notify list (EF A1 A3 4F). Repeatable; the AIDs go into one list in the order given
+      --cl-notify-remove <AID>  --cl-notify-remove AID: remove this AID from the CREL notify list (EF A1 A4 4F). Repeatable. An AID given here and to --cl-notify is refused: the card cannot be told to add and remove the same entry
+      --cl-family <HEX>         --cl-family HEX: the Application Family id, one byte of hex (EF A1 87)
+      --cl-display-optional     --cl-display-optional: the display is not required for this application (EF A1 88 01)
+      --cl-contact              --cl-contact: enable the contact interface (EF A0 A5 82, bit 80)
+      --cl-contactless          --cl-contactless: enable the contactless interface (EF A0 A5 82, bit 40). With --cl-contact the mask is C0, both interfaces
+      --dap-key-file <PATH>     File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)
+      --dap-key-env <VAR>       Environment variable holding the AES DAP key
+      --dap-sd <HEX>            The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default: the issuer security domain being authenticated)
+      --dap-hash <DAP_HASH>     The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha256, sha384, sha512]
+      --reader <NAME>           The reader to use, matched against the driver's own name
+      --json                    Emit one JSON envelope of kind "gp" on stdout
+      --trace                   Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>        File holding the keys (keep it chmod 600)
+      --keys-env <VAR>          Environment variable holding the keys
+      --key-version <HEX>       Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>             SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>      Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>             Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                     Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                    Print help (see more with '--help')
 
 $ sim-doctor gp create-sd -h [exit 0]
 Create a supplementary Security Domain over an SCP03 channel: INSTALL [for install and make selectable] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT

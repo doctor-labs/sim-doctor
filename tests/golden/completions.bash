@@ -3952,7 +3952,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__install)
-            opts="-F -h --load --module --app --params --no-felix --privileges --make-default --bs --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-F -h --load --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3979,6 +3979,18 @@ _sim__doctor() {
                     return 0
                     ;;
                 --bs)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cl-notify)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cl-notify-remove)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cl-family)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
