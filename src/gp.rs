@@ -76,6 +76,8 @@
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "gp";
 
+pub mod kdd;
+
 use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use serde_json::{json, Value};
 
@@ -1145,6 +1147,12 @@ impl From<Scp03Mode> for scp03::SecurityLevel {
 pub struct Auth<'a> {
     /// The static keys.
     pub keys: &'a Keys,
+    /// Diversify the single master key in `keys` with this KDF template name,
+    /// from the KDD the card returns in INITIALIZE UPDATE. `None` (the default)
+    /// uses the keys as they are. Only `kdf3` is accepted here: it is the one
+    /// template with an SCP03 finalisation, and SCP03 is the only secure channel
+    /// that talks to a card.
+    pub kdf: Option<&'static str>,
     /// Key version number for INITIALIZE UPDATE P1; 0 lets the card choose.
     pub key_version: u8,
     /// The SCP03 security level of the channel (#256): EXTERNAL AUTHENTICATE
@@ -1168,6 +1176,10 @@ struct Stop {
 struct Established {
     channel: scp03::Channel,
     iur: scp03::InitializeUpdateResponse,
+    /// The keys the channel was actually established with, when `--key-kdf`
+    /// diversified a master key. The reported key check values are these, not
+    /// the master key's.
+    keys: Option<Keys>,
 }
 
 /// The ONE authentication attempt: INITIALIZE UPDATE, the local check of the
@@ -1184,6 +1196,24 @@ struct Established {
 /// `gen_ext_auth_apdu`) and GlobalPlatformPro `SCP03Wrapper`. Not done: for a
 /// pseudo-random card challenge (`i` bit 0x10) the challenge is not recomputed
 /// from the sequence counter (6.2.2.1); the cryptogram check covers the keys.
+/// The three keys `master` diversifies into for the card that sent `kdd`, or
+/// the reason it cannot. Only the SCP03 finalisation is reachable from the auth
+/// path, and that keeps its keys at 16 bytes, which is what the rest of the
+/// secure channel is built for.
+fn diversified_keys(master: &Keys, name: &str, kdd: &[u8; 10]) -> Result<Keys, kdd::Error> {
+    let key = |purpose: kdd::Purpose| -> Result<[u8; 16], kdd::Error> {
+        let bytes = kdd::diversify(&master.enc, name, kdd, purpose, kdd::Scp::Kdf)?;
+        <[u8; 16]>::try_from(bytes.as_slice()).map_err(|_| kdd::Error::MasterKeyLength(bytes.len()))
+    };
+    Ok(Keys {
+        enc: key(kdd::Purpose::Enc)?,
+        mac: key(kdd::Purpose::Mac)?,
+        dek: Some(key(kdd::Purpose::Dek)?),
+        count: 1,
+        stated: [false; 2],
+    })
+}
+
 fn authenticate<S: CardSession + ?Sized>(
     session: &mut S,
     steps: &mut Vec<Value>,
@@ -1225,9 +1255,40 @@ fn authenticate<S: CardSession + ?Sized>(
         Err(e) => return stop("initialize-update-unreadable", e.to_string(), None),
     };
     let kvn = Some(iur.key_version);
+    // `--key-kdf`: the key text holds ONE master key, and the KDD that came
+    // back with the card's challenge is what turns it into this card's keys.
+    // Nothing derived from a master key is used before this point, and the card
+    // cryptogram below still has to verify, so a wrong master key costs the
+    // card no authentication attempt.
+    let diversified = match auth.kdf {
+        None => None,
+        Some(name) => {
+            if auth.keys.is_key_set() {
+                return stop(
+                    "key-kdf-needs-one-key",
+                    format!(
+                        "--key-kdf {name} diversifies ONE master key, but the key text names \
+                         three keys; EXTERNAL AUTHENTICATE was not sent"
+                    ),
+                    kvn,
+                );
+            }
+            match diversified_keys(auth.keys, name, &iur.diversification) {
+                Ok(keys) => Some(keys),
+                Err(e) => {
+                    return stop(
+                        "key-kdf-refused",
+                        format!("--key-kdf {name} could not derive a key from the KDD: {e}"),
+                        kvn,
+                    )
+                }
+            }
+        }
+    };
+    let keys = diversified.as_ref().unwrap_or(auth.keys);
     let session_keys = scp03::derive_session_keys(
-        &auth.keys.enc,
-        &auth.keys.mac,
+        &keys.enc,
+        &keys.mac,
         &auth.host_challenge,
         &iur.card_challenge,
     );
@@ -1272,7 +1333,11 @@ fn authenticate<S: CardSession + ?Sized>(
             kvn,
         );
     }
-    Ok(Ok(Established { channel, iur }))
+    Ok(Ok(Established {
+        channel,
+        iur,
+        keys: diversified,
+    }))
 }
 
 /// Sends `plain` MAC'd on `channel` (once, in send order: the chaining value
@@ -1314,6 +1379,7 @@ fn channel_report(auth: &Auth<'_>, est: &Established, card_keys: Option<&Value>)
         }),
         None => json!({ "found": false }),
     };
+    let keys = est.keys.as_ref().unwrap_or(auth.keys);
     let kcv = |key: &[u8; 16], stated: bool| {
         json!({
             "kcv": hex::encode_upper(aes_kcv(key).expect("16-byte key")),
@@ -1328,8 +1394,9 @@ fn channel_report(auth: &Auth<'_>, est: &Established, card_keys: Option<&Value>)
         "i_parameter": format!("{:02X}", est.iur.i_parameter),
         "card_cryptogram_verified": true,
         "enc_key_exercised": false,
-        "enc_key": kcv(&auth.keys.enc, auth.keys.stated[0]),
-        "mac_key": kcv(&auth.keys.mac, auth.keys.stated[1]),
+        "key_kdf": auth.kdf.unwrap_or("none"),
+        "enc_key": kcv(&keys.enc, keys.stated[0]),
+        "mac_key": kcv(&keys.mac, keys.stated[1]),
         "card_key_info": key_info,
         "kcv_on_card": "not exposed: GET DATA key information carries id, version, type and length only",
     })
@@ -1723,6 +1790,12 @@ pub fn render_text(data: &Value) -> String {
             s(&c["enc_key"]["kcv"]),
             s(&c["mac_key"]["kcv"]),
         ));
+        if s(&c["key_kdf"]) != "none" {
+            out.push(format!(
+                "  keys diversified with KDF template {}",
+                s(&c["key_kdf"])
+            ));
+        }
         if c["card_key_info"]["matches_supplied"] == false {
             out.push(format!(
                 "  card key type {} length {} differs from the supplied AES-128 key",
@@ -6054,6 +6127,7 @@ mod tests {
     fn auth(keys: &Keys) -> Auth<'_> {
         Auth {
             keys,
+            kdf: None,
             key_version: 0x30,
             host_challenge: HOST_CHALLENGE,
             level: scp03::SecurityLevel::C_MAC,
@@ -9842,6 +9916,7 @@ mod crs_tests {
             host_challenge: HOST_CHALLENGE,
             logical_channel: 0,
             level: scp03::SecurityLevel::C_MAC,
+            kdf: None,
         }
     }
 

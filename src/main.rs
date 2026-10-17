@@ -1418,6 +1418,15 @@ struct GpKeyArgs {
         requires = "key_source"
     )]
     mode: gp::Scp03Mode,
+    /// Diversify ONE master key from the key text with this KDF template, using
+    /// the key diversification data the card returns in INITIALIZE UPDATE, and
+    /// authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa
+    /// are 3DES and are refused). Known-answer tested against GlobalPlatformPro's
+    /// own vectors. The keys stay in the file or the environment variable: a
+    /// template name is not key material.
+    #[arg(long, value_name = "TEMPLATE", value_parser = parse_kdf_template,
+          requires = "key_source")]
+    key_kdf: Option<&'static str>,
 }
 
 /// Where `gp put-key` gets the NEW key set. Never a value on the command line.
@@ -1463,6 +1472,21 @@ enum DapHash {
     Sha256,
     Sha384,
     Sha512,
+}
+
+/// `--key-kdf`: a named template, checked here so a typo costs the card
+/// nothing. The 3DES templates are refused too: they end in a 3DES-ECB
+/// diversification, and the only secure channel that talks to a card here is
+/// SCP03, whose templates carry the `$_` block separator.
+fn parse_kdf_template(name: &str) -> Result<&'static str, String> {
+    let text = gp::kdd::template(name).map_err(|e| e.to_string())?;
+    if !text.contains("$_") {
+        return Err(format!(
+            "KDF template {name} ends in a 3DES-ECB diversification; the secure channel here \
+             is SCP03, which needs kdf3"
+        ));
+    }
+    Ok(text)
 }
 
 fn parse_hex_byte(text: &str) -> Result<u8, String> {
@@ -3305,6 +3329,7 @@ fn gp_auth<'a>(keys: &'a gp::Keys, args: &GpKeyArgs, channel: u8) -> gp::Auth<'a
     rand::fill(&mut host_challenge);
     gp::Auth {
         keys,
+        kdf: None,
         key_version: args.key_version,
         level: args.mode.into(),
         host_challenge,
@@ -3841,6 +3866,7 @@ fn run_gp_delete_key(
         keys_env: delete_key.keys.keys_env.clone(),
         key_version: 0,
         mode: gp::Scp03Mode::Mac,
+        key_kdf: None,
     };
     let keys = match load_gp_keys(&kvn_args, delete_key.json) {
         Ok(keys) => keys,
