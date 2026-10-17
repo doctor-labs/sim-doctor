@@ -1863,3 +1863,104 @@ fn bip_data_available_rejects_channel_out_of_range() {
         "got: {err}"
     );
 }
+
+fn csv_fixture(name: &str, text: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    std::fs::write(&path, text).expect("the test temp dir is writable");
+    path
+}
+
+#[test]
+fn read_csv_runs_the_rows_of_the_command_column_in_order() {
+    let csv = csv_fixture(
+        "cardsh_279_channels.csv",
+        "note,command\nopen,open_channel\nstatus,status\nch0,channel 0\nst,status\nclose,close_channel 1\nlast,status\n",
+    );
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--json", "--read-csv", csv.to_str().unwrap()],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = lines(&out);
+    assert_eq!(r.len(), 6);
+    assert_eq!(r[0]["command"], "open_channel");
+    assert_eq!(r[1]["data"]["open_channels"], serde_json::json!([0, 1]));
+    assert_eq!(r[3]["data"]["channel"], 0);
+    assert_eq!(r[5]["data"]["open_channels"], serde_json::json!([0]));
+}
+
+#[test]
+fn write_csv_appends_a_row_per_command_under_a_header() {
+    let log = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cardsh_279_log.csv");
+    let _ = std::fs::remove_file(&log);
+    let args = [
+        "-c",
+        "open_channel; channel 3",
+        "--write-csv",
+        log.to_str().unwrap(),
+    ];
+    let out = card("cardsh_channels.jsonl", &args);
+    assert_eq!(out.status.code(), Some(1), "channel 3 fails, so exit 1");
+    let text = std::fs::read_to_string(&log).expect("the log was written");
+    let rows = sim_doctor::cardsh::csvfile::parse(&text).expect("the log is valid CSV");
+    assert_eq!(rows.len(), 3, "{text}");
+    assert_eq!(rows[0], ["command", "ok", "text"]);
+    assert_eq!(rows[1][0], "open_channel");
+    assert_eq!(rows[1][1], "true");
+    assert_eq!(rows[2][0], "channel <args redacted>");
+    assert_eq!(rows[2][1], "false");
+    assert!(!rows[2][2].is_empty(), "a failure carries its sentence");
+}
+
+#[test]
+fn a_card_change_row_in_a_csv_file_is_a_dry_run_without_yes() {
+    let csv = csv_fixture("cardsh_279_dry.csv", "command\nterminate_card_usage\n");
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--read-csv", csv.to_str().unwrap()],
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(0), "{text}");
+    assert!(text.contains("dry run"), "{text}");
+    assert!(text.contains("PERMANENTLY disable"), "{text}");
+}
+
+#[test]
+fn read_csv_cannot_be_combined_with_a_command_line() {
+    let csv = csv_fixture("cardsh_279_conflict.csv", "command\nstatus\n");
+    let out = card(
+        "cardsh_channels.jsonl",
+        &["--read-csv", csv.to_str().unwrap(), "-c", "status"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(129),
+        "a usage error, as in process_contract"
+    );
+}
+
+#[test]
+fn write_csv_never_holds_the_arguments_of_a_secret_bearing_command() {
+    let log = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cardsh_279_secrets.csv");
+    let _ = std::fs::remove_file(&log);
+    let _out = card(
+        "cardsh_channels.jsonl",
+        &[
+            "-c",
+            "verify_chv 1 1234; apdu 00200001083132333400000000",
+            "--write-csv",
+            log.to_str().unwrap(),
+        ],
+    );
+    let text = std::fs::read_to_string(&log).expect("the log was written");
+    let rows = sim_doctor::cardsh::csvfile::parse(&text).expect("the log is valid CSV");
+    assert_eq!(rows[1][0], "verify_chv <args redacted>");
+    assert_eq!(rows[2][0], "apdu <args redacted>");
+    assert!(!text.contains("1234"), "a PIN reached the log: {text}");
+    assert!(!text.contains("31323334"), "a key reached the log: {text}");
+}

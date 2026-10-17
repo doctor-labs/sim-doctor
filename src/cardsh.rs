@@ -5787,6 +5787,7 @@ pub fn access_text_of(fcp_hex: &str, dialect: &TagSet) -> Option<String> {
     crate::access::fcp_access_text(&bytes, dialect)
 }
 
+pub mod csvfile;
 pub mod decode;
 mod efs;
 pub mod names;
