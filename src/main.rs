@@ -803,6 +803,32 @@ enum GpAction {
         #[command(subcommand)]
         action: GpChannelAction,
     },
+    /// Release the SCP03 secure channel on a logical channel: close that
+    /// logical channel with MANAGE CHANNEL, which is what ends the secure
+    /// channel the card holds there. CHANGES CARD SESSION STATE.
+    ///
+    /// A dry run unless --yes: it prints the exact APDU, sends nothing and
+    /// opens no reader. Closing a channel is not an authenticated operation,
+    /// so this takes no keys and can print none. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a released channel, 1 when the card refuses.
+    ReleaseScp {
+        /// The logical channel whose secure channel is released, 1 to 19.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(1..=19))]
+        channel: u8,
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        /// Send the MANAGE CHANNEL close. Without it nothing is sent.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Delete an application or an executable load file over an SCP03 channel
     /// (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT.
     ///
@@ -2497,6 +2523,28 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 CrsAction::Activate { aid, write } => run_gp_crs_set(&aid, true, &write),
                 CrsAction::Deactivate { aid, write } => run_gp_crs_set(&aid, false, &write),
             },
+            GpAction::ReleaseScp {
+                channel,
+                reader,
+                json,
+                trace,
+                yes,
+            } => {
+                if yes {
+                    // MANAGE CHANNEL is sent on the basic channel, never on the
+                    // channel being closed, so no OnChannel wrapper here.
+                    run_gp(
+                        "gp release-scp",
+                        reader.as_deref(),
+                        json,
+                        trace,
+                        0,
+                        |s, t| gp::release_scp(s, channel, t),
+                    )
+                } else {
+                    emit_gp("gp release-scp", gp::release_scp_dry_run(channel), json)
+                }
+            }
             GpAction::Delete {
                 aid,
                 related,

@@ -206,6 +206,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand select 'SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card''s current selection'
             cand crs 'Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless'
             cand channel 'Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N'
+            cand release-scp 'Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE'
             cand delete 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT'
             cand make-default 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT'
             cand rename-isd 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
@@ -357,6 +358,15 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;gp;channel;help;close'= {
         }
         &'sim-doctor;gp;channel;help;help'= {
+        }
+        &'sim-doctor;gp;release-scp'= {
+            cand --channel 'The logical channel whose secure channel is released, 1 to 19'
+            cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --json 'Emit one JSON envelope of kind "gp" on stdout'
+            cand --trace 'Add every APDU exchange (command and response hex) as data.trace'
+            cand --yes 'Send the MANAGE CHANNEL close. Without it nothing is sent'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
         }
         &'sim-doctor;gp;delete'= {
             cand --aid 'The AID to delete, 5 to 16 bytes of hex'
@@ -588,6 +598,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand select 'SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card''s current selection'
             cand crs 'Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless'
             cand channel 'Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N'
+            cand release-scp 'Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE'
             cand delete 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT'
             cand make-default 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT'
             cand rename-isd 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
@@ -628,6 +639,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;gp;help;channel;open'= {
         }
         &'sim-doctor;gp;help;channel;close'= {
+        }
+        &'sim-doctor;gp;help;release-scp'= {
         }
         &'sim-doctor;gp;help;delete'= {
         }
@@ -1190,6 +1203,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand select 'SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card''s current selection'
             cand crs 'Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless'
             cand channel 'Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N'
+            cand release-scp 'Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE'
             cand delete 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT'
             cand make-default 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT'
             cand rename-isd 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
@@ -1229,6 +1243,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;gp;channel;open'= {
         }
         &'sim-doctor;help;gp;channel;close'= {
+        }
+        &'sim-doctor;help;gp;release-scp'= {
         }
         &'sim-doctor;help;gp;delete'= {
         }

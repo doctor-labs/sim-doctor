@@ -815,6 +815,27 @@ sent (`Channel::on_logical_channel`, as pySim patches the channel into CLA befor
 traces and plans are corrected afterwards by `retarget_channel`. Dry-run plans show the class as it will
 be sent on the channel.
 
+**`gp release-scp` (issue #261, pySim-shell `release_scp`) is the SCP03 release, and it is a thin
+wrapper over `gp::channel_close`, not a second channel code path.** One APDU and nothing else: MANAGE
+CHANNEL close of that channel, `00 70 80 <N>`, sent on the **basic** channel (never on the channel
+being closed), once, never retried, a refusal reported with its own `data.error.kind`. Dry run
+unless `--yes` (`card_touched: false`, the APDU printed, no reader opened).
+
+**pySim `do_release_scp` sends no APDU at all** (`pySim/global_platform/__init__.py:1196-1202`,
+`do_release_scp`). It is three lines that print "Cannot release SCP as none is established" when
+no session is open and otherwise clear `lchan.scc.scp` - **not** a MANAGE CHANNEL close and **not**
+an ISD-R deselect; the card is never told. That is enough there, because the pySim shell holds the
+session keys in the host process and `lchan.scc` wraps a later APDU in secure messaging only
+while `.scp` is set, so dropping the reference ends the **host** side of the session. sim-doctor
+runs one command per process, so there is no host state left to keep or drop: after
+`gp ... --keys-file K --channel N` the derived session keys go with the process while the **card
+keeps its own end of the session** until the logical channel goes away, and the one wire operation
+that ends it is that channel close (GP Card Spec v2.3.1 11.1.4; ISO/IEC 7816-4 11.1.2). **It
+therefore takes no keys at all**: closing a logical channel is not an authenticated operation, so
+there is no key material to pass and none can be printed. Not on MCP. Output carries
+`RELEASE_SCP_WARNING`, which says the session keys derived at INITIALIZE UPDATE are destroyed and
+the channel must be opened again.
+
 **PUT KEY and DAP (issue #115).** Same rules (1) to (7), plus: `gp put-key` ships an SCP03 AES-128 key set
 (ENC, MAC, DEK) with PUT KEY `80 D8 <P1> <P2|80>`: GP Card Spec v2.3.1 11.8 (Tables 11-64..11-68, 11-71, P1
 = replaced version or 00, P2 = first key id with b8 set), key type `88`, each key AES-CBC (zero ICV, one
