@@ -463,6 +463,23 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(cplc-set)
+_arguments "${_arguments_options[@]}" : \
+'--kind=[pre-perso (DGI 9F67) or perso (DGI 9F66)]:KIND:(pre-perso perso)' \
+'--data=[The eight data bytes of the block as 16 hex digits]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--today[Write today'\''s date (UTC) into the date bytes, overriding those in --data]' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__gp__subcmd__help_commands" \
@@ -524,6 +541,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (put-key)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(cplc-set)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1432,6 +1453,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(cplc-set)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -2087,6 +2112,7 @@ _sim-doctor__subcmd__gp_commands() {
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
+'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp commands' commands "$@"
@@ -2139,6 +2165,11 @@ _sim-doctor__subcmd__gp__subcmd__channel__subcmd__open_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp channel open commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cplc-set_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cplc-set_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cplc-set commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__delete_commands() {
     local commands; commands=()
@@ -2155,6 +2186,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
+'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp help commands' commands "$@"
@@ -2181,6 +2213,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__close_commands()
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__open_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help channel open commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__cplc-set_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__cplc-set_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help cplc-set commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__delete_commands() {
@@ -2441,6 +2478,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
+'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
     )
     _describe -t commands 'sim-doctor help gp commands' commands "$@"
 }
@@ -2466,6 +2504,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__close_commands()
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__open_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp channel open commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__cplc-set_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__cplc-set_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp cplc-set commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__delete_commands() {
