@@ -153,12 +153,36 @@ pub const MAX_PROBES: usize = 4096;
 /// of the space a full sweep would cover, used by the tests of the enumerator.
 pub const TAR_SPACE: usize = TAR_MAX as usize + 1;
 
-/// The hard ceiling `--tar-uncapped` raises the probe bound to (issue #266). It is 1 000 000,
-/// not [`TAR_SPACE`]: every probe is held in `Audit::probes` and emitted one JSON entry each under
-/// `data.tar.probes`, so a 2^24 sweep would hold ~16.7M records in memory and emit as many entries.
-/// The figure is a chosen bound for memory, not a measured one. A sweep that reaches it stops, is
-/// reported as not exhausted, and warns; the full space needs a streaming follow-up.
-pub const UNCAPPED_MAX_PROBES: usize = 1_000_000;
+/// The bound `--tar-uncapped` raises the probe bound to (issue #266): the whole TAR space, so the
+/// full `-st full` sweep is reachable. The TARs are streamed ([`tars`]), never collected into a
+/// list, and the results are bounded too: see [`DETAIL_CAP`]. The binary makes such a sweep a dry
+/// run unless `--yes` is given.
+pub const UNCAPPED_MAX_PROBES: usize = TAR_SPACE;
+
+/// How many probe rows of each kind `Audit::probes` keeps in full detail (issue #266): at most this
+/// many plain `refused` rows and at most this many other rows (`accepted` or `filtered`), so memory
+/// is bounded by twice this however long the sweep. Rows past it are not stored; they are counted
+/// per outcome in [`Omitted`] and the report says the rows were summarised. A default sweep
+/// (4096 probes at most) never reaches it, so its report is unchanged.
+pub const DETAIL_CAP: usize = 10_000;
+
+/// The probes an audit counted but did not keep as rows, per outcome (see [`DETAIL_CAP`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Omitted {
+    /// `accepted` probes past the cap. Their TARs are not listed; their number is in `accepted_count`.
+    pub accepted: usize,
+    /// Plain `refused` probes past the cap.
+    pub refused: usize,
+    /// `filtered` probes past the cap.
+    pub filtered: usize,
+}
+
+impl Omitted {
+    /// All probes counted without a row.
+    pub const fn total(&self) -> usize {
+        self.accepted + self.refused + self.filtered
+    }
+}
 
 /// How many TARs the calibration pass probes to establish the baseline.
 ///
@@ -1168,97 +1192,65 @@ pub fn candidates(selection: &Selection, limit: usize) -> (Vec<u32>, bool) {
     enumerate(selection, limit.min(MAX_PROBES))
 }
 
-fn enumerate(selection: &Selection, cap: usize) -> (Vec<u32>, bool) {
-    let mut out = Vec::new();
+/// How many probes an uncapped sweep of `selection` would send: the TARs it resolves to, up to
+/// [`UNCAPPED_MAX_PROBES`]. Streamed and counted, never sent; the binary shows it before `--yes`.
+pub fn uncapped_probe_count(selection: &Selection) -> usize {
+    tars(selection).take(UNCAPPED_MAX_PROBES).count()
+}
 
+/// The TARs a selection resolves to, lazily and in probe order.
+///
+/// **Streamed, never collected.** The full space is 2^24 values; an iterator over it holds
+/// nothing, so the audit pulls one TAR at a time and the full sweep is reachable without a list of
+/// 16.7 million values in memory. The iterator owns what it needs (a clone of a compiled regex is
+/// a reference count), so it does not borrow the selection.
+pub fn tars(selection: &Selection) -> Box<dyn Iterator<Item = u32>> {
     match &selection.mode {
-        Mode::Off => (out, true),
-        Mode::Focused => {
-            for &(first, last) in &FOCUSED_BANDS {
-                for tar in first..=last {
-                    if out.len() == cap {
-                        return (out, false);
-                    }
-                    out.push(tar);
-                }
-            }
-            (out, true)
-        }
-        Mode::Range { first, last } => {
-            let mut tar = *first;
-            while tar <= *last {
-                if out.len() == cap {
-                    return (out, false);
-                }
-                out.push(tar);
-                // checked rather than incremented, so a last above TAR_MAX
-                // stops rather than wrapping to zero and re-probing the bottom.
-                match tar.checked_add(1) {
-                    Some(next) => tar = next,
-                    None => break,
-                }
-            }
-            (out, true)
-        }
-        Mode::Full => {
-            let mut tar = TAR_MIN;
-            loop {
-                if out.len() == cap {
-                    return (out, false);
-                }
-                out.push(tar);
-                // stops at TAR_MAX: an uncapped sweep must end exhausted there, not one past it
-                match tar.checked_add(1).filter(|&next| next <= TAR_MAX) {
-                    Some(next) => tar = next,
-                    None => return (out, true),
-                }
-            }
-        }
-        Mode::Regex { compiled, .. } => sweep_regex(compiled, TAR_MIN, TAR_MAX, cap),
+        Mode::Off => Box::new(std::iter::empty()),
+        Mode::Focused => Box::new(
+            FOCUSED_BANDS
+                .into_iter()
+                .flat_map(|(first, last)| first..=last),
+        ),
+        Mode::Range { first, last } => Box::new(*first..=*last),
+        Mode::Full => Box::new(TAR_MIN..=TAR_MAX),
+        Mode::Regex { compiled, .. } => Box::new(regex_tars(compiled.clone(), TAR_MIN, TAR_MAX)),
     }
+}
+
+/// The first `cap` TARs of a selection, and whether the selection had no more than that.
+fn enumerate(selection: &Selection, cap: usize) -> (Vec<u32>, bool) {
+    let mut iter = tars(selection);
+    let out: Vec<u32> = iter.by_ref().take(cap).collect();
+    let exhausted = iter.next().is_none();
+    (out, exhausted)
 }
 
 /// The TARs in `first..=last` whose six-hex-digit spelling matches.
 ///
-/// **Swept, not generated.** A pattern such as `^EDR$` has no closed form,
-/// so the only honest enumeration is the space itself, and the only honest
-/// bound is the probe budget. The sweep stops as soon as `cap` TARs have
-/// matched, so a pattern that matches everything still terminates at the bound
-/// rather than running for hours, and it reports that it stopped.
-///
-/// Separated from [
-///candidates]
-/// and given a range for one reason: this loop runs up to 16 777 216 times,
-/// which is about a second in a release build and minutes in a debug one. A
-/// unit test that had to sit through the whole space to check that
-/// `^EDR$` means one TAR would be a test nobody runs, so the windowing
-/// lives here and the tests use it.
+/// **Swept, not generated.** A pattern such as `^EDR$` has no closed form, so the only honest
+/// enumeration is the space itself. The sweep is lazy: the caller decides how far it runs.
+fn regex_tars(compiled: regex::bytes::Regex, first: u32, last: u32) -> impl Iterator<Item = u32> {
+    (first..=last).filter(move |&tar| {
+        // Six bytes on the stack rather than a String per candidate.
+        let mut spelled = [0u8; 6];
+        spell_hex(tar, &mut spelled);
+        compiled.is_match(&spelled[..])
+    })
+}
+
+/// The capped regex sweep as a list, for the tests that read it.
+#[cfg(test)]
 fn sweep_regex(
     compiled: &regex::bytes::Regex,
     first: u32,
     last: u32,
     cap: usize,
 ) -> (Vec<u32>, bool) {
-    let mut out = Vec::new();
-    // Six bytes on the stack rather than a String per candidate: the
-    // per-candidate cost is most of the cost of this function, and
-    // regex::bytes exists so that matching a short octet string does not
-    // allocate one.
-    let mut spelled = [0u8; 6];
-    let mut tar = first;
-    loop {
-        spell_hex(tar, &mut spelled);
-        if compiled.is_match(&spelled[..]) {
-            if out.len() == cap {
-                return (out, false);
-            }
-            out.push(tar);
-        }
-        match tar.checked_add(1) {
-            Some(next) if next <= last => tar = next,
-            _ => return (out, true),
-        }
-    }
+    let mut iter = regex_tars(compiled.clone(), first, last);
+    let out: Vec<u32> = iter.by_ref().take(cap).collect();
+    let exhausted = iter.next().is_none();
+    (out, exhausted)
 }
 
 /// Six hexadecimal digits of `tar` into `out`.
@@ -1596,6 +1588,9 @@ pub struct Audit {
     pub selection: Selection,
     /// The TARs probed, in the order they were probed.
     pub probes: Vec<Probe>,
+    /// Probes counted but not kept as rows in `probes`, past [`DETAIL_CAP`]. All zero for a sweep
+    /// that fits.
+    pub omitted: Omitted,
     /// The response this card gives to TARs it has no opinion about.
     pub baseline: Baseline,
     /// Whether the selection was exhausted.
@@ -1622,6 +1617,7 @@ impl Audit {
         Self {
             selection: Selection::default(),
             probes: Vec::new(),
+            omitted: Omitted::default(),
             baseline: Baseline::of(&[]),
             exhausted: true,
             stopped: Some(reason.into()),
@@ -1649,12 +1645,23 @@ impl Audit {
             .map(|probe| probe.tar)
     }
 
-    /// How many TARs the card accepted.
+    /// How many TARs the card accepted, counting those past [`DETAIL_CAP`] that have no row.
     pub fn accepted_count(&self) -> usize {
         self.probes
             .iter()
             .filter(|probe| probe.verdict.is_accepted())
             .count()
+            + self.omitted.accepted
+    }
+
+    /// How many TARs were probed, with a row or not.
+    pub fn probed(&self) -> usize {
+        self.probes.len() + self.omitted.total()
+    }
+
+    /// Whether some probes were counted without a row (see [`DETAIL_CAP`]).
+    pub const fn summarised(&self) -> bool {
+        self.omitted.total() > 0
     }
 
     /// Whether TAR zero was accepted, which is MSL 0.
@@ -1719,7 +1726,14 @@ impl Audit {
             "class_octet": format!("{:02X}", self.selection.class.octet()),
             "class_assumption": class_assumption(self.selection.class),
             "max_probes": MAX_PROBES,
-            "probed": self.probes.len(),
+            "probed": self.probed(),
+            "rows_summarised": self.summarised(),
+            "detail_cap": DETAIL_CAP,
+            "rows_omitted": {
+                "accepted": self.omitted.accepted,
+                "refused": self.omitted.refused,
+                "filtered": self.omitted.filtered,
+            },
             "exchanges": self.exchanges,
             "exhausted": self.exhausted,
             "complete": self.is_complete(),
@@ -1819,7 +1833,7 @@ impl Audit {
         out.push_str(NEWLINE);
         out.push_str(&format!(
             "TAR PROBES: {} (cap {}, {} exchange(s))",
-            self.probes.len(),
+            self.probed(),
             MAX_PROBES,
             self.exchanges
         ));
@@ -1836,11 +1850,18 @@ impl Audit {
             ));
             out.push_str(NEWLINE);
         }
-        if self.probes.len() > MAX_PROBE_SAMPLE {
+        if self.probed() > MAX_PROBE_SAMPLE {
             out.push_str(&format!(
                 "  ... and {} more; a report lists at most {} of them",
-                self.probes.len() - MAX_PROBE_SAMPLE,
+                self.probed() - MAX_PROBE_SAMPLE,
                 MAX_PROBE_SAMPLE
+            ));
+            out.push_str(NEWLINE);
+        }
+        if self.summarised() {
+            out.push_str(&format!(
+                "  rows summarised: {} accepted, {} refused and {} filtered probes were counted, not kept as rows (cap {} per kind)",
+                self.omitted.accepted, self.omitted.refused, self.omitted.filtered, DETAIL_CAP
             ));
             out.push_str(NEWLINE);
         }
@@ -2294,6 +2315,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
         return Ok(Audit {
             selection: selection.clone(),
             probes: Vec::new(),
+            omitted: Omitted::default(),
             baseline: Baseline::of(&[]),
             exhausted: true,
             stopped: Some("the operator asked for no TAR probing".to_owned()),
@@ -2303,22 +2325,24 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
         });
     }
 
-    let (tars, selection_exhausted) = enumerate(selection, bound);
-    let mut exchanges = 0usize;
-    let mut halted: Option<Stop> = None;
-
-    if tars.is_empty() {
+    // Streamed: one TAR at a time, so a full sweep never sits in memory as a list.
+    let mut stream = tars(selection);
+    let Some(first) = stream.next() else {
         return Ok(Audit {
             selection: selection.clone(),
             probes: Vec::new(),
+            omitted: Omitted::default(),
             baseline: Baseline::of(&[]),
-            exhausted: selection_exhausted,
+            exhausted: true,
             stopped: Some(format!("the selection {selection} matched no TAR")),
             exchanges: 0,
             terminal_profile: None,
             por_mode: por,
         });
-    }
+    };
+    let mut stream = std::iter::once(first).chain(stream);
+    let mut exchanges = 0usize;
+    let mut halted: Option<Stop> = None;
 
     // 0. The opt-in TERMINAL PROFILE, before anything is probed.
     let mut sent_profile = None;
@@ -2373,9 +2397,11 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
     let skipped = halted.is_none() && !baseline.is_established();
 
     // 2. The probes themselves.
-    let mut probes = Vec::with_capacity(tars.len());
+    let mut probes = Vec::new();
+    let mut omitted = Omitted::default();
+    let (mut kept_plain, mut kept_other) = (0usize, 0usize);
     if halted.is_none() && !skipped {
-        for tar in tars {
+        for tar in stream.by_ref().take(bound) {
             if interrupt() {
                 halted = Some(Stop::Interrupted);
                 break;
@@ -2401,7 +2427,20 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
                             body_len: reply.signature.body_len(),
                         }
                     };
-                    probes.push(Probe { tar, verdict });
+                    // Bounded memory (issue #266): rows up to DETAIL_CAP per kind, the rest counted.
+                    let (kept, over) = if matches!(verdict, Verdict::Refused { .. }) {
+                        (&mut kept_plain, &mut omitted.refused)
+                    } else if verdict.is_accepted() {
+                        (&mut kept_other, &mut omitted.accepted)
+                    } else {
+                        (&mut kept_other, &mut omitted.filtered)
+                    };
+                    if *kept < DETAIL_CAP {
+                        *kept += 1;
+                        probes.push(Probe { tar, verdict });
+                    } else {
+                        *over += 1;
+                    }
                 }
                 Ok(Err(reason)) => {
                     halted = Some(Stop::CardNotAnswering(reason));
@@ -2416,6 +2455,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
         }
     }
 
+    let selection_exhausted = stream.next().is_none();
     let exhausted = selection_exhausted && halted.is_none() && !skipped;
     let stopped = if exhausted {
         None
@@ -2439,12 +2479,6 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
     } else {
         Some(if bound == MAX_PROBES {
             format!("the probe budget of {MAX_PROBES} TARs was reached and the selection had more")
-        } else if bound == UNCAPPED_MAX_PROBES {
-            format!(
-                "WARNING: the --tar-uncapped ceiling of {UNCAPPED_MAX_PROBES} probes was reached and \
-                 the selection had more. This is not the full 16,777,216-value TAR space: the full \
-                 sweep needs a streaming follow-up, because every probe is held in memory"
-            )
         } else {
             format!("the probe ceiling of {bound} TARs was reached and the selection had more")
         })
@@ -2453,6 +2487,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
     Ok(Audit {
         selection: selection.clone(),
         probes,
+        omitted,
         baseline,
         exhausted,
         stopped,
@@ -4286,6 +4321,59 @@ mod tests {
         assert_eq!(tars.len(), TAR_SPACE);
         assert!(exhausted);
         assert_eq!(*tars.last().expect("non-empty"), TAR_MAX);
+    }
+
+    /// **Issue #266, part 2.** The full space is streamed: the first TARs come lazily, the whole
+    /// space is counted, and the uncapped bound covers it, so `-st full` is reachable.
+    #[test]
+    fn the_full_space_is_streamed_and_the_uncapped_bound_reaches_it() {
+        let full: Selection = "full".parse().expect("full");
+        let first: Vec<u32> = tars(&full).take(3).collect();
+        assert_eq!(first, vec![TAR_MIN, TAR_MIN + 1, TAR_MIN + 2]);
+        assert_eq!(uncapped_probe_count(&full), TAR_SPACE);
+    }
+
+    /// **Issue #266, bounded memory.** A sweep far past [`DETAIL_CAP`] keeps at most the cap in
+    /// rows, loses no count, and says the rows were summarised.
+    #[test]
+    fn a_large_sweep_keeps_bounded_rows_and_counts_the_rest() {
+        let n = 3 * DETAIL_CAP + 7;
+        let big: Selection = format!("range:000000-{:06X}", n - 1)
+            .parse()
+            .expect("range");
+        let mut card = Scripted::new(&[&[0x90, 0x00]]).swicc();
+        let audit = audit_bounded(
+            &mut card,
+            &big,
+            &Policy::default(),
+            false,
+            PorMode::default(),
+            n,
+            &mut never,
+        )
+        .expect("no transport error");
+        assert_eq!(audit.probed(), n);
+        assert_eq!(audit.probes.len(), DETAIL_CAP);
+        assert_eq!(audit.omitted.refused, n - DETAIL_CAP);
+        assert_eq!(audit.omitted.total(), n - DETAIL_CAP);
+        assert!(audit.summarised() && audit.is_complete());
+        let block = audit.to_json();
+        assert_eq!(block["probed"], n);
+        assert_eq!(block["rows_summarised"], true);
+        assert_eq!(block["rows_omitted"]["refused"], n - DETAIL_CAP);
+        assert!(block["probes"].as_array().expect("array").len() <= MAX_PROBE_SAMPLE);
+        let small = audit_bounded(
+            &mut Scripted::new(&[&[0x90, 0x00]]).swicc(),
+            &"range:000000-000063".parse().expect("range"),
+            &Policy::default(),
+            false,
+            PorMode::default(),
+            100,
+            &mut never,
+        )
+        .expect("ok");
+        assert!(!small.summarised());
+        assert_eq!(small.to_json()["rows_summarised"], false);
     }
 
     /// **Issue #266, the ceiling.** A sweep that reaches its bound stops there and says so: not

@@ -3365,3 +3365,14 @@ fn gp_help_warns_that_dm_tokens_are_live_credentials() {
         assert!(help.contains("does not revoke it"), "{args:?}:\n{help}");
     }
 }
+
+/// `--tar-uncapped` without `--yes` is a dry run: it names the probe count of the full space and
+/// `--yes`, sends nothing, and exits 2 before any reader is opened.
+#[test]
+fn tar_uncapped_full_space_is_a_dry_run_without_yes() {
+    let run = run_piped(&["scan", "--tar", "full", "--tar-uncapped", "--json"][..]);
+    assert_eq!(run.code(), 2, "{:?}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert!(run.stderr.contains("16777216"), "{:?}", run.stderr);
+    assert!(run.stderr.contains("--yes"), "{:?}", run.stderr);
+}

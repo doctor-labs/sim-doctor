@@ -3367,6 +3367,7 @@ mod tests {
         // warning goes null - which is the whole point of the field.
         let probed = tar::Audit {
             selection: tar::Selection::focused(),
+            omitted: tar::Omitted::default(),
             probes: vec![tar::Probe {
                 tar: 0,
                 verdict: tar::Verdict::Refused { status: None },
@@ -3469,6 +3470,7 @@ mod tests {
         ]);
         tar::Audit {
             selection: tar::Selection::default(),
+            omitted: tar::Omitted::default(),
             probes: vec![
                 tar::Probe {
                     tar: tar::TAR_MIN,
@@ -3495,6 +3497,7 @@ mod tests {
             tar::Signature::of(&crate::apdu::Response::parse(&[0x90, 0x00]).expect("a response"));
         tar::Audit {
             selection: tar::Selection::default(),
+            omitted: tar::Omitted::default(),
             probes: vec![tar::Probe {
                 tar: tar::TAR_MIN,
                 verdict: tar::Verdict::Refused {

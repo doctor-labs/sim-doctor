@@ -7405,7 +7405,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-X -b -h --exclusive --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --csv --tar --tar-filter --class --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --tar-uncapped --face --theme --color --headless --help"
+            opts="-X -b -h --exclusive --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --csv --tar --tar-filter --class --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --tar-uncapped --yes --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
