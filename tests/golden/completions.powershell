@@ -44,6 +44,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('esim-cert', 'esim-cert', [CompletionResultType]::ParameterValue, 'Verify an eSIM certificate chain offline, up to a CI root you supply')
             [CompletionResult]::new('ota-expanded', 'ota-expanded', [CompletionResultType]::ParameterValue, 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out')
+            [CompletionResult]::new('keygen', 'keygen', [CompletionResultType]::ParameterValue, 'Generate one card''s Ki, OPc, ICCID and IMSI from a secret you hold')
             [CompletionResult]::new('fuzz', 'fuzz', [CompletionResultType]::ParameterValue, 'APDU discovery and the OTA/SMS fuzz sweep')
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
@@ -1038,6 +1039,21 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         'sim-doctor;ota-expanded;help;help' {
             break
         }
+        'sim-doctor;keygen' {
+            [CompletionResult]::new('-z', '-z', [CompletionResultType]::ParameterName, 'File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped')
+            [CompletionResult]::new('--secret-file', '--secret-file', [CompletionResultType]::ParameterName, 'File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped')
+            [CompletionResult]::new('--secret-env', '--secret-env', [CompletionResultType]::ParameterName, 'Environment variable holding the secret')
+            [CompletionResult]::new('-j', '-j', [CompletionResultType]::ParameterName, 'Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom')
+            [CompletionResult]::new('--index', '--index', [CompletionResultType]::ParameterName, 'Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom')
+            [CompletionResult]::new('--salt', '--salt', [CompletionResultType]::ParameterName, 'Random mode''s salt, 64 hex digits. It is printed with the card, so this is how a printed random card is regenerated. It is a public input, not a secret')
+            [CompletionResult]::new('--mcc', '--mcc', [CompletionResultType]::ParameterName, 'Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3')
+            [CompletionResult]::new('--mnc', '--mnc', [CompletionResultType]::ParameterName, 'Mobile Network Code, at most --mnclen digits, zero-padded to that width')
+            [CompletionResult]::new('--mnclen', '--mnclen', [CompletionResultType]::ParameterName, 'Width of the MNC: 2 or 3, or 0 to keep the MNC''s own length (pySim''s `auto`)')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "keygen" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
         'sim-doctor;fuzz' {
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
@@ -1383,6 +1399,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('esim-cert', 'esim-cert', [CompletionResultType]::ParameterValue, 'Verify an eSIM certificate chain offline, up to a CI root you supply')
             [CompletionResult]::new('ota-expanded', 'ota-expanded', [CompletionResultType]::ParameterValue, 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out')
+            [CompletionResult]::new('keygen', 'keygen', [CompletionResultType]::ParameterValue, 'Generate one card''s Ki, OPc, ICCID and IMSI from a secret you hold')
             [CompletionResult]::new('fuzz', 'fuzz', [CompletionResultType]::ParameterValue, 'APDU discovery and the OTA/SMS fuzz sweep')
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
@@ -1612,6 +1629,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;ota-expanded;por' {
+            break
+        }
+        'sim-doctor;help;keygen' {
             break
         }
         'sim-doctor;help;fuzz' {

@@ -114,6 +114,16 @@ pub fn open_auts(
     (sqn_ms, check.mac_s == auts[6..])
 }
 
+/// OPc derived from the operator constant under the subscriber key: AES-CMC(Ki, OP),
+/// which is the f1 computation with an all-zero challenge, so the value is the one
+/// [`compute`] would return with `Operator::Op` however it is asked for.
+///
+/// The one place in this crate that derives OPc, so no other module can compute it a
+/// second, differently-shaped way.
+pub fn opc(k: [u8; 16], op: [u8; 16]) -> [u8; 16] {
+    *Milenage::new_with_op(k, op).opc()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +176,16 @@ mod tests {
         assert_eq!(open_auts(h(K), op, &h(RAND), &auts), (h(SQN), true));
         auts[13] ^= 1;
         assert!(!open_auts(h(K), op, &h(RAND), &auts).1);
+    }
+
+    #[test]
+    fn opc_alone_is_the_test_set_1_vector() {
+        // TS 35.208 test set 1 again, with no challenge at all: the AES-CMC of the
+        // operator constant under the key is the same OPc the full run computes.
+        assert_eq!(
+            opc(h(K), h(OP)),
+            h::<16>("cd63cb71954a9f4e48a5994e37a02baf")
+        );
     }
 
     #[test]

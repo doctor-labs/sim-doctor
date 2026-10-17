@@ -26,6 +26,7 @@ Commands:
   ota-crypto    Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them. No card and no reader: pure crypto over hex given on the command line
   esim-cert     Verify an eSIM certificate chain offline, up to a CI root you supply
   ota-expanded  Offline OTA expanded-command and Proof-of-Response decoder, as pySim's OTA layer uses them. No card and no reader: hex in, hex out
+  keygen        Generate one card's Ki, OPc, ICCID and IMSI from a secret you hold
   fuzz          APDU discovery and the OTA/SMS fuzz sweep
   euicc         eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
   card          A pySim-shell style shell over the card: select files, read them, send APDUs
@@ -991,6 +992,22 @@ Options:
       --remote-format <REMOTE_FORMAT>  Read the secure data as a compact (TS 102 226 5.1.2) or expanded (5.2.2) Remote Application response [default: compact] [possible values: compact, expanded]
       --json                           Emit one JSON envelope of kind "ota-expanded" on stdout
   -h, --help                           Print help (see more with '--help')
+
+$ sim-doctor keygen -h [exit 0]
+Generate one card's Ki, OPc, ICCID and IMSI from a secret you hold
+
+Usage: sim-doctor keygen [OPTIONS] <--secret-file <PATH>|--secret-env <VAR>>
+
+Options:
+  -z, --secret-file <PATH>  File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped
+      --secret-env <VAR>    Environment variable holding the secret
+  -j, --index <N>           Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom
+      --salt <HEX>          Random mode's salt, 64 hex digits. It is printed with the card, so this is how a printed random card is regenerated. It is a public input, not a secret
+      --mcc <DIGITS>        Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3 [default: 901]
+      --mnc <DIGITS>        Mobile Network Code, at most --mnclen digits, zero-padded to that width [default: 55]
+      --mnclen <DIGITS>     Width of the MNC: 2 or 3, or 0 to keep the MNC's own length (pySim's `auto`) [default: 0]
+      --json                Emit one JSON envelope of kind "keygen" on stdout
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor fuzz -h [exit 0]
 APDU discovery and the OTA/SMS fuzz sweep
