@@ -1347,6 +1347,18 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(set-default-dp)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--yes[Send SetDefaultDpAddress, then re-read the configured addresses and confirm. Without it nothing is sent and no reader is opened\: the exact request bytes are printed]' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':address -- The new default SM-DP+ address, as a UTF-8 string:_default' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__euicc__subcmd__help_commands" \
@@ -1416,6 +1428,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (reset)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(set-default-dp)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1898,6 +1914,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(set-default-dp)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -2063,6 +2083,7 @@ _sim-doctor__subcmd__euicc_commands() {
 'disable:Disable a profile (lpac \`profile disable\`, ES10c DisableProfile with REFRESH). A dry run unless \`--yes\`\: disabling the only enabled profile leaves no active profile. Never exposed over MCP' \
 'delete:Delete a profile (lpac \`profile delete\`, ES10c DeleteProfile). A dry run unless \`--yes\`\: the profile is erased permanently and can only come back by downloading it again from the operator. An enabled profile is refused. Never exposed over MCP' \
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
+'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc commands' commands "$@"
@@ -2099,6 +2120,7 @@ _sim-doctor__subcmd__euicc__subcmd__help_commands() {
 'disable:Disable a profile (lpac \`profile disable\`, ES10c DisableProfile with REFRESH). A dry run unless \`--yes\`\: disabling the only enabled profile leaves no active profile. Never exposed over MCP' \
 'delete:Delete a profile (lpac \`profile delete\`, ES10c DeleteProfile). A dry run unless \`--yes\`\: the profile is erased permanently and can only come back by downloading it again from the operator. An enabled profile is refused. Never exposed over MCP' \
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
+'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc help commands' commands "$@"
@@ -2171,6 +2193,11 @@ _sim-doctor__subcmd__euicc__subcmd__help__subcmd__profiles_commands() {
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__reset_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc help reset commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__set-default-dp_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__set-default-dp_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help set-default-dp commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__info_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__info_commands() {
@@ -2246,6 +2273,11 @@ _sim-doctor__subcmd__euicc__subcmd__profiles_commands() {
 _sim-doctor__subcmd__euicc__subcmd__reset_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc reset commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__set-default-dp_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__set-default-dp_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc set-default-dp commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__fix_commands] )) ||
 _sim-doctor__subcmd__fix_commands() {
@@ -2632,6 +2664,7 @@ _sim-doctor__subcmd__help__subcmd__euicc_commands() {
 'disable:Disable a profile (lpac \`profile disable\`, ES10c DisableProfile with REFRESH). A dry run unless \`--yes\`\: disabling the only enabled profile leaves no active profile. Never exposed over MCP' \
 'delete:Delete a profile (lpac \`profile delete\`, ES10c DeleteProfile). A dry run unless \`--yes\`\: the profile is erased permanently and can only come back by downloading it again from the operator. An enabled profile is refused. Never exposed over MCP' \
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
+'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
     )
     _describe -t commands 'sim-doctor help euicc commands' commands "$@"
 }
@@ -2698,6 +2731,11 @@ _sim-doctor__subcmd__help__subcmd__euicc__subcmd__profiles_commands() {
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__reset_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help euicc reset commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__set-default-dp_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__set-default-dp_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc set-default-dp commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__fix_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__fix_commands() {
