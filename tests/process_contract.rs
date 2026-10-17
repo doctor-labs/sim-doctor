@@ -2327,6 +2327,62 @@ fn euicc_delete_reset_and_remove_validate_before_touching_a_reader() {
     }
 }
 
+#[test]
+fn euicc_set_default_dp_refuses_a_bad_address_before_a_reader_and_dry_runs_offline() {
+    // Issue #227. A bad address is refused with no reader named at all; a good
+    // one without `--yes` opens none and prints the exact request bytes; with
+    // `--yes` a reader that cannot exist fails at the reader.
+    for address in ["", "a\nb", &"a".repeat(129)] {
+        let run = run_piped(&["euicc", "set-default-dp", address, "--yes", "--json"]);
+        assert_eq!(run.code(), 1, "{}", run.stderr);
+        assert_eq!(
+            assert_exactly_one_envelope(&run.stdout, contract::ExitCode::Findings)
+                .payload()
+                .data()["error"]["kind"],
+            "bad-sm-dp-address"
+        );
+    }
+    let run = run_piped(&["euicc", "set-default-dp", "dp.example.com", "--json"]);
+    assert_eq!(run.code(), 0, "{}", run.stderr);
+    let data = assert_exactly_one_envelope(&run.stdout, contract::ExitCode::Success)
+        .payload()
+        .data()
+        .clone();
+    assert_eq!(data["dry_run"], true);
+    assert_eq!(data["applied"], false);
+    assert_eq!(data["card_touched"], false);
+    assert_eq!(data["default_smdp_address"], "dp.example.com");
+    assert_eq!(
+        data["request_hex"],
+        "BF3F10800E64702E6578616D706C652E636F6D"
+    );
+    assert!(data["warning"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("WARNING: this changes where the eUICC looks for profiles"));
+
+    let run = run_piped(&["euicc", "set-default-dp", "--help"]);
+    assert_eq!(run.code(), 0, "{}", run.stderr);
+    assert!(
+        run.stdout
+            .contains("WARNING: this changes where the eUICC looks for profiles"),
+        "{}",
+        run.stdout
+    );
+
+    let run = run_piped(&[
+        "euicc",
+        "set-default-dp",
+        "dp.example.com",
+        "--yes",
+        "--json",
+        "--reader",
+        NO_SUCH_READER,
+    ]);
+    assert_eq!(run.code(), 1, "{}", run.stderr);
+    assert_exactly_one_envelope(&run.stdout, contract::ExitCode::Findings);
+}
+
 /// `gp status --keys-env` loads and checks the keys BEFORE any reader is opened,
 /// so no card is involved here: a malformed key and a wrong stated KCV are
 /// refused as one envelope, exit 1, and the refusal never quotes the key text.

@@ -1499,6 +1499,194 @@ pub fn erase_to_human(data: &Value) -> String {
     out
 }
 
+/// What setting the default SM-DP+ address costs, in the words the other eUICC
+/// writes use (issue #227). Printed by the dry run, carried in `data`, and
+/// attached to the command's own help, so a caller reading only the machine
+/// output still learns the consequence.
+pub const DEFAULT_DP_WARNING: &str = "WARNING: this changes where the eUICC looks for profiles. The default SM-DP+ address is where the card sends every future download request, so an address that cannot be reached leaves it unable to download anything until the address is set back.";
+
+/// A request to set the eUICC's default SM-DP+ address (ES10a
+/// SetDefaultDpAddress, [SGP.22 v2.5 §5.7.4]). Built by [`DefaultDp::new`],
+/// which checks the address before anything touches a card.
+#[derive(Debug, Clone)]
+pub struct DefaultDp {
+    address: String,
+    /// Send SetDefaultDpAddress. `false` (the default of the CLI) sends no
+    /// byte at all and opens no reader: [`default_dp_plan`] reports the exact
+    /// request instead.
+    pub apply: bool,
+}
+
+impl DefaultDp {
+    /// Validates `address` before any reader is opened: not empty, at most
+    /// [`es10::MAX_DEFAULT_DP_ADDRESS_BYTES`] bytes, and free of control
+    /// characters so the address cannot drive a terminal when it is shown.
+    /// The argument is `&str` and clap hands the CLI a `String`, so it is UTF-8
+    /// by construction and a lone surrogate cannot reach this point; the length
+    /// is what is checked, and [`es10::set_default_dp_request`] enforces it
+    /// again on the wire bytes.
+    ///
+    /// # Errors
+    ///
+    /// A [`Failure`] of kind `bad-sm-dp-address`.
+    pub fn new(address: &str, apply: bool) -> Result<Self, Failure> {
+        let refused = |message: String| {
+            Failure::new(
+                "bad-sm-dp-address",
+                message,
+                json!({ "bytes": address.len(), "max": es10::MAX_DEFAULT_DP_ADDRESS_BYTES }),
+            )
+        };
+        if address.is_empty() {
+            return Err(refused(
+                "the default SM-DP+ address must not be empty".to_owned(),
+            ));
+        }
+        if address.len() > es10::MAX_DEFAULT_DP_ADDRESS_BYTES {
+            return Err(refused(format!(
+                "the default SM-DP+ address is {} bytes of UTF-8; this build allows at most {}",
+                address.len(),
+                es10::MAX_DEFAULT_DP_ADDRESS_BYTES
+            )));
+        }
+        if address.chars().any(char::is_control) {
+            return Err(refused(
+                "the default SM-DP+ address must not contain control characters".to_owned(),
+            ));
+        }
+        Ok(Self {
+            address: address.to_owned(),
+            apply,
+        })
+    }
+}
+
+/// The dry run of [`set_default_dp`]: the exact request bytes, the warning, and
+/// no card at all.
+///
+/// No reader is opened here - the library is not even handed a session, so it
+/// cannot open one. That is what `card_touched: false` means.
+pub fn default_dp_plan(request: &DefaultDp) -> Result<Value, Failure> {
+    let frame = es10::set_default_dp_request(&request.address).map_err(exchange_failed)?;
+    Ok(json!({
+        "command": "set-default-dp",
+        "default_smdp_address": request.address,
+        "request_hex": hex::encode_upper(&frame),
+        "warning": DEFAULT_DP_WARNING,
+        "dry_run": true,
+        "applied": false,
+        "card_touched": false,
+    }))
+}
+
+/// SetDefaultDpAddress (ES10a, [SGP.22 v2.5 §5.7.4]) on an already validated
+/// request. Reads the configured addresses, sends `BF3F { 80 <address> }` as
+/// one STORE DATA, maps the result, then re-reads the configured addresses and
+/// fails with kind `verify-failed` unless the default SM-DP+ address is now the
+/// one that was set. One attempt: there is no retry loop, and the single
+/// STORE DATA path in [`es10::store_data_sized`] is the only one used.
+///
+/// The re-read is GetEuiccConfiguredAddresses (`BF3C`) - the same read
+/// `euicc info` reports `configured_addresses.default_smdp` from, asked on the
+/// same channel, so verification cannot disagree with what the operator sees.
+///
+/// # Errors
+///
+/// A [`Failure`]: `undefined-error` for `undefinedError(127)`, `es10-refused`
+/// for a result code the enumeration does not name, `verify-failed` when the
+/// card accepted the write and does not show the address.
+pub fn set_default_dp<S: CardSession + ?Sized>(
+    session: &mut S,
+    aid: &[u8],
+    max_segment: usize,
+    request: &DefaultDp,
+) -> Result<Value, Failure> {
+    in_channel(session, aid, max_segment, |ask| {
+        let configured = |ask: &mut Ask<'_>| {
+            es10::decode_configured_addresses(&ask(
+                "GetEuiccConfiguredAddresses",
+                es10::get_euicc_configured_addresses_request(),
+            )?)
+            .map(|a| a.default_dp_address)
+            .map_err(|e| bad("GetEuiccConfiguredAddresses", e))
+        };
+        let frame = es10::set_default_dp_request(&request.address).map_err(exchange_failed)?;
+        let mut data = json!({
+            "command": "set-default-dp",
+            "default_smdp_address": request.address,
+            "request_hex": hex::encode_upper(&frame),
+            "warning": DEFAULT_DP_WARNING,
+            "dry_run": false,
+            "applied": false,
+            "previous_default_smdp_address": configured(&mut *ask)?,
+        });
+        let result = es10::decode_set_default_dp(&ask("SetDefaultDpAddress", frame)?)
+            .map_err(|e| bad("SetDefaultDpAddress", e))?;
+        if result.result != es10::SetDefaultDpResult::Ok {
+            return Err(Failure::new(
+                if result.result == es10::SetDefaultDpResult::UndefinedError {
+                    "undefined-error"
+                } else {
+                    "es10-refused"
+                },
+                format!(
+                    "SetDefaultDpAddress returned result code {}",
+                    result.result.code()
+                ),
+                json!({
+                    "function": "SetDefaultDpAddress",
+                    "code": result.result.code(),
+                    "default_smdp_address": request.address,
+                }),
+            ));
+        }
+        let after = configured(&mut *ask)?;
+        let verified = after.as_deref() == Some(request.address.as_str());
+        data["verified_default_smdp_address"] = json!(after.clone());
+        if !verified {
+            return Err(Failure::new(
+                "verify-failed",
+                format!(
+                    "SetDefaultDpAddress was accepted but the configured default SM-DP+ address is now {}, not {}",
+                    after.as_deref().unwrap_or("(none configured)"),
+                    request.address
+                ),
+                json!({
+                    "expected": request.address,
+                    "actual": after,
+                    "function": "GetEuiccConfiguredAddresses",
+                }),
+            ));
+        }
+        data["applied"] = json!(true);
+        Ok(data)
+    })
+}
+
+/// The human report for [`default_dp_plan`] and [`set_default_dp`].
+pub fn default_dp_to_human(data: &Value) -> String {
+    let text = |v: &Value| match v {
+        Value::Null => "-".to_owned(),
+        Value::String(s) => sanitize(s),
+        other => sanitize(&other.to_string()),
+    };
+    let mut out = format!(
+        "Default SM-DP+ address: {}\nRequest bytes: {}\n",
+        text(&data["default_smdp_address"]),
+        text(&data["request_hex"]),
+    );
+    if let Value::String(previous) = &data["previous_default_smdp_address"] {
+        out += &format!("Current default SM-DP+ address: {}\n", sanitize(previous));
+    }
+    out += &format!("{}\n", text(&data["warning"]));
+    out += if data["applied"] == true {
+        "SetDefaultDpAddress sent; the configured addresses now show the new one.\n"
+    } else {
+        "Dry run: nothing was sent and no reader was opened. Re-run with --yes to set it.\n"
+    };
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2689,5 +2877,135 @@ mod tests {
         );
         let f = dump_notifications(&mut card, &ISDR_AID, 255, None).unwrap_err();
         assert_eq!(f.kind, "decode-failed");
+    }
+
+    /// A GetEuiccConfiguredAddresses answer (BF3C) carrying `dp` as the
+    /// default SM-DP+ address and a fixed root SM-DS.
+    fn addresses(dp: &str) -> String {
+        let (ds, dp) = (hex::encode("ds.example.org"), hex::encode(dp));
+        let (nds, ndp) = (ds.len() / 2, dp.len() / 2);
+        ok(&format!(
+            "BF3C{:02X} 80{ndp:02X} {dp} 81{nds:02X} {ds}",
+            2 + ndp + 2 + nds
+        ))
+    }
+
+    /// The three exchanges of a `--yes` run: the configured addresses before
+    /// the write, the write itself, and the same read again.
+    fn default_dp_steps(before: &str, after: &str) -> Vec<(Vec<u8>, String)> {
+        vec![
+            (
+                es10::get_euicc_configured_addresses_request(),
+                addresses(before),
+            ),
+            (
+                es10::set_default_dp_request("dp.example.com").unwrap(),
+                ok("BF3F 03 80 01 00"),
+            ),
+            (
+                es10::get_euicc_configured_addresses_request(),
+                addresses(after),
+            ),
+        ]
+    }
+
+    #[test]
+    fn default_dp_dry_run_sends_nothing_and_touches_no_card() {
+        // The plan is built without a session at all: no reader to open and
+        // nothing to transmit.
+        let request = DefaultDp::new("dp.example.com", false).unwrap();
+        let data = default_dp_plan(&request).unwrap();
+        assert_eq!(data["dry_run"], true);
+        assert_eq!(data["applied"], false);
+        assert_eq!(data["card_touched"], false);
+        assert_eq!(data["default_smdp_address"], "dp.example.com");
+        assert_eq!(
+            data["request_hex"],
+            "BF3F10800E64702E6578616D706C652E636F6D"
+        );
+        assert_eq!(data["warning"], DEFAULT_DP_WARNING);
+        let human = default_dp_to_human(&data);
+        assert!(human.contains("Dry run: nothing was sent and no reader was opened"));
+        assert!(human.contains(DEFAULT_DP_WARNING));
+        assert!(human.contains("BF3F10800E64702E6578616D706C652E636F6D"));
+    }
+
+    #[test]
+    fn set_default_dp_with_yes_sends_the_exact_frame_then_verifies() {
+        // The frame, hand-written: BF3F 10 80 0E "dp.example.com".
+        assert_eq!(
+            es10::set_default_dp_request("dp.example.com").unwrap(),
+            h("BF3F 10 80 0E 64702E6578616D706C652E636F6D")
+        );
+        let mut card = script(
+            "9000",
+            &default_dp_steps("dp.example.com", "dp.example.com"),
+        );
+        let request = DefaultDp::new("dp.example.com", true).unwrap();
+        let data = set_default_dp(&mut card, &ISDR_AID, 255, &request).unwrap();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(data["applied"], true);
+        assert_eq!(data["dry_run"], false);
+        assert_eq!(data["previous_default_smdp_address"], "dp.example.com");
+        assert_eq!(data["verified_default_smdp_address"], "dp.example.com");
+        assert!(default_dp_to_human(&data).contains("SetDefaultDpAddress sent"));
+    }
+
+    #[test]
+    fn set_default_dp_accepted_but_unchanged_is_a_verify_failure() {
+        let mut card = script(
+            "9000",
+            &default_dp_steps("old.example.com", "old.example.com"),
+        );
+        let request = DefaultDp::new("dp.example.com", true).unwrap();
+        let failure = set_default_dp(&mut card, &ISDR_AID, 255, &request).unwrap_err();
+        assert_eq!(failure.kind, "verify-failed");
+        assert_eq!(failure.data["expected"], "dp.example.com");
+        assert_eq!(failure.data["actual"], "old.example.com");
+        assert_eq!(card.remaining(), 0);
+    }
+
+    #[test]
+    fn set_default_dp_maps_every_result_code_to_its_own_kind_and_is_not_verified() {
+        for (code, kind) in [("7F", "undefined-error"), ("63", "es10-refused")] {
+            // Two exchanges only: a refused write is never verified.
+            let steps = [
+                (
+                    es10::get_euicc_configured_addresses_request(),
+                    addresses("old.example.com"),
+                ),
+                (
+                    es10::set_default_dp_request("dp.example.com").unwrap(),
+                    ok(&format!("BF3F 03 80 01 {code}")),
+                ),
+            ];
+            let mut card = script("9000", &steps);
+            let request = DefaultDp::new("dp.example.com", true).unwrap();
+            let failure = set_default_dp(&mut card, &ISDR_AID, 255, &request).unwrap_err();
+            assert_eq!(failure.kind, kind, "{code}");
+            assert_eq!(card.remaining(), 0);
+        }
+    }
+
+    #[test]
+    fn set_default_dp_validation_happens_before_any_card_contact() {
+        assert_eq!(
+            DefaultDp::new("", true).unwrap_err().kind,
+            "bad-sm-dp-address"
+        );
+        assert_eq!(
+            DefaultDp::new("a\u{1b}[31m", true).unwrap_err().kind,
+            "bad-sm-dp-address"
+        );
+        assert_eq!(
+            DefaultDp::new("a\n", true).unwrap_err().kind,
+            "bad-sm-dp-address"
+        );
+        assert_eq!(
+            DefaultDp::new(&"a".repeat(129), true).unwrap_err().kind,
+            "bad-sm-dp-address"
+        );
+        assert!(DefaultDp::new(&"a".repeat(128), true).is_ok());
+        assert!(DefaultDp::new("dp.example.com", true).is_ok());
     }
 }

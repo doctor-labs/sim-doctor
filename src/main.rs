@@ -357,6 +357,12 @@ enum EuiccAction {
     /// erase every profile: nothing is selected by default, and sending needs
     /// both `--yes` and `--confirm-eid <EID>` matching the card. Never exposed over MCP.
     Reset(ResetArgs),
+    /// Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22
+    /// v2.5 clause 5.7.4). A write: a dry run that opens no reader unless
+    /// `--yes`, and it changes where the eUICC looks for profiles. Never
+    /// exposed over MCP.
+    #[command(after_help = euicc::DEFAULT_DP_WARNING)]
+    SetDefaultDp(DefaultDpArgs),
 }
 
 /// Everything `sim-doctor euicc notifications` takes: the list, or `remove`.
@@ -459,6 +465,21 @@ struct ResetArgs {
     confirm_eid: Option<String>,
     /// Send the reset (needs `--confirm-eid`), then re-read and confirm.
     /// Without it nothing is changed: the profiles that would be erased are listed.
+    #[arg(long)]
+    yes: bool,
+    #[command(flatten)]
+    flags: EuiccFlags,
+}
+
+/// Everything `sim-doctor euicc set-default-dp` takes.
+#[derive(Args)]
+struct DefaultDpArgs {
+    /// The new default SM-DP+ address, as a UTF-8 string.
+    #[arg(value_name = "ADDRESS", allow_hyphen_values = true)]
+    address: String,
+    /// Send SetDefaultDpAddress, then re-read the configured addresses and
+    /// confirm. Without it nothing is sent and no reader is opened: the exact
+    /// request bytes are printed.
     #[arg(long)]
     yes: bool,
     #[command(flatten)]
@@ -2331,6 +2352,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             EuiccAction::Disable(a) => run_euicc_state(euicc::Action::Disable, &a),
             EuiccAction::Delete(a) => run_euicc_delete(&a),
             EuiccAction::Reset(a) => run_euicc_reset(&a),
+            EuiccAction::SetDefaultDp(a) => run_euicc_default_dp(&a),
         },
         Command::Trace(args) => run_trace(&args),
         Command::Mcp => run_mcp(d),
@@ -3590,6 +3612,66 @@ fn run_euicc_reset(args: &ResetArgs) -> contract::ExitCode {
         |session, aid| euicc::memory_reset(session, aid, max, &request),
         euicc::erase_to_human,
     )
+}
+
+/// `sim-doctor euicc set-default-dp <ADDRESS> [--yes]`: ES10a
+/// SetDefaultDpAddress. The address is validated before any reader is opened,
+/// and the dry run opens none at all - it is built from the library alone and
+/// reports `card_touched: false`.
+fn run_euicc_default_dp(args: &DefaultDpArgs) -> contract::ExitCode {
+    const KIND: &str = contract::DEFAULT_KIND;
+    let json = args.flags.json;
+    guard_exchange(KIND, json);
+    let refuse = |f: euicc::Failure| report_refusal(KIND, &f.message, f.data, json);
+    let request = match euicc::DefaultDp::new(&args.address, args.yes) {
+        Ok(request) => request,
+        Err(f) => return refuse(f),
+    };
+    if !request.apply {
+        return match euicc::default_dp_plan(&request) {
+            Ok(data) => emit_offline_euicc(data, euicc::default_dp_to_human, json),
+            Err(f) => refuse(f),
+        };
+    }
+    let max = usize::from(args.flags.max_segment);
+    run_euicc_op(
+        &args.flags,
+        |session, aid| euicc::set_default_dp(session, aid, max, &request),
+        euicc::default_dp_to_human,
+    )
+}
+
+/// Prints one lpac envelope, or the human report, for `data` that was built
+/// without a card in sight: the offline half of [`run_euicc_op`].
+fn emit_offline_euicc(
+    data: serde_json::Value,
+    human: fn(&serde_json::Value) -> String,
+    json: bool,
+) -> contract::ExitCode {
+    const KIND: &str = contract::DEFAULT_KIND;
+    let rendered = if json {
+        match contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            data,
+        )
+        .to_json()
+        {
+            Ok(line) => line,
+            Err(err) => {
+                eprintln!("sim-doctor: {err}");
+                return contract::ExitCode::Findings;
+            }
+        }
+    } else {
+        human(&data).trim_end().to_owned()
+    };
+    if let Err(err) = emit_stdout(&rendered, "the euicc report") {
+        eprintln!("sim-doctor: {err}");
+        return contract::ExitCode::Findings;
+    }
+    contract::ExitCode::Success
 }
 
 /// `sim-doctor euicc notifications remove <seq> [--yes]`: a dry run unless `--yes`.
