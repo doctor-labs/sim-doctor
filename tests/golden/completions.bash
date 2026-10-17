@@ -1736,7 +1736,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__fuzz__subcmd__ota)
-            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --help"
+            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
