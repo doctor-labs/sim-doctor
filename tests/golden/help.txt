@@ -253,6 +253,7 @@ Commands:
   ara           Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA [all], decoded (read-only, no keys)
   status        GlobalPlatform registry inventory: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication
   select        SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card's current selection
+  crs           Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless
   channel       Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N
   delete        Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT
   make-default  Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT
@@ -321,6 +322,84 @@ Options:
       --trace          Add every APDU exchange (command and response hex) as data.trace
       --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
   -h, --help           Print help (see more with '--help')
+
+$ sim-doctor gp crs -h [exit 0]
+Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless
+
+Usage: sim-doctor gp crs <COMMAND>
+
+Commands:
+  list        List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys
+  info        Read the Contactless Registry Service version and event counter (GET DATA [A5]). Read-only, no keys
+  activate    Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE
+  deactivate  Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE
+  help        Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help (see more with '--help')
+
+$ sim-doctor gp crs list -h [exit 0]
+List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys
+
+Usage: sim-doctor gp crs list [OPTIONS]
+
+Options:
+      --aid <HEX>      Narrow the listing to applications whose AID starts with these bytes
+      --reader <NAME>  The reader to use, matched against the driver's own name
+      --json           Emit one JSON envelope of kind "gp" on stdout
+      --trace          Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help           Print help
+
+$ sim-doctor gp crs info -h [exit 0]
+Read the Contactless Registry Service version and event counter (GET DATA [A5]). Read-only, no keys
+
+Usage: sim-doctor gp crs info [OPTIONS]
+
+Options:
+      --reader <NAME>  The reader to use, matched against the driver's own name
+      --json           Emit one JSON envelope of kind "gp" on stdout
+      --trace          Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help           Print help
+
+$ sim-doctor gp crs activate -h [exit 0]
+Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE
+
+Usage: sim-doctor gp crs activate [OPTIONS] <AID>
+
+Arguments:
+  <AID>  The application AID, 5 to 16 bytes of hex
+
+Options:
+      --reader <NAME>      The reader to use, matched against the driver's own name
+      --json               Emit one JSON envelope of kind "gp" on stdout
+      --trace              Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>   File holding the keys (keep it chmod 600)
+      --keys-env <VAR>     Environment variable holding the keys
+      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help               Print help (see more with '--help')
+
+$ sim-doctor gp crs deactivate -h [exit 0]
+Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE
+
+Usage: sim-doctor gp crs deactivate [OPTIONS] <AID>
+
+Arguments:
+  <AID>  The application AID, 5 to 16 bytes of hex
+
+Options:
+      --reader <NAME>      The reader to use, matched against the driver's own name
+      --json               Emit one JSON envelope of kind "gp" on stdout
+      --trace              Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>   File holding the keys (keep it chmod 600)
+      --keys-env <VAR>     Environment variable holding the keys
+      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help               Print help (see more with '--help')
 
 $ sim-doctor gp channel -h [exit 0]
 Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N

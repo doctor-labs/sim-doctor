@@ -8603,3 +8603,1529 @@ mod tests {
         assert_no_key_material(&everything(&r, &keys));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Contactless Registry Service (CRS) - issue #241
+// ---------------------------------------------------------------------------
+// Every constant below is read out of martinpaljak/GlobalPlatformPro branch
+// `next` (LGPL-3.0-or-later), cited per line, and nothing is copied from it:
+// nextgen/src/main/java/pro/javacard/gp/ng/CRSCookbook.java (the operations),
+// CRSTool.java (the presentation) and GlobalPlatformCookbook.java (the INS
+// values, statically imported by CRSCookbook and therefore not inside it).
+
+/// The CRS application AID, selected before every CRS command [V] CRSCookbook.java:30.
+pub const CRS_AID: [u8; 9] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x43, 0x52, 0x53, 0x00];
+
+const CRS_CLA: u8 = 0x80;
+/// GET DATA, `INS_GET_DATA` [V] GlobalPlatformCookbook.java:70.
+const INS_CRS_GET_DATA: u8 = 0xCA;
+/// GET STATUS, `INS_GET_STATUS` [V] GlobalPlatformCookbook.java:71.
+const INS_CRS_GET_STATUS: u8 = 0xF2;
+/// SET STATUS, `INS_SET_STATUS` [V] GlobalPlatformCookbook.java:72. Note this is
+/// `F0` on this branch, not the `F6` of older GP documentation.
+const INS_CRS_SET_STATUS: u8 = 0xF0;
+/// CRS GET STATUS is issued with P1 `40`, not the registry's own scopes [V] CRSCookbook.java:107.
+const CRS_STATUS_P1: u8 = 0x40;
+/// First page, and the "more data" follow-up [V] CRSCookbook.java:107,109.
+const CRS_STATUS_P2_FIRST: u8 = 0x00;
+const CRS_STATUS_P2_NEXT: u8 = 0x01;
+/// CRS GET DATA's P2: the bare A5 proprietary template [V] CRSCookbook.java:118.
+const CRS_GET_DATA_P2: u8 = 0xA5;
+/// SET STATUS P1 [V] CRSCookbook.java:129.
+const CRS_SET_P1: u8 = 0x01;
+/// SET STATUS P2. `01` activates, `00` deactivates and `80` is never sent: the
+/// card rejects it with `6A86` [V] CRSCookbook.java:122.
+const CRS_ACTIVATE_P2: u8 = 0x01;
+const CRS_DEACTIVATE_P2: u8 = 0x00;
+/// The empty search criterion, matching every application [V] CRSCookbook.java:51.
+const CRS_ALL: [u8; 2] = [0x4F, 0x00];
+/// A listed application [V] CRSCookbook.java:57.
+const TAG_CRS_ENTRY: u16 = 0x61;
+/// The AID inside it [V] CRSCookbook.java:60.
+const TAG_AID: u16 = 0x4F;
+/// `[lifecycle, contactless state]` [V] CRSCookbook.java:61-64.
+const TAG_9F70: u16 = 0x9F70;
+/// The optional CREL Application AID List: a sequence of 4F AIDs [V] CRSCookbook.java:67.
+const TAG_CREL: u16 = 0xA4;
+/// The GET DATA proprietary template holding version and counter [V] CRSCookbook.java:76.
+const TAG_9F08_VERSION: u16 = 0x9F08;
+/// The event counter inside it [V] CRSCookbook.java:78.
+const TAG_80_COUNTER: u16 = 0x80;
+/// `63 10` ("more data") during CRS GET STATUS [V] CRSCookbook.java:108.
+const CRS_MORE_DATA: &str = "6310";
+/// SET STATUS partial failure and conflict, both carrying the affected AIDs
+/// [V] CRSCookbook.java:123,130-133.
+const SW_CRS_PARTIAL: &str = "6320";
+const SW_CRS_CONFLICT: &str = "6330";
+
+/// What activating an application for contactless does to a real card, in the
+/// repo's own words, next to [`PUT_KEY_WARNING`]'s role.
+pub const CRS_WARNING: &str = "activating or deactivating an application for contactless changes what the card answers in a reader from that moment on: an activated application becomes selectable and invocable over RF, and a deactivated one can be unreachable to every terminal that relies on contactless. This is a card state change, not a query, and it is not undone by this tool. Add --yes only when you mean to send it.";
+
+/// Contactless state, the second byte of `9F70` [V] CRSCookbook.java:42-44. An
+/// unrecognised value is reported verbatim rather than guessed at
+/// [V] CRSTool.java:31.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CrsState {
+    /// `00`.
+    Deactivated,
+    /// `01`.
+    Activated,
+    /// `80`.
+    NonActivatable,
+}
+
+impl CrsState {
+    /// `None` for a value the reference does not name.
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x00 => Some(Self::Deactivated),
+            0x01 => Some(Self::Activated),
+            0x80 => Some(Self::NonActivatable),
+            _ => None,
+        }
+    }
+
+    /// The byte as the card sent it.
+    pub const fn byte(self) -> u8 {
+        match self {
+            Self::Deactivated => 0x00,
+            Self::Activated => 0x01,
+            Self::NonActivatable => 0x80,
+        }
+    }
+
+    /// The listing word [V] CRSTool.java:26-33.
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Deactivated => "DEACTIVATED",
+            Self::Activated => "ACTIVATED",
+            Self::NonActivatable => "NON_ACTIVATABLE",
+        }
+    }
+}
+
+/// The contactless state word, or the raw byte when the reference does not name
+/// it [V] CRSTool.java:31.
+fn crs_state_word(raw: u8) -> String {
+    CrsState::from_byte(raw).map_or_else(|| format!("0x{raw:02X}"), |s| s.word().to_string())
+}
+
+/// A big-endian unsigned value, refusing an empty or over-long encoding rather
+/// than truncating it into a wrong answer. The reference reads version and
+/// counter with `big_endian` [V] GlobalPlatformCookbook.java:786,
+/// CRSCookbook.java:79.
+fn crs_uint(bytes: &[u8], max: usize) -> Result<u32, String> {
+    if bytes.is_empty() {
+        return Err("value is empty, expected at least one byte".into());
+    }
+    if bytes.len() > max {
+        return Err(format!(
+            "value is {} bytes, expected at most {max}",
+            bytes.len()
+        ));
+    }
+    Ok(bytes.iter().fold(0u32, |acc, b| (acc << 8) | u32::from(*b)))
+}
+
+/// Builds, and does not send, the CRS GET STATUS: `80 F2 40 <P2> Lc 4F 00 00`,
+/// or `4F <len> <prefix>` when an AID prefix narrows the query. P1 is `40` and
+/// P2 is `00` for the first page and `01` for the `63 10` follow-up
+/// [V] CRSCookbook.java:102-113. No `5C` tag list is sent: omitting it is what
+/// makes the card return every registry data object
+/// [V] CRSCookbook.java:100-101.
+pub fn crs_get_status_command(prefix: Option<&[u8]>, next: bool) -> Result<Command, BuildError> {
+    let mut data = Vec::new();
+    data.push(0x4F);
+    match prefix {
+        Some(p) if !p.is_empty() => lv(&mut data, "CRS AID prefix", p)?,
+        _ => data.push(CRS_ALL[1]),
+    }
+    Ok(Command::case4(
+        Header::new(
+            CRS_CLA,
+            INS_CRS_GET_STATUS,
+            CRS_STATUS_P1,
+            if next {
+                CRS_STATUS_P2_NEXT
+            } else {
+                CRS_STATUS_P2_FIRST
+            },
+        ),
+        data,
+        Le::Short(0),
+    ))
+}
+
+/// Builds, and does not send, the CRS GET DATA: `80 CA 00 A5 00`
+/// [V] CRSCookbook.java:117-119.
+pub fn crs_get_data_command() -> Command {
+    Command::case2(
+        Header::new(CRS_CLA, INS_CRS_GET_DATA, 0x00, CRS_GET_DATA_P2),
+        Le::Short(0),
+    )
+}
+
+/// Builds, and does not send, the CRS SET STATUS: `80 F0 01 <P2> Lc 4F <len>
+/// <AID> 00`, P2 `01` to activate and `00` to deactivate
+/// [V] CRSCookbook.java:124-129.
+///
+/// # Errors
+///
+/// [`BuildError`] for an AID that is not 5 to 16 bytes.
+pub fn crs_set_status_command(aid: &[u8], activate: bool) -> Result<Command, BuildError> {
+    aid_ok("CRS target", aid, false)?;
+    let mut data = vec![0x4F];
+    lv(&mut data, "CRS target", aid)?;
+    Ok(Command::case4(
+        Header::new(
+            CRS_CLA,
+            INS_CRS_SET_STATUS,
+            CRS_SET_P1,
+            if activate {
+                CRS_ACTIVATE_P2
+            } else {
+                CRS_DEACTIVATE_P2
+            },
+        ),
+        data,
+        Le::Short(0),
+    ))
+}
+
+/// The CRS version and event counter, from GET DATA [A5] or the SELECT FCI
+/// proprietary template [V] CRSCookbook.java:48,75-80.
+pub fn decode_crs_info(data: &[u8]) -> Result<(u16, u32), String> {
+    let top = parse_tlvs(data).ok_or("malformed TLV")?;
+    let body = top
+        .iter()
+        .find(|(t, _)| *t == 0xA5)
+        .map(|(_, v)| *v)
+        .ok_or("no A5 in CRS data")?;
+    let kids = parse_tlvs(body).ok_or("malformed TLV inside A5")?;
+    let ver = tlv_get(&kids, TAG_9F08_VERSION).ok_or("A5 without 9F08 version")?;
+    let ctr = tlv_get(&kids, TAG_80_COUNTER).ok_or("A5 without 80 counter")?;
+    let ver = crs_uint(ver, 2)? as u16;
+    let ctr = crs_uint(ctr, 4)?;
+    Ok((ver, ctr))
+}
+
+/// One `4F` AID inside a CREL-like list template.
+fn crs_aid_details(label: &'static str, body: &[u8], out: &mut Vec<Value>) {
+    let Some(kids) = parse_tlvs(body) else {
+        return;
+    };
+    for (tag, v) in kids {
+        if tag == TAG_AID {
+            out.push(json!({ "label": label, "value": hex_of(v) }));
+        }
+    }
+}
+
+/// Every registry data object the card returned for one application, labelled
+/// where the reference knows a label and shown verbatim where it does not
+/// [V] CRSTool.java:91-144 (Table 3-9 of Amendment C). `4F` and `9F70` are
+/// skipped: they head the entry [V] CRSTool.java:93-95.
+fn crs_details(kids: &[(u16, &[u8])]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for (tag, v) in kids {
+        match *tag {
+            TAG_AID | TAG_9F70 => continue,
+            // Display Control Template: unfold its display data objects [V] CRSTool.java:96-102.
+            0x7F20 => {
+                if let Some(inner) = parse_tlvs(v) {
+                    out.extend(crs_details(&inner));
+                }
+            }
+            TAG_CREL => crs_aid_details("CREL", v, &mut out),
+            0xA2 => crs_aid_details("Head", v, &mut out),
+            0xA3 => crs_aid_details("Members", v, &mut out),
+            0xA5 => crs_aid_details("Policy", v, &mut out),
+            0x80 => out.push(json!({
+                "label": "Counter",
+                "value": crs_uint(v, 4).map_or_else(|e| e, |n| n.to_string()),
+            })),
+            0x81 => out.push(json!({
+                "label": "Priority",
+                "value": v.first().map_or(0, |b| u32::from(*b)),
+            })),
+            // Display Required Indicator: 00 or absent requires a display [V] CRSTool.java:117-119.
+            0x88 => out.push(json!({
+                "label": "Display",
+                "value": if v.first().is_some_and(|b| *b != 0) { "not required" } else { "required" },
+            })),
+            // Application Family is an AFI byte; the reference names known sectors from
+            // a table this build does not carry, so only the byte is shown [V] CRSTool.java:79-87.
+            0x87 => out.push(json!({
+                "label": "Family",
+                "value": v.first().map_or_else(String::new, |b| format!("0x{b:02X}")),
+            })),
+            0x5F50 => out.push(json!({
+                "label": "URL",
+                "value": crate::contract::sanitize(&String::from_utf8_lossy(v)),
+            })),
+            0x5F45 => out.push(json!({
+                "label": "Message",
+                "value": crate::contract::sanitize(&String::from_utf8_lossy(v)),
+            })),
+            0x6D => out.push(json!({ "label": "Image", "value": format!("{} bytes", v.len()) })),
+            0x89 => out.push(json!({ "label": "Protocols", "value": hex_of(v) })),
+            // Continuous Processing: 02 enabled, 01 or absent disabled [V] CRSTool.java:131-132.
+            0x8A => out.push(json!({
+                "label": "Continuous",
+                "value": if v.first() == Some(&0x02) { "enabled" } else { "disabled" },
+            })),
+            0x95 => out.push(json!({ "label": "Interfaces", "value": hex_of(v) })),
+            0x96 => out.push(json!({
+                "label": "Privacy",
+                "value": if v.first().is_some_and(|b| *b != 0) { "sensitive" } else { "normal" },
+            })),
+            0xA6 => out.push(json!({ "label": "Data", "value": hex_of(v) })),
+            _ => out.push(json!({ "label": format!("{tag:04X}"), "value": hex_of(v) })),
+        }
+    }
+    out
+}
+
+/// Parses concatenated `61` templates into the listed applications
+/// [V] CRSCookbook.java:54-72.
+///
+/// # Errors
+///
+/// A malformed TLV, or a template without its AID or its `9F70`, is an error
+/// and never a partial entry.
+pub fn decode_crs_status(data: &[u8]) -> Result<Vec<Value>, String> {
+    let top = parse_tlvs(data).ok_or("malformed TLV")?;
+    let mut out = Vec::new();
+    for (tag, body) in top {
+        // Anything that is not a listed application is skipped, as in the reference.
+        if tag != TAG_CRS_ENTRY {
+            continue;
+        }
+        let kids = parse_tlvs(body).ok_or("malformed TLV inside 61")?;
+        let aid = tlv_get(&kids, TAG_AID).ok_or("61 template without 4F AID")?;
+        let state = tlv_get(&kids, TAG_9F70).ok_or("61 template without 9F70")?;
+        let lifecycle = state.first().copied().unwrap_or(0);
+        let cl = state.get(1).copied().unwrap_or(0);
+        let mut crel = Vec::new();
+        for (t, v) in &kids {
+            if *t == TAG_CREL {
+                crs_aid_details("CREL", v, &mut crel);
+            }
+        }
+        out.push(json!({
+            "aid": hex_of(aid),
+            "lifecycle": format!("{lifecycle:02X}"),
+            "lifecycle_name": lifecycle_name("applications", lifecycle),
+            "state": crs_state_word(cl),
+            "state_byte": format!("{cl:02X}"),
+            "activated": cl == CrsState::Activated.byte(),
+            "crel": crel,
+            "details": crs_details(&kids),
+        }));
+    }
+    Ok(out)
+}
+
+/// The AIDs a `63 20` or `63 30` SET STATUS answer names: a bare `4F`, or one of
+/// the `A1`, `61`, `A0`, `A2`, `A4` list templates carrying `4F` AIDs
+/// [V] CRSCookbook.java:83-97.
+///
+/// # Errors
+///
+/// [`parse_tlvs`] failing inside a list template is an error, not a guess.
+pub fn decode_crs_failures(data: &[u8]) -> Result<Vec<Value>, String> {
+    let top = parse_tlvs(data).ok_or("malformed TLV")?;
+    let mut out = Vec::new();
+    for (tag, body) in top {
+        if tag == TAG_AID {
+            out.push(json!(hex_of(body)));
+        } else if matches!(tag, 0xA1 | TAG_CRS_ENTRY | 0xA0 | 0xA2 | TAG_CREL) {
+            let kids = parse_tlvs(body).ok_or("malformed TLV in failure list")?;
+            for (t, v) in kids {
+                if t == TAG_AID {
+                    out.push(json!(hex_of(v)));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// AID hex to contactless state byte, which is all the writes need from a
+/// listing. Refuses a listing it cannot read, so a pre-read never guesses.
+fn crs_index(data: &[u8]) -> Result<Vec<(String, u8)>, String> {
+    Ok(decode_crs_status(data)?
+        .into_iter()
+        .map(|e| {
+            (
+                e["aid"].as_str().unwrap_or_default().to_string(),
+                u8::from_str_radix(e["state_byte"].as_str().unwrap_or("00"), 16).unwrap_or(0),
+            )
+        })
+        .collect())
+}
+
+/// Parses an AID prefix for `gp crs list`. A prefix is 1 to 16 bytes of hex,
+/// not a full AID: it narrows the search criterion, so it may be shorter than
+/// the 5 bytes a complete AID needs.
+pub fn parse_crs_prefix(text: &str) -> Option<Vec<u8>> {
+    let v = hex::decode(text.strip_prefix("0x").unwrap_or(text)).ok()?;
+    if v.is_empty() || v.len() > 16 {
+        return None;
+    }
+    Some(v)
+}
+
+/// SELECT the CRS application, in the clear or over an established channel.
+#[allow(clippy::type_complexity)]
+fn select_crs<S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+    channel: Option<&mut scp03::Channel>,
+) -> Result<session::Exchange, session::Error> {
+    // Over SCP03 the proprietary class bit is set before wrapping: `wrap` only
+    // adds the logical-channel bit, so a 00 class would leave the secure SELECT
+    // with no security-manager indicator at all.
+    let secured = Command::case4(
+        Header::new(0x80, 0xA4, 0x04, 0x00),
+        CRS_AID.to_vec(),
+        Le::Short(0),
+    );
+    match channel {
+        Some(ch) => send_secure(session, steps, ch, "select_crs", &secured),
+        None => read_once(session, steps, "select_crs", |le| {
+            Command::case4(Header::new(0x00, 0xA4, 0x04, 0x00), CRS_AID.to_vec(), le)
+        }),
+    }
+}
+
+/// CRS GET STATUS to the end of the listing: first page, then `63 10`
+/// continuations. Returns the collected bytes, the per-page status words and
+/// whether the page bound was reached. The bound is this repository's existing
+/// one (`STATUS_MAX_PAGES`), not a value from the reference.
+#[allow(clippy::type_complexity)]
+fn crs_status_pages<S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+    mut channel: Option<&mut scp03::Channel>,
+    first: &Command,
+    next: &Command,
+) -> Result<(Vec<u8>, Vec<Value>, bool), session::Error> {
+    let mut collected = Vec::new();
+    let mut pages = Vec::new();
+    let mut page = 0usize;
+    let mut count = 0;
+    loop {
+        let plain = if page == 0 { first } else { next };
+        let ex = match channel.as_deref_mut() {
+            Some(ch) => send_secure(session, steps, ch, "crs_get_status", plain)?,
+            None => read_once(session, steps, "crs_get_status", |_| plain.clone())?,
+        };
+        let sw = sw_hex(&ex);
+        let more = sw.as_deref() == Some(CRS_MORE_DATA);
+        if ex.is_success() || more {
+            collected.extend_from_slice(ex.data());
+        }
+        pages.push(json!({ "p2": if page == 0 { "00" } else { "01" }, "status": sw }));
+        count += 1;
+        if !more {
+            return Ok((collected, pages, false));
+        }
+        if count == STATUS_MAX_PAGES {
+            return Ok((collected, pages, true));
+        }
+        page = 1;
+    }
+}
+
+/// One CRS read: SELECT the application, then the command, then decode. The
+/// envelope shape is `gp`'s, and `isd_found` says whether the CRS application
+/// answered SELECT.
+#[allow(clippy::type_complexity)]
+fn crs_read<S, D>(
+    session: &mut S,
+    trace: bool,
+    operation: &'static str,
+    command: impl FnOnce() -> Result<Command, BuildError>,
+    decode: D,
+) -> Result<Report, session::Error>
+where
+    S: CardSession + ?Sized,
+    D: FnOnce(&[u8]) -> Result<Value, String>,
+{
+    let mut steps = Vec::new();
+    let mut data = json!({
+        "card_touched": true,
+        "operation": operation,
+        "crs": { "aid": hex::encode_upper(CRS_AID), "status": Value::Null },
+    });
+    let sel = select_crs(session, &mut steps, None)?;
+    data["crs"]["status"] = json!(sw_hex(&sel));
+    if !sel.is_success() {
+        data["result"] = Value::Null;
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        return Ok(Report {
+            isd_found: false,
+            data,
+        });
+    }
+    let plain = match command() {
+        Ok(c) => c,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            if trace {
+                data["trace"] = Value::Array(steps);
+            }
+            return Ok(Report {
+                isd_found: true,
+                data,
+            });
+        }
+    };
+    let ex = read_once(session, &mut steps, operation, |_| plain.clone())?;
+    let status = sw_hex(&ex);
+    data["status"] = json!(status);
+    if ex.is_success() {
+        match decode(ex.data()) {
+            Ok(v) => data["result"] = v,
+            Err(e) => data["decode_error"] = json!(e),
+        }
+    }
+    if trace {
+        data["trace"] = Value::Array(steps);
+    }
+    Ok(Report {
+        isd_found: true,
+        data,
+    })
+}
+
+/// `gp crs list`: SELECT the CRS application and list every application it holds
+/// for contactless, optionally narrowed by an AID prefix. Read-only, no keys.
+///
+/// # Errors
+///
+/// Only transport and encoding failures.
+pub fn crs_list<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    prefix: Option<&[u8]>,
+) -> Result<Report, session::Error> {
+    let mut steps = Vec::new();
+    let mut data = json!({
+        "card_touched": true,
+        "operation": "crs list",
+        "crs": { "aid": hex::encode_upper(CRS_AID), "status": Value::Null },
+        "prefix": prefix.map(hex_of),
+        "applications": Value::Null,
+    });
+    let sel = select_crs(session, &mut steps, None)?;
+    let found = sel.is_success();
+    data["crs"]["status"] = json!(sw_hex(&sel));
+    if !found {
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        return Ok(Report {
+            isd_found: false,
+            data,
+        });
+    }
+    let (first, next) = match (
+        crs_get_status_command(prefix, false),
+        crs_get_status_command(prefix, true),
+    ) {
+        (Ok(f), Ok(n)) => (f, n),
+        _ => {
+            data["error"] = json!({
+                "kind": "unbuildable",
+                "message": "the AID prefix cannot be built into a search criterion",
+            });
+            if trace {
+                data["trace"] = Value::Array(steps);
+            }
+            return Ok(Report {
+                isd_found: true,
+                data,
+            });
+        }
+    };
+    let (collected, pages, truncated) = crs_status_pages(session, &mut steps, None, &first, &next)?;
+    if let Some(last) = pages.last() {
+        data["status"] = last["status"].clone();
+    }
+    data["pages"] = Value::Array(pages);
+    if truncated {
+        data["truncated"] = json!(true);
+    }
+    match decode_crs_status(&collected) {
+        Ok(v) => data["applications"] = Value::Array(v),
+        Err(e) => data["decode_error"] = json!(e),
+    }
+    if trace {
+        data["trace"] = Value::Array(steps);
+    }
+    Ok(Report {
+        isd_found: true,
+        data,
+    })
+}
+
+/// `gp crs info`: SELECT the CRS application and read its version and event
+/// counter with GET DATA [A5]. Read-only, no keys.
+///
+/// # Errors
+///
+/// Only transport and encoding failures.
+pub fn crs_info<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+) -> Result<Report, session::Error> {
+    crs_read(
+        session,
+        trace,
+        "crs_info",
+        || Ok(crs_get_data_command()),
+        |d| {
+            let (version, counter) = decode_crs_info(d)?;
+            Ok(json!({
+                "version": format!("{}.{}", (version >> 8) & 0xFF, version & 0xFF),
+                "version_raw": format!("{version:04X}"),
+                "update_counter": counter,
+            }))
+        },
+    )
+}
+
+/// What `gp crs activate` / `gp crs deactivate` is asked to do.
+pub struct CrsRequest {
+    /// The application AID, 5 to 16 bytes.
+    pub aid: Vec<u8>,
+    /// `true` activates for contactless, `false` deactivates.
+    pub activate: bool,
+}
+
+fn crs_operation(req: &CrsRequest) -> &'static str {
+    if req.activate {
+        "crs_activate"
+    } else {
+        "crs_deactivate"
+    }
+}
+
+fn crs_plan_steps(req: &CrsRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![Planned {
+        step: crs_operation(req),
+        command: crs_set_status_command(&req.aid, req.activate)?,
+    }])
+}
+
+/// `gp crs activate` / `gp crs deactivate` without keys: the offline dry run.
+/// Sends nothing and does not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError`] for an AID that is not 5 to 16 bytes.
+pub fn crs_set_status_dry_run(req: &CrsRequest) -> Result<Value, BuildError> {
+    let plan = crs_plan_steps(req)?;
+    let mut data = offline_dry_run(
+        crs_operation(req),
+        json!({
+            "aid": hex_of(&req.aid),
+            "state": if req.activate { "ACTIVATED" } else { "DEACTIVATED" },
+        }),
+        &plan,
+        "no keys were given, so the card was not contacted and the contactless registry was not checked; add --keys-file or --keys-env to read it, and --yes to send",
+    );
+    data["warning"] = json!(CRS_WARNING);
+    Ok(data)
+}
+
+/// SELECT the ISD, authenticate ONCE over SCP03 and SELECT the CRS application
+/// over that channel. The SCP03 interlock is the same one every other `gp`
+/// write uses ([`prepare_write`]): one attempt, never a retry, card cryptogram
+/// checked locally before EXTERNAL AUTHENTICATE, keys from a file or an
+/// environment variable and never printed.
+#[allow(clippy::type_complexity)]
+fn prepare_crs<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    auth: &Auth<'_>,
+) -> Result<Result<(scp03::Channel, Value, Vec<Value>), Report>, session::Error> {
+    let mut steps = Vec::new();
+    let mut attempts = Vec::new();
+    let mut selected = None;
+    for aid in ISD_AIDS {
+        let ex = read_once(session, &mut steps, "select", select_by_aid(aid))?;
+        attempts.push(json!({ "aid": hex_of(aid), "status": sw_hex(&ex) }));
+        if ex.is_success() {
+            selected = Some(aid);
+            break;
+        }
+    }
+    let mut data = json!({
+        "card_touched": true,
+        "logical_channel": auth.logical_channel,
+        "isd_attempts": attempts,
+    });
+    let stopped = |mut data: Value, steps: Vec<Value>, found: bool| {
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        Ok(Err(Report {
+            isd_found: found,
+            data,
+        }))
+    };
+    let Some(isd) = selected else {
+        data["isd"] = Value::Null;
+        return stopped(data, steps, false);
+    };
+    data["isd"] = json!(hex_of(isd));
+    let ex = read_once(session, &mut steps, "key_information", |le| {
+        Command::case2(Header::new(0x80, 0xCA, 0x00, 0xE0), le)
+    })?;
+    let card_keys = if ex.is_success() {
+        decode_key_information(ex.data()).ok()
+    } else {
+        None
+    };
+    let mut channel = match authenticate(session, &mut steps, auth)? {
+        Ok(est) => {
+            data["secure_channel"] = channel_report(auth, &est, card_keys.as_ref());
+            est.channel
+        }
+        Err(stop) => {
+            data["secure_channel"] = json!({
+                "protocol": "SCP03",
+                "established": false,
+                "stopped": stop.kind,
+                "key_version": stop.key_version,
+            });
+            data["error"] = json!({ "kind": stop.kind, "message": stop.message });
+            return stopped(data, steps, true);
+        }
+    };
+    let sel = select_crs(session, &mut steps, Some(&mut channel))?;
+    data["crs"] = json!({ "aid": hex::encode_upper(CRS_AID), "status": sw_hex(&sel) });
+    if !sel.is_success() {
+        data["error"] = json!({
+            "kind": "crs-not-present",
+            "message": format!(
+                "the Contactless Registry Service application {} did not answer SELECT ({}); nothing was sent",
+                hex::encode_upper(CRS_AID),
+                sw_hex(&sel).unwrap_or_default()
+            ),
+        });
+        return stopped(data, steps, true);
+    }
+    Ok(Ok((channel, data, steps)))
+}
+
+/// `gp crs activate` / `gp crs deactivate` over SCP03: authenticate once, read
+/// the contactless registry and refuse an AID that is absent
+/// (`aid-not-present`), already in the requested state (`already-activated` /
+/// `already-deactivated`), not activatable at all (`not-activatable`), or behind
+/// a listing that could not be read (`crs-unreadable`), all with nothing sent;
+/// a dry run unless `yes`; otherwise SET STATUS MAC'd, `63 20` and `63 30`
+/// reported with the AIDs they name (`set-status-partial`, `set-status-conflict`)
+/// and every other status word with [`status_word`], and a re-read that must
+/// show the new state (`verify-failed`).
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn crs_set_status<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &CrsRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let aid_hex = hex::encode_upper(&req.aid);
+    let wanted = if req.activate {
+        CrsState::Activated
+    } else {
+        CrsState::Deactivated
+    };
+    let (mut channel, mut data, mut steps) = match prepare_crs(session, trace, auth)? {
+        Ok(p) => p,
+        Err(report) => return Ok(report),
+    };
+    data["operation"] = json!(crs_operation(req));
+    data["target"] = json!({ "aid": aid_hex, "state": wanted.word() });
+    data["dry_run"] = json!(!yes);
+    data["sent"] = json!(false);
+    data["warning"] = json!(CRS_WARNING);
+    let finish = |mut data: Value, steps: Vec<Value>| {
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        Ok(Report {
+            isd_found: true,
+            data,
+        })
+    };
+    let plan = match crs_plan_steps(req) {
+        Ok(p) => p,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    data["plan"] = json!({ "apdus": plan_json(&plan) });
+
+    // The pre-read: the contactless registry, over the secure channel, before
+    // anything is written.
+    let (first, next) = match (
+        crs_get_status_command(None, false),
+        crs_get_status_command(None, true),
+    ) {
+        (Ok(f), Ok(n)) => (f, n),
+        _ => {
+            data["error"] = json!({
+                "kind": "unbuildable",
+                "message": "the CRS search criterion could not be built",
+            });
+            return finish(data, steps);
+        }
+    };
+    let (collected, pages, truncated) =
+        crs_status_pages(session, &mut steps, Some(&mut channel), &first, &next)?;
+    data["pre_read_pages"] = Value::Array(pages);
+    let index = crs_index(&collected);
+    match index {
+        Err(e) => {
+            data["error"] = json!({
+                "kind": "crs-unreadable",
+                "message": format!("the contactless registry could not be read ({e}); nothing was sent"),
+            });
+            return finish(data, steps);
+        }
+        Ok(index) => {
+            if truncated {
+                data["pre_read_truncated"] = json!(true);
+                data["error"] = json!({
+                    "kind": "crs-unreadable",
+                    "message": "the contactless registry could not be read in full, so the current state cannot be confirmed; nothing was sent",
+                });
+                return finish(data, steps);
+            }
+            match index.iter().find(|(a, _)| *a == aid_hex) {
+                None => {
+                    data["error"] = json!({
+                        "kind": "aid-not-present",
+                        "message": format!("{aid_hex} is not in the contactless registry; nothing was sent"),
+                    });
+                    return finish(data, steps);
+                }
+                Some((_, raw)) => {
+                    let now = CrsState::from_byte(*raw);
+                    data["pre_read"] = json!({
+                        "present": true,
+                        "state": crs_state_word(*raw),
+                        "state_byte": format!("{raw:02X}"),
+                    });
+                    if now == Some(wanted) {
+                        let kind = if req.activate {
+                            "already-activated"
+                        } else {
+                            "already-deactivated"
+                        };
+                        data["error"] = json!({
+                            "kind": kind,
+                            "message": format!("{aid_hex} is already {}; nothing was sent", wanted.word()),
+                        });
+                        return finish(data, steps);
+                    }
+                    if req.activate && now == Some(CrsState::NonActivatable) {
+                        data["error"] = json!({
+                            "kind": "not-activatable",
+                            "message": format!("{aid_hex} is NON_ACTIVATABLE and cannot be activated for contactless; nothing was sent"),
+                        });
+                        return finish(data, steps);
+                    }
+                }
+            }
+        }
+    }
+
+    if !yes {
+        data["note"] = json!(
+            "dry run: the contactless registry was read over the secure channel, nothing was written; add --yes to send the plan"
+        );
+        return finish(data, steps);
+    }
+
+    let wrapped = match channel.wrap(&plan[0].command) {
+        Ok(w) => w,
+        Err(e) => {
+            data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+            return finish(data, steps);
+        }
+    };
+    let ex = session::send(session, &wrapped, &read_policy())?;
+    push_steps(&mut steps, plan[0].step, &ex);
+    data["sent"] = json!(true);
+    let sw = sw_hex(&ex);
+    data["result"] = json!({ "steps": [{ "step": plan[0].step, "status": sw }] });
+    if !ex.is_success() {
+        let mut err = if sw.as_deref() == Some(SW_CRS_PARTIAL)
+            || sw.as_deref() == Some(SW_CRS_CONFLICT)
+        {
+            let affected = decode_crs_failures(ex.data()).unwrap_or_default();
+            json!({
+                "kind": if sw.as_deref() == Some(SW_CRS_CONFLICT) {
+                    "set-status-conflict"
+                } else {
+                    "set-status-partial"
+                },
+                "status": sw,
+                "affected": affected,
+                "message": format!(
+                    "SET STATUS answered {}: the card names the application(s) it did not {}; nothing was retried",
+                    sw.as_deref().unwrap_or("none"),
+                    if req.activate { "activate" } else { "deactivate" }
+                ),
+            })
+        } else {
+            refused("SET STATUS", &ex)
+        };
+        err["step"] = json!(plan[0].step);
+        err["advice"] = json!(
+            "nothing was retried; read the contactless registry with gp crs list to see what the card now holds"
+        );
+        data["error"] = err;
+        return finish(data, steps);
+    }
+
+    // Post-write re-read: the state has to have changed on the card.
+    let (first, next) = match (
+        crs_get_status_command(None, false),
+        crs_get_status_command(None, true),
+    ) {
+        (Ok(f), Ok(n)) => (f, n),
+        _ => {
+            data["error"] = json!({
+                "kind": "unbuildable",
+                "message": "the CRS search criterion could not be built",
+            });
+            return finish(data, steps);
+        }
+    };
+    let (after, pages, truncated) =
+        crs_status_pages(session, &mut steps, Some(&mut channel), &first, &next)?;
+    data["post_read_pages"] = Value::Array(pages);
+    let ok = crs_index(&after)
+        .ok()
+        .and_then(|i| i.iter().find(|(a, _)| *a == aid_hex).map(|(_, r)| *r))
+        .is_some_and(|r| CrsState::from_byte(r) == Some(wanted));
+    data["result"]["verified"] = json!(ok);
+    if !ok {
+        let why = if truncated {
+            "the contactless registry could not be read in full after the write"
+        } else {
+            "the contactless registry does not show the intended state"
+        };
+        data["error"] = json!({
+            "kind": "verify-failed",
+            "message": format!(
+                "the card answered 90 00 to SET STATUS but {why} for {aid_hex}"
+            ),
+        });
+    }
+    finish(data, steps)
+}
+
+#[cfg(test)]
+mod crs_tests {
+    use super::*;
+    use crate::transport::{Error as TransportError, ReaderName};
+    use std::collections::{HashMap, VecDeque};
+
+    const ENC_HEX: &str = "000102030405060708090A0B0C0D0E0F";
+    const MAC_HEX: &str = "101112131415161718191A1B1C1D1E1F";
+    const HOST_CHALLENGE: [u8; 8] = [0xB1, 0x3E, 0x5F, 0x93, 0x8F, 0xC1, 0x08, 0xC4];
+
+    const ISD_SEL: &str = "00A4040008A00000015100000000";
+    const KI_GET: &str = "80CA00E000";
+    const KEY_INFO_AES: &str = "E006C00401308810";
+    const INIT_UPDATE: &str = "8050300008B13E5F938FC108C400";
+    const INIT_UPDATE_RESP: &str =
+        "000000000000000000003003703EB51047495B249F66C484C1D2EF1948000002";
+    const EXT_AUTH: &str = "84820100107D5F5826A993EBC8CEDC6DBB0146E4A0";
+
+    /// SELECT the CRS application, in the clear.
+    const CRS_SEL: &str = "00A4040009A0000001514352530000";
+    /// CRS GET DATA [A5].
+    const CRS_DATA: &str = "80CA00A500";
+    /// CRS GET STATUS, every application, first page and the `63 10` follow-up.
+    const CRS_STATUS: &str = "80F24000024F0000";
+    const CRS_STATUS_NEXT: &str = "80F24001024F0000";
+
+    const APP1: &str = "A0000000620001";
+    const APP2: &str = "A0000000620002";
+    const APP3: &str = "A0000000620003";
+    const APP4: &str = "A0000000620004";
+
+    /// One `61` template: `4F <aid>`, `9F 70 <lifecycle> <contactless state>`,
+    /// then any registry data objects.
+    fn entry(aid: &str, lifecycle: u8, state: u8, extra: &str) -> String {
+        let inner = format!("4F{:02X}{aid}", aid.len() / 2)
+            + &format!("9F7002{lifecycle:02X}{state:02X}")
+            + extra;
+        format!("61{:02X}{inner}", inner.len() / 2)
+    }
+
+    /// App 1 activated, app 2 deactivated, app 3 not activatable and carrying a
+    /// counter and a CREL list.
+    fn listing() -> String {
+        entry(APP1, 0x01, 0x01, "")
+            + &entry(APP2, 0x03, 0x00, "")
+            + &entry(APP3, 0x03, 0x80, &format!("800107A4094F07{APP4}"))
+    }
+
+    fn keys() -> Keys {
+        Keys::parse(&format!("{ENC_HEX} {MAC_HEX}")).unwrap()
+    }
+
+    fn auth(keys: &Keys) -> Auth<'_> {
+        Auth {
+            keys,
+            key_version: 0x30,
+            host_challenge: HOST_CHALLENGE,
+            logical_channel: 0,
+        }
+    }
+
+    /// A card that answers from a table keyed on the first three bytes (class,
+    /// INS, P1) or on the first four (plus P2), each key holding a queue of
+    /// answers in order. That is enough to drive both a plain read and a run
+    /// whose commands are SCP03-wrapped, without restating the wrapped bytes.
+    struct Card {
+        reader: ReaderName,
+        table: HashMap<String, VecDeque<Vec<u8>>>,
+        sent: Vec<String>,
+    }
+
+    impl Card {
+        fn new(rows: &[(&str, &str)]) -> Self {
+            let mut table: HashMap<String, VecDeque<Vec<u8>>> = HashMap::new();
+            for (cmd, resp) in rows {
+                table
+                    .entry(cmd.to_string())
+                    .or_default()
+                    .push_back(hex::decode(resp).unwrap());
+            }
+            Self {
+                reader: ReaderName::new("crs-scripted").unwrap(),
+                table,
+                sent: Vec::new(),
+            }
+        }
+
+        fn ins(&self, ins: &str) -> usize {
+            self.sent.iter().filter(|c| &c[2..4] == ins).count()
+        }
+
+        fn everything(&self, data: &Value) -> String {
+            format!(
+                "{}{}",
+                serde_json::to_string(data).unwrap(),
+                render_text(data)
+            )
+            .to_lowercase()
+        }
+    }
+
+    impl CardSession for Card {
+        fn reader(&self) -> &ReaderName {
+            &self.reader
+        }
+        fn transmit(&mut self, command: &[u8]) -> Result<Vec<u8>, TransportError> {
+            let full = hex::encode_upper(command);
+            self.sent.push(full.clone());
+            let mut keys = vec![full[..6].to_string(), full[..8].to_string()];
+            keys.push(full.clone());
+            for key in keys {
+                if let Some(q) = self.table.get_mut(&key) {
+                    return Ok(q.pop_front().unwrap_or_else(|| vec![0x6D, 0x00]));
+                }
+            }
+            Ok(vec![0x6D, 0x00])
+        }
+        fn disconnect(&mut self) -> Result<(), TransportError> {
+            Ok(())
+        }
+    }
+
+    fn assert_no_key_material(out: &str) {
+        let session = scp03::derive_session_keys(
+            &<[u8; 16]>::try_from(hex::decode(ENC_HEX).unwrap()).unwrap(),
+            &<[u8; 16]>::try_from(hex::decode(MAC_HEX).unwrap()).unwrap(),
+            &HOST_CHALLENGE,
+            &[0x3E, 0xB5, 0x10, 0x47, 0x49, 0x5B, 0x24, 0x9F],
+        );
+        for secret in [
+            hex::decode(ENC_HEX).unwrap(),
+            hex::decode(MAC_HEX).unwrap(),
+            session.enc.to_vec(),
+            session.mac.to_vec(),
+            session.rmac.to_vec(),
+        ] {
+            assert!(
+                !out.contains(&hex::encode(&secret)),
+                "key material in output"
+            );
+        }
+    }
+
+    fn request(aid: &str, activate: bool) -> CrsRequest {
+        CrsRequest {
+            aid: hex::decode(aid).unwrap(),
+            activate,
+        }
+    }
+
+    // ---- the four wire layouts, asserted as bytes -------------------------
+
+    #[test]
+    fn crs_select_data_and_status_build_the_reference_bytes() {
+        // SELECT the CRS application, class byte from select_by_aid.
+        assert_eq!(
+            select_crs_plain().encode().unwrap(),
+            hex::decode(CRS_SEL).unwrap()
+        );
+        // GET DATA [A5]: 80 CA 00 A5 00.
+        assert_eq!(
+            crs_get_data_command().encode().unwrap(),
+            hex::decode(CRS_DATA).unwrap()
+        );
+        // GET STATUS with no prefix is the empty criterion 4F 00.
+        assert_eq!(
+            crs_get_status_command(None, false)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode(CRS_STATUS).unwrap()
+        );
+        // The 63 10 follow-up changes P2 to 01 and nothing else.
+        assert_eq!(
+            crs_get_status_command(None, true)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode(CRS_STATUS_NEXT).unwrap()
+        );
+        // An AID prefix narrows the search criterion to 4F <len> <prefix>.
+        assert_eq!(
+            crs_get_status_command(Some(&hex::decode("A000000062").unwrap()), false)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode("80F24000074F05A00000006200").unwrap()
+        );
+    }
+
+    /// The SELECT the CRS commands send, built the same way every time.
+    fn select_crs_plain() -> Command {
+        Command::case4(
+            Header::new(0x00, 0xA4, 0x04, 0x00),
+            CRS_AID.to_vec(),
+            Le::Short(0),
+        )
+    }
+
+    #[test]
+    fn crs_set_status_picks_p2_from_the_request_and_never_sends_80() {
+        // Activate: 80 F0 01 01 Lc 4F 07 <AID> 00.
+        assert_eq!(
+            crs_set_status_command(&hex::decode(APP1).unwrap(), true)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode("80F00101094F07A000000062000100").unwrap()
+        );
+        // Deactivate is the same APDU with P2 00.
+        assert_eq!(
+            crs_set_status_command(&hex::decode(APP1).unwrap(), false)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode("80F00100094F07A000000062000100").unwrap()
+        );
+        // The reference rejects P2 80 with 6A86, so neither builder can emit it.
+        for activate in [true, false] {
+            let p2 = crs_set_status_command(&hex::decode(APP1).unwrap(), activate)
+                .unwrap()
+                .encode()
+                .unwrap()[3];
+            assert!(p2 == 0x00 || p2 == 0x01, "P2 {p2:02X}");
+        }
+        // A target that is not 5 to 16 bytes is refused before anything is built.
+        assert!(crs_set_status_command(&[0xA0, 0x00], true).is_err());
+        assert!(crs_set_status_command(&[], false).is_err());
+    }
+
+    // ---- decoding ---------------------------------------------------------
+
+    #[test]
+    fn a_crs_listing_decodes_every_field_the_reference_names() {
+        let v = decode_crs_status(&hex::decode(listing()).unwrap()).unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0]["aid"], APP1);
+        assert_eq!(v[0]["state"], "ACTIVATED");
+        assert_eq!(v[0]["state_byte"], "01");
+        assert_eq!(v[0]["lifecycle"], "01");
+        assert_eq!(v[0]["activated"], true);
+        assert_eq!(v[2]["state"], "NON_ACTIVATABLE");
+        assert_eq!(v[2]["state_byte"], "80");
+        assert_eq!(v[2]["activated"], false);
+        // The registry data objects are labelled where the reference knows them.
+        let details = v[2]["details"].as_array().unwrap();
+        assert!(details
+            .iter()
+            .any(|d| d["label"] == "Counter" && d["value"] == "7"));
+        assert!(details
+            .iter()
+            .any(|d| d["label"] == "CREL" && d["value"] == APP4));
+        // An application with no referenced listeners carries no CREL list.
+        assert!(v[0]["crel"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_unknown_contactless_state_is_shown_verbatim_not_guessed() {
+        let v = decode_crs_status(&hex::decode(entry(APP1, 0x03, 0x7F, "")).unwrap()).unwrap();
+        assert_eq!(v[0]["state"], "0x7F");
+        assert_eq!(v[0]["state_byte"], "7F");
+        assert_eq!(CrsState::from_byte(0x7F), None);
+    }
+
+    #[test]
+    fn crs_info_decodes_version_and_counter_as_plain_integers() {
+        // A5 09 9F 08 02 01 02 80 02 00 07 -> version 1.2, counter 7.
+        let (v, c) = decode_crs_info(&hex::decode("A5099F0802010280020007").unwrap()).unwrap();
+        assert_eq!(v, 0x0102);
+        assert_eq!(c, 7);
+        // A counter is a big-endian integer, not a length-prefixed field.
+        assert_eq!(
+            decode_crs_info(&hex::decode("A50B9F0802000180040000FFFF").unwrap()),
+            Ok((0x0001, 0xFFFF))
+        );
+    }
+
+    #[test]
+    fn a_malformed_crs_response_is_refused_rather_than_guessed_at() {
+        // A5 with no version, an empty counter and a truncated TLV.
+        assert!(decode_crs_info(&hex::decode("A5058001020007").unwrap()).is_err());
+        assert!(decode_crs_info(&hex::decode("A5039F080200").unwrap()).is_err());
+        assert!(decode_crs_info(&hex::decode("A50C9F080201028005000001020304").unwrap()).is_err());
+        assert!(decode_crs_info(&hex::decode("A5").unwrap()).is_err());
+        // An over-long counter is refused, not truncated into a wrong answer.
+        // A 61 template with no AID or no 9F70.
+        assert!(decode_crs_status(&hex::decode("61009F70020101").unwrap()).is_err());
+        assert!(decode_crs_status(&hex::decode("61074F07A00000006200").unwrap()).is_err());
+        // Truncated length.
+        assert!(decode_crs_status(&hex::decode("610D4F07A000").unwrap()).is_err());
+    }
+
+    #[test]
+    fn set_status_failures_are_read_out_of_the_error_response() {
+        // A bare 4F at the top level, and each list template the reference names.
+        assert_eq!(
+            decode_crs_failures(&hex::decode("4F07A0000000620001").unwrap()).unwrap(),
+            vec![json!(APP1)]
+        );
+        for tag in ["A1", "61", "A0", "A2", "A4"] {
+            let body = format!("4F07{APP1}");
+            assert_eq!(
+                decode_crs_failures(
+                    &hex::decode(format!("{tag}{:02X}{body}", body.len() / 2)).unwrap()
+                )
+                .unwrap(),
+                vec![json!(APP1)],
+                "tag {tag}"
+            );
+        }
+        assert!(decode_crs_failures(&hex::decode("610D4F07A0").unwrap()).is_err());
+    }
+
+    // ---- the two reads ----------------------------------------------------
+
+    #[test]
+    fn crs_list_reads_the_whole_listing_over_a_6310_continuation() {
+        let mut card = Card::new(&[
+            (CRS_SEL, "9000"),
+            (CRS_STATUS, &format!("{}6310", listing())),
+            (
+                CRS_STATUS_NEXT,
+                &format!("{}9000", entry(APP1, 0x01, 0x01, "")),
+            ),
+        ]);
+        let r = crs_list(&mut card, false, None).unwrap();
+        assert!(r.isd_found);
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert!(r.data.get("decode_error").is_none());
+        assert_eq!(r.data["status"], "9000");
+        assert_eq!(r.data["pages"].as_array().unwrap().len(), 2);
+        assert_eq!(r.data["applications"].as_array().unwrap().len(), 4);
+        // The continuation is asked for with P2 01 and nothing else changes.
+        assert_eq!(card.ins("F2"), 2);
+        // No keys, so no secure channel and no GET STATUS with the registry's P1.
+        assert_eq!(card.ins("50"), 0);
+        assert_eq!(card.ins("82"), 0);
+    }
+
+    #[test]
+    fn crs_list_narrows_on_an_aid_prefix_and_says_the_application_is_absent() {
+        let mut card = Card::new(&[
+            (CRS_SEL, "9000"),
+            (
+                "80F24000074F05A00000006200",
+                &format!("{}9000", entry(APP1, 0x01, 0x01, "")),
+            ),
+        ]);
+        let r = crs_list(&mut card, false, Some(&hex::decode("A000000062").unwrap())).unwrap();
+        assert_eq!(r.data["prefix"], "A000000062");
+        assert_eq!(r.data["applications"].as_array().unwrap().len(), 1);
+
+        // An empty prefix is the empty criterion, not a zero-length 4F.
+        assert_eq!(
+            crs_get_status_command(Some(&[]), false)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode(CRS_STATUS).unwrap()
+        );
+
+        // A card that does not hold the CRS application is reported, not guessed at.
+        let mut absent = Card::new(&[(CRS_SEL, "6A82")]);
+        let r = crs_list(&mut absent, false, None).unwrap();
+        assert!(!r.isd_found);
+        assert_eq!(r.data["crs"]["status"], "6A82");
+        assert_eq!(absent.ins("F2"), 0);
+    }
+
+    #[test]
+    fn crs_info_reads_version_and_counter() {
+        let mut card = Card::new(&[(CRS_SEL, "9000"), (CRS_DATA, "A5099F08020102800200079000")]);
+        let r = crs_info(&mut card, true).unwrap();
+        assert!(r.isd_found);
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["result"]["version"], "1.2");
+        assert_eq!(r.data["result"]["version_raw"], "0102");
+        assert_eq!(r.data["result"]["update_counter"], 7);
+        assert!(r.data["trace"].as_array().is_some());
+        // Two reads: SELECT and GET DATA. No secure channel.
+        assert_eq!(card.ins("50"), 0);
+        assert_eq!(card.ins("F0"), 0);
+    }
+
+    #[test]
+    fn a_malformed_crs_info_answer_is_reported_not_guessed_at() {
+        let mut card = Card::new(&[(CRS_SEL, "9000"), (CRS_DATA, "A50580010200079000")]);
+        let r = crs_info(&mut card, false).unwrap();
+        assert!(r.data.get("decode_error").is_some(), "{:?}", r.data);
+        assert!(r.data.get("result").is_none() || r.data["result"].is_null());
+    }
+
+    // ---- the two writes ---------------------------------------------------
+
+    /// A card that runs the whole write: ISD SELECT, GET DATA E0, ONE SCP03
+    /// attempt, SELECT CRS, then the given CRS GET STATUS / SET STATUS /
+    /// CRS GET STATUS answers.
+    fn write_card(status1: &str, set_status: &str, status2: &str) -> Card {
+        Card::new(&[
+            (ISD_SEL, "9000"),
+            (KI_GET, &format!("{KEY_INFO_AES}9000")),
+            (INIT_UPDATE, &format!("{INIT_UPDATE_RESP}9000")),
+            (EXT_AUTH, "9000"),
+            ("84A40400", "9000"),
+            ("84F24000", status1),
+            ("84F00101", set_status),
+            ("84F00100", set_status),
+            ("84F24000", status2),
+        ])
+    }
+
+    #[test]
+    fn crs_activate_dry_run_sends_no_set_status() {
+        let keys = keys();
+        let mut card = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), false).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["dry_run"], true);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["target"]["aid"], APP2);
+        assert_eq!(r.data["target"]["state"], "ACTIVATED");
+        // The pre-read found the application and it is not already activated.
+        assert_eq!(r.data["pre_read"]["state"], "DEACTIVATED");
+        assert_eq!(r.data["pre_read"]["state_byte"], "00");
+        // The plan is built and shown, and nothing was written.
+        assert!(r.data["plan"]["apdus"][0]["apdu"]
+            .as_str()
+            .unwrap()
+            .contains("F00101"));
+        assert_eq!(card.ins("F0"), 0);
+        assert_eq!(card.ins("F2"), 1);
+        let text = render_text(&r.data);
+        assert!(text.contains("DRY RUN") && text.contains(APP2), "{text}");
+        assert!(text.contains("WARNING"), "{text}");
+        assert_no_key_material(&card.everything(&r.data));
+    }
+
+    #[test]
+    fn the_offline_dry_run_touches_no_card_at_all() {
+        let data = crs_set_status_dry_run(&request(APP2, false)).unwrap();
+        assert_eq!(data["card_touched"], false);
+        assert_eq!(data["operation"], "crs_deactivate");
+        assert_eq!(data["target"]["aid"], APP2);
+        assert_eq!(data["target"]["state"], "DEACTIVATED");
+        assert!(data["warning"].as_str().unwrap().contains("contactless"));
+        assert!(data["plan"]["apdus"][0]["apdu"]
+            .as_str()
+            .unwrap()
+            .contains("F00100"));
+        // A target that cannot be built is refused, not half-built.
+        assert!(crs_set_status_dry_run(&request("A000", true)).is_err());
+    }
+
+    #[test]
+    fn crs_activate_refuses_before_sending_when_it_must() {
+        let keys = keys();
+        // The application is not in the contactless registry.
+        let mut card = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r = crs_set_status(&mut card, true, &request(APP4, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "aid-not-present");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(card.ins("F0"), 0);
+
+        // Already activated: nothing to do and nothing sent.
+        let mut card = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r = crs_set_status(&mut card, true, &request(APP1, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "already-activated");
+        assert_eq!(card.ins("F0"), 0);
+
+        // Already deactivated, asking to deactivate.
+        let mut card = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r =
+            crs_set_status(&mut card, false, &request(APP2, false), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "already-deactivated");
+        assert_eq!(card.ins("F0"), 0);
+
+        // An application the card says cannot be activated at all.
+        let mut card = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r = crs_set_status(&mut card, true, &request(APP3, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "not-activatable");
+        assert_eq!(card.ins("F0"), 0);
+    }
+
+    #[test]
+    fn crs_activate_sends_once_then_verifies_the_card_changed() {
+        let keys = keys();
+        let mut card = write_card(
+            &format!("{}9000", listing()),
+            "9000",
+            &format!("{}9000", entry(APP2, 0x01, 0x01, "")),
+        );
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["sent"], true);
+        assert_eq!(r.data["result"]["verified"], true);
+        // One SET STATUS, one INITIALIZE UPDATE, one EXTERNAL AUTHENTICATE.
+        assert_eq!(card.ins("F0"), 1);
+        assert_eq!(card.ins("50"), 1);
+        assert_eq!(card.ins("82"), 1);
+        // Pre-read, the write, then the post-write re-read.
+        assert_eq!(card.ins("F2"), 2);
+        assert!(r.data.get("pre_read_pages").is_some());
+        assert!(r.data.get("post_read_pages").is_some());
+        assert_no_key_material(&card.everything(&r.data));
+    }
+
+    #[test]
+    fn a_card_that_did_not_change_is_verify_failed() {
+        let keys = keys();
+        // SET STATUS says 90 00 but the re-read still shows the old state.
+        let mut card = write_card(
+            &format!("{}9000", listing()),
+            "9000",
+            &format!("{}9000", listing()),
+        );
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+        assert_eq!(r.data["result"]["verified"], false);
+
+        // A card that drops the application from the listing also fails.
+        let mut card = write_card(
+            &format!("{}9000", listing()),
+            "9000",
+            &format!("{}9000", entry(APP1, 0x01, 0x01, "")),
+        );
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+    }
+
+    #[test]
+    fn a_refused_set_status_names_its_own_kind_and_never_retries() {
+        let keys = keys();
+        // 63 30 conflict naming the application it would not change.
+        let conflict = format!("A1094F07{APP2}6330");
+        let mut card = write_card(&format!("{}9000", listing()), &conflict, "9000");
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "set-status-conflict");
+        assert_eq!(r.data["error"]["status"], "6330");
+        assert_eq!(r.data["error"]["affected"], json!([APP2]));
+        assert_eq!(card.ins("F0"), 1);
+
+        // 63 20 partial failure.
+        let partial = format!("4F07{APP2}6320");
+        let mut card = write_card(&format!("{}9000", listing()), &partial, "9000");
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "set-status-partial");
+        assert_eq!(r.data["error"]["affected"], json!([APP2]));
+
+        // Any other status word keeps the repo's status_word kind.
+        let mut card = write_card(&format!("{}9000", listing()), "6985", "9000");
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "conditions-of-use-not-satisfied");
+        assert_eq!(card.ins("F0"), 1);
+        assert_eq!(card.ins("82"), 1);
+    }
+
+    #[test]
+    fn a_card_without_the_crs_application_stops_before_anything_is_written() {
+        let keys = keys();
+        let mut card = Card::new(&[
+            (ISD_SEL, "9000"),
+            (KI_GET, &format!("{KEY_INFO_AES}9000")),
+            (INIT_UPDATE, &format!("{INIT_UPDATE_RESP}9000")),
+            (EXT_AUTH, "9000"),
+            ("84A40400", "6A82"),
+        ]);
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "crs-not-present");
+        assert_eq!(card.ins("F0"), 0);
+        assert_eq!(card.ins("F2"), 0);
+    }
+
+    #[test]
+    fn wrong_keys_stop_before_external_authenticate_and_before_any_write() {
+        let good = keys();
+        let wrong = Keys::parse(&format!("{} {}", ENC_HEX, "FF".repeat(16))).unwrap();
+        let mut card = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r = crs_set_status(&mut card, true, &request(APP2, true), &auth(&wrong), true).unwrap();
+        // The card cryptogram is checked locally, so the channel never opens.
+        assert_eq!(r.data["error"]["kind"], "keys-do-not-match");
+        assert_eq!(card.ins("82"), 0);
+        assert_eq!(card.ins("F0"), 0);
+        // And the good keys do work, so the card above is not simply refusing.
+        assert_eq!(card.ins("50"), 1);
+        let mut ok = write_card(&format!("{}9000", listing()), "9000", "9000");
+        let r = crs_set_status(&mut ok, true, &request(APP2, true), &auth(&good), false).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+    }
+}

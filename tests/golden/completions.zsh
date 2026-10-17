@@ -351,6 +351,111 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(crs)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__gp__subcmd__crs_commands" \
+"*::: :->crs" \
+&& ret=0
+
+    case $state in
+    (crs)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-crs-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--aid=[Narrow the listing to applications whose AID starts with these bytes]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(info)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(activate)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':aid -- The application AID, 5 to 16 bytes of hex:_default' \
+&& ret=0
+;;
+(deactivate)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':aid -- The application AID, 5 to 16 bytes of hex:_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-crs-help-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(info)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(activate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(deactivate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (channel)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
@@ -707,6 +812,38 @@ _arguments "${_arguments_options[@]}" : \
 (select)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
+;;
+(crs)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs_commands" \
+"*::: :->crs" \
+&& ret=0
+
+    case $state in
+    (crs)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-help-crs-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(info)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(activate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(deactivate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
 ;;
 (channel)
 _arguments "${_arguments_options[@]}" : \
@@ -1761,6 +1898,38 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(crs)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs_commands" \
+"*::: :->crs" \
+&& ret=0
+
+    case $state in
+    (crs)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-gp-crs-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(info)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(activate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(deactivate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (channel)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands" \
@@ -2545,6 +2714,7 @@ _sim-doctor__subcmd__gp_commands() {
 'ara:Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA \[all\], decoded (read-only, no keys)' \
 'status:GlobalPlatform registry inventory\: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication' \
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
+'crs:Contactless Registry Service (CRS, GlobalPlatform Amendment C)\: list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
@@ -2679,6 +2849,73 @@ _sim-doctor__subcmd__gp__subcmd__cplc-set_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp cplc-set commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs_commands() {
+    local commands; commands=(
+'list:List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys' \
+'info:Read the Contactless Registry Service version and event counter (GET DATA \[A5\]). Read-only, no keys' \
+'activate:Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE' \
+'deactivate:Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor gp crs commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__activate_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__activate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs activate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__deactivate_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__deactivate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs deactivate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help_commands() {
+    local commands; commands=(
+'list:List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys' \
+'info:Read the Contactless Registry Service version and event counter (GET DATA \[A5\]). Read-only, no keys' \
+'activate:Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE' \
+'deactivate:Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor gp crs help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__activate_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__activate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs help activate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__deactivate_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__deactivate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs help deactivate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__info_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__info_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs help info commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs help list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__info_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__info_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs info commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__crs__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__crs__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp crs list commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__delete_commands() {
     local commands; commands=()
@@ -2696,6 +2933,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'ara:Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA \[all\], decoded (read-only, no keys)' \
 'status:GlobalPlatform registry inventory\: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication' \
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
+'crs:Contactless Registry Service (CRS, GlobalPlatform Amendment C)\: list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
@@ -2767,6 +3005,36 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__open_commands() 
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__cplc-set_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help cplc-set commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs_commands() {
+    local commands; commands=(
+'list:List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys' \
+'info:Read the Contactless Registry Service version and event counter (GET DATA \[A5\]). Read-only, no keys' \
+'activate:Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE' \
+'deactivate:Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE' \
+    )
+    _describe -t commands 'sim-doctor gp help crs commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__activate_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__activate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help crs activate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__deactivate_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__deactivate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help crs deactivate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__info_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__info_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help crs info commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help crs list commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__delete_commands() {
@@ -3065,6 +3333,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'ara:Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA \[all\], decoded (read-only, no keys)' \
 'status:GlobalPlatform registry inventory\: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication' \
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
+'crs:Contactless Registry Service (CRS, GlobalPlatform Amendment C)\: list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
@@ -3135,6 +3404,36 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__open_commands() 
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__cplc-set_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp cplc-set commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs_commands() {
+    local commands; commands=(
+'list:List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys' \
+'info:Read the Contactless Registry Service version and event counter (GET DATA \[A5\]). Read-only, no keys' \
+'activate:Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE' \
+'deactivate:Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE' \
+    )
+    _describe -t commands 'sim-doctor help gp crs commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__activate_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__activate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp crs activate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__deactivate_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__deactivate_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp crs deactivate commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__info_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__info_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp crs info commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp crs list commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__delete_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__delete_commands() {
