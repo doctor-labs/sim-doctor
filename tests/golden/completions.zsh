@@ -837,6 +837,32 @@ all\:"33\: all four protections"))' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(create-sd)
+_arguments "${_arguments_options[@]}" : \
+'--domain=[The AID of the Security Domain to create, 5 to 16 bytes of hex]:HEX:_default' \
+'--privileges=[Privileges, 1 or 3 bytes of hex (default 000000). The Security Domain privilege is always added. Card Lock and Card Terminate are refused]:HEX:_default' \
+'--scp=[Secure Channel Protocol Information for the new domain (tag 81), hex]:HEX:_default' \
+'--params=[Extra Install Parameter TLVs, without a C9 tag, hex]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--allow-to[allow-to (tag 82)\: any class may be extradited into the new domain]' \
+'--allow-from[allow-from (tag 87)\: the new domain may be extradited out of it]' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (put-key)
 _arguments "${_arguments_options[@]}" : \
 '--new-key-version=[The Key Version Number of the new keys, 01 to 7F]:HEX:_default' \
@@ -1211,6 +1237,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (install)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(create-sd)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2418,6 +2448,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(create-sd)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (put-key)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -3203,6 +3237,7 @@ _sim-doctor__subcmd__gp_commands() {
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
+'create-sd:Create a supplementary Security Domain over an SCP03 channel\: INSTALL \[for install and make selectable\] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
@@ -3387,6 +3422,11 @@ _sim-doctor__subcmd__gp__subcmd__cplc-set_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp cplc-set commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__create-sd_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__create-sd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp create-sd commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__crs_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__crs_commands() {
     local commands; commands=(
@@ -3480,6 +3520,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
+'create-sd:Create a supplementary Security Domain over an SCP03 channel\: INSTALL \[for install and make selectable\] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
@@ -3570,6 +3611,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__open_commands() 
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__cplc-set_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help cplc-set commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__create-sd_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__create-sd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help create-sd commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__crs_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__crs_commands() {
@@ -3941,6 +3987,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
+'create-sd:Create a supplementary Security Domain over an SCP03 channel\: INSTALL \[for install and make selectable\] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
@@ -4030,6 +4077,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__open_commands() 
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__cplc-set_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp cplc-set commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__create-sd_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__create-sd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp create-sd commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__crs_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__crs_commands() {

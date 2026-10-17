@@ -294,6 +294,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('rename-isd', 'rename-isd', [CompletionResultType]::ParameterValue, 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT')
             [CompletionResult]::new('delete-key', 'delete-key', [CompletionResultType]::ParameterValue, 'Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT')
+            [CompletionResult]::new('create-sd', 'create-sd', [CompletionResultType]::ParameterValue, 'Create a supplementary Security Domain over an SCP03 channel: INSTALL [for install and make selectable] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT')
             [CompletionResult]::new('put-key', 'put-key', [CompletionResultType]::ParameterValue, 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS')
             [CompletionResult]::new('cplc-set', 'cplc-set', [CompletionResultType]::ParameterValue, 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC')
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
@@ -644,6 +645,27 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
+        'sim-doctor;gp;create-sd' {
+            [CompletionResult]::new('--domain', '--domain', [CompletionResultType]::ParameterName, 'The AID of the Security Domain to create, 5 to 16 bytes of hex')
+            [CompletionResult]::new('--privileges', '--privileges', [CompletionResultType]::ParameterName, 'Privileges, 1 or 3 bytes of hex (default 000000). The Security Domain privilege is always added. Card Lock and Card Terminate are refused')
+            [CompletionResult]::new('--scp', '--scp', [CompletionResultType]::ParameterName, 'Secure Channel Protocol Information for the new domain (tag 81), hex')
+            [CompletionResult]::new('--params', '--params', [CompletionResultType]::ParameterName, 'Extra Install Parameter TLVs, without a C9 tag, hex')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
+            [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')
+            [CompletionResult]::new('--key-version', '--key-version', [CompletionResultType]::ParameterName, 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set')
+            [CompletionResult]::new('--mode', '--mode', [CompletionResultType]::ParameterName, 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened')
+            [CompletionResult]::new('--key-kdf', '--key-kdf', [CompletionResultType]::ParameterName, 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro''s own vectors. The keys stay in the file or the environment variable: a template name is not key material')
+            [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it')
+            [CompletionResult]::new('--allow-to', '--allow-to', [CompletionResultType]::ParameterName, 'allow-to (tag 82): any class may be extradited into the new domain')
+            [CompletionResult]::new('--allow-from', '--allow-from', [CompletionResultType]::ParameterName, 'allow-from (tag 87): the new domain may be extradited out of it')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('--trace', '--trace', [CompletionResultType]::ParameterName, 'Add every APDU exchange (command and response hex) as data.trace')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
         'sim-doctor;gp;put-key' {
             [CompletionResult]::new('--new-key-version', '--new-key-version', [CompletionResultType]::ParameterName, 'The Key Version Number of the new keys, 01 to 7F')
             [CompletionResult]::new('--replace-key-version', '--replace-key-version', [CompletionResultType]::ParameterName, 'P1: 00 (default) adds the key set; 01 to 7F replaces the key set with that version')
@@ -838,6 +860,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('rename-isd', 'rename-isd', [CompletionResultType]::ParameterValue, 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT')
             [CompletionResult]::new('delete-key', 'delete-key', [CompletionResultType]::ParameterValue, 'Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT')
+            [CompletionResult]::new('create-sd', 'create-sd', [CompletionResultType]::ParameterValue, 'Create a supplementary Security Domain over an SCP03 channel: INSTALL [for install and make selectable] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT')
             [CompletionResult]::new('put-key', 'put-key', [CompletionResultType]::ParameterValue, 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS')
             [CompletionResult]::new('cplc-set', 'cplc-set', [CompletionResultType]::ParameterValue, 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC')
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
@@ -919,6 +942,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;gp;help;install' {
+            break
+        }
+        'sim-doctor;gp;help;create-sd' {
             break
         }
         'sim-doctor;gp;help;put-key' {
@@ -1660,6 +1686,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('rename-isd', 'rename-isd', [CompletionResultType]::ParameterValue, 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT')
             [CompletionResult]::new('delete-key', 'delete-key', [CompletionResultType]::ParameterValue, 'Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT')
+            [CompletionResult]::new('create-sd', 'create-sd', [CompletionResultType]::ParameterValue, 'Create a supplementary Security Domain over an SCP03 channel: INSTALL [for install and make selectable] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT')
             [CompletionResult]::new('put-key', 'put-key', [CompletionResultType]::ParameterValue, 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS')
             [CompletionResult]::new('cplc-set', 'cplc-set', [CompletionResultType]::ParameterValue, 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC')
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
@@ -1740,6 +1767,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;gp;install' {
+            break
+        }
+        'sim-doctor;help;gp;create-sd' {
             break
         }
         'sim-doctor;help;gp;put-key' {

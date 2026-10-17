@@ -1198,6 +1198,48 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Create a supplementary Security Domain over an SCP03 channel: INSTALL
+    /// [for install and make selectable] carrying the Security Domain
+    /// privileges and the allow-to / allow-from install parameters (GlobalPlatform
+    /// Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT.
+    ///
+    /// A dry run unless --yes (offline without keys): it prints every TLV with
+    /// what it carries and sends nothing. With --keys-file/--keys-env the dry run
+    /// makes the one SCP03 authentication attempt and reads the registry, and the
+    /// command refuses with nothing sent when the AID is already in the registry,
+    /// when the load file or module AID collides, or when the privileges asked
+    /// for are not held by the issuer security domain that creates it.
+    ///
+    /// WARNING: the keys of the new Security Domain are YOUR choice, not the
+    /// card's. The issuer security domain hands the new domain the key set it
+    /// is created with, and a domain whose keys are lost is not recoverable:
+    /// no later GlobalPlatform command recreates them. Choose and store the keys
+    /// first, then load them into the new domain with gp put-key.
+    ///
+    /// Exit 0 for a dry run or a verified creation, 1 otherwise.
+    CreateSd {
+        /// The AID of the Security Domain to create, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        domain: String,
+        /// Privileges, 1 or 3 bytes of hex (default 000000). The Security Domain
+        /// privilege is always added. Card Lock and Card Terminate are refused.
+        #[arg(long, value_name = "HEX", default_value = "000000")]
+        privileges: String,
+        /// allow-to (tag 82): any class may be extradited into the new domain.
+        #[arg(long)]
+        allow_to: bool,
+        /// allow-from (tag 87): the new domain may be extradited out of it.
+        #[arg(long)]
+        allow_from: bool,
+        /// Secure Channel Protocol Information for the new domain (tag 81), hex.
+        #[arg(long, value_name = "HEX")]
+        scp: Option<String>,
+        /// Extra Install Parameter TLVs, without a C9 tag, hex.
+        #[arg(long, value_name = "HEX", default_value = "")]
+        params: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
     /// Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer
     /// security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec
     /// v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'S ADMINISTRATIVE ACCESS.
@@ -2982,6 +3024,23 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     &write,
                 )
             }
+            GpAction::CreateSd {
+                domain,
+                privileges,
+                allow_to,
+                allow_from,
+                scp,
+                params,
+                write,
+            } => run_gp_create_sd(
+                &domain,
+                &privileges,
+                allow_to,
+                allow_from,
+                scp,
+                &params,
+                &write,
+            ),
             GpAction::PutKey {
                 new_key_version,
                 replace_key_version,
@@ -4251,6 +4310,76 @@ fn run_gp_delete_key(
 
 /// `sim-doctor gp install`: a dry run unless `--yes`, offline without keys. The
 /// CAP is read and checked, and every AID validated, before a reader is opened.
+#[allow(clippy::too_many_arguments)]
+/// `sim-doctor gp create-sd`: a dry run unless `--yes`, offline without keys.
+/// Every AID, the privileges and the parameters are checked before a reader is
+/// opened, and the new domain is never given the card's own keys.
+fn run_gp_create_sd(
+    domain: &str,
+    privileges: &str,
+    allow_to: bool,
+    allow_from: bool,
+    scp: Option<String>,
+    params: &str,
+    w: &GpWriteFlags,
+) -> contract::ExitCode {
+    let refuse = |kind: &str, message: String| {
+        let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
+        report_refusal("gp", &message, data, w.json)
+    };
+    let Some(domain_aid) = parse_aid(domain) else {
+        return refuse("bad-aid", "--domain must be 5 to 16 bytes of hex".into());
+    };
+    let (Ok(privileges), Ok(params)) = (hex::decode(privileges), hex::decode(params)) else {
+        return refuse("bad-hex", "--privileges and --params must be hex".into());
+    };
+    let scp = match scp {
+        Some(text) => match hex::decode(&text) {
+            Ok(bytes) if bytes.is_empty() => {
+                return refuse("bad-hex", "--scp must be hex with at least one byte".into())
+            }
+            Ok(bytes) => Some(bytes),
+            Err(_) => return refuse("bad-hex", "--scp must be hex".into()),
+        },
+        None => None,
+    };
+    let req = gp::CreateSdRequest {
+        domain_aid,
+        load_file_aid: gp::SSD_PACKAGE_AID.to_vec(),
+        module_aid: gp::SSD_APPLET_AID.to_vec(),
+        privileges,
+        params,
+        scp,
+        allow_to,
+        allow_from,
+    };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::create_sd_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp create-sd", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp create-sd",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::create_sd(s, t, &req, &auth, w.yes),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_gp_install(
     load: &std::path::Path,

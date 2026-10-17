@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `gp create-sd`: create a supplementary Security Domain over an SCP03 channel
+  (`--domain`, `--allow-to`, `--allow-from`), dry run unless `--yes`, with the
+  registry pre-read refusals and the post-write re-read the other gp writes
+  have. (#244)
+
+
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
