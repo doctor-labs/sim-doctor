@@ -407,13 +407,14 @@ Commands:
   help          Print this message or the help of the given subcommand(s)
 
 Options:
+  -P, --profile <NAME>         Use a named card profile instead of the built-in default (#238)
       --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
   -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor gp cert -h [exit 0]
 `gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)
 
-Usage: sim-doctor gp cert <COMMAND>
+Usage: sim-doctor gp cert [OPTIONS] <COMMAND>
 
 Commands:
   read       Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed
@@ -422,7 +423,8 @@ Commands:
   help       Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp cert read -h [exit 0]
 Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed
@@ -430,11 +432,12 @@ Select the issuer security domain and READ BINARY the `7F21` card certificate, t
 Usage: sim-doctor gp cert read [OPTIONS]
 
 Options:
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help           Print help
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>     Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp cert construct -h [exit 0]
 Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run
@@ -443,6 +446,7 @@ Usage: sim-doctor gp cert construct [OPTIONS] --cert-serial <HEX> --cert-ca <HEX
 
 Options:
       --cert-serial <HEX>          Certificate Serial Number, tag 93, as hex
+  -P, --profile <NAME>             Use a named card profile instead of the built-in default (#238)
       --cert-ca <HEX>              CA Identifier, tag 42, as hex: which issuer's key signs this
       --cert-subject <HEX>         Subject Identifier, tag 5F20, as hex: the security domain this certificate names
       --cert-usage <USAGE>         Key Usage, tag 95: `verification` (82 00) or `agreement` (00). GPC v2.3.1 11.1.9 defines no other value
@@ -454,7 +458,7 @@ Options:
       --cert-pubkey <HEX>          Subject public key, tag 7F49: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y). `gp cert sign` derives it from the signing key and does not need this; `gp cert construct` does, and has no key to derive it from
       --cert-out <PATH>            Where to write the certificate: the whole 7F21 TLV. Nothing is written without it
       --json                       Print the certificate as one JSON object instead of the table
-  -h, --help                       Print help
+  -h, --help                       Print help (see more with '--help')
 
 $ sim-doctor gp cert sign -h [exit 0]
 Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed
@@ -463,6 +467,7 @@ Usage: sim-doctor gp cert sign [OPTIONS] --cert-serial <HEX> --cert-ca <HEX> --c
 
 Options:
       --cert-serial <HEX>          Certificate Serial Number, tag 93, as hex
+  -P, --profile <NAME>             Use a named card profile instead of the built-in default (#238)
       --cert-ca <HEX>              CA Identifier, tag 42, as hex: which issuer's key signs this
       --cert-subject <HEX>         Subject Identifier, tag 5F20, as hex: the security domain this certificate names
       --cert-usage <USAGE>         Key Usage, tag 95: `verification` (82 00) or `agreement` (00). GPC v2.3.1 11.1.9 defines no other value
@@ -476,7 +481,7 @@ Options:
       --cert-key-file <PATH>       File holding the P-256 signing key (chmod 600)
       --cert-key-env <VAR>         Environment variable holding the P-256 signing key
       --json                       Print the certificate as one JSON object instead of the table
-  -h, --help                       Print help
+  -h, --help                       Print help (see more with '--help')
 
 $ sim-doctor gp info -h [exit 0]
 Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA
@@ -484,11 +489,12 @@ Select the issuer security domain and read CPLC, card data, key information, IIN
 Usage: sim-doctor gp info [OPTIONS]
 
 Options:
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help           Print help (see more with '--help')
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>     Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp ara -h [exit 0]
 Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA [all], decoded (read-only, no keys)
@@ -496,11 +502,12 @@ Select the ARA-M (Access Rule Application Master) and read every access rule wit
 Usage: sim-doctor gp ara [OPTIONS]
 
 Options:
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help           Print help (see more with '--help')
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>     Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp status -h [exit 0]
 GlobalPlatform registry inventory: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication
@@ -508,6 +515,7 @@ GlobalPlatform registry inventory: GET STATUS for the ISD, applications and load
 Usage: sim-doctor gp status [OPTIONS]
 
 Options:
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --list                Print the registry as a table: scope, AID, lifecycle, privileges
@@ -527,17 +535,18 @@ SELECT a GlobalPlatform (or any) application by AID and report the status word a
 Usage: sim-doctor gp select [OPTIONS] --aid <HEX>
 
 Options:
-      --aid <HEX>      The application AID, 5 to 16 bytes of hex
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help           Print help (see more with '--help')
+      --aid <HEX>       The application AID, 5 to 16 bytes of hex
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>     Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp crs -h [exit 0]
 Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless
 
-Usage: sim-doctor gp crs <COMMAND>
+Usage: sim-doctor gp crs [OPTIONS] <COMMAND>
 
 Commands:
   list        List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys
@@ -547,7 +556,8 @@ Commands:
   help        Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp crs list -h [exit 0]
 List the applications the Contactless Registry Service holds for contactless, with their lifecycle, contactless state and registry data. Read-only, no keys
@@ -555,12 +565,13 @@ List the applications the Contactless Registry Service holds for contactless, wi
 Usage: sim-doctor gp crs list [OPTIONS]
 
 Options:
-      --aid <HEX>      Narrow the listing to applications whose AID starts with these bytes
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help           Print help
+      --aid <HEX>       Narrow the listing to applications whose AID starts with these bytes
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>     Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp crs info -h [exit 0]
 Read the Contactless Registry Service version and event counter (GET DATA [A5]). Read-only, no keys
@@ -568,11 +579,12 @@ Read the Contactless Registry Service version and event counter (GET DATA [A5]).
 Usage: sim-doctor gp crs info [OPTIONS]
 
 Options:
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help           Print help
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>     Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp crs activate -h [exit 0]
 Activate one application for contactless (CRS SET STATUS with P2 01). CHANGES CARD STATE
@@ -583,6 +595,7 @@ Arguments:
   <AID>  The application AID, 5 to 16 bytes of hex
 
 Options:
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --trace               Add every APDU exchange (command and response hex) as data.trace
@@ -604,6 +617,7 @@ Arguments:
   <AID>  The application AID, 5 to 16 bytes of hex
 
 Options:
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --trace               Add every APDU exchange (command and response hex) as data.trace
@@ -619,7 +633,7 @@ Options:
 $ sim-doctor gp channel -h [exit 0]
 Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N
 
-Usage: sim-doctor gp channel <COMMAND>
+Usage: sim-doctor gp channel [OPTIONS] <COMMAND>
 
 Commands:
   open   MANAGE CHANNEL open: the card picks the number and it is printed
@@ -627,7 +641,8 @@ Commands:
   help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp channel open -h [exit 0]
 MANAGE CHANNEL open: the card picks the number and it is printed
@@ -635,10 +650,11 @@ MANAGE CHANNEL open: the card picks the number and it is printed
 Usage: sim-doctor gp channel open [OPTIONS]
 
 Options:
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-  -h, --help           Print help
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp channel close -h [exit 0]
 MANAGE CHANNEL close of a channel opened earlier
@@ -646,11 +662,12 @@ MANAGE CHANNEL close of a channel opened earlier
 Usage: sim-doctor gp channel close [OPTIONS] --channel <N>
 
 Options:
-      --channel <N>    The channel to close, 1 to 19
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-  -h, --help           Print help
+      --channel <N>     The channel to close, 1 to 19
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp release-scp -h [exit 0]
 Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE
@@ -658,12 +675,13 @@ Release the SCP03 secure channel on a logical channel: close that logical channe
 Usage: sim-doctor gp release-scp [OPTIONS] --channel <N>
 
 Options:
-      --channel <N>    The logical channel whose secure channel is released, 1 to 19
-      --reader <NAME>  The reader to use, matched against the driver's own name
-      --json           Emit one JSON envelope of kind "gp" on stdout
-      --trace          Add every APDU exchange (command and response hex) as data.trace
-      --yes            Send the MANAGE CHANNEL close. Without it nothing is sent
-  -h, --help           Print help (see more with '--help')
+      --channel <N>     The logical channel whose secure channel is released, 1 to 19
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+      --reader <NAME>   The reader to use, matched against the driver's own name
+      --json            Emit one JSON envelope of kind "gp" on stdout
+      --trace           Add every APDU exchange (command and response hex) as data.trace
+      --yes             Send the MANAGE CHANNEL close. Without it nothing is sent
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp delete -h [exit 0]
 Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT
@@ -672,6 +690,7 @@ Usage: sim-doctor gp delete [OPTIONS] --aid <HEX>
 
 Options:
       --aid <HEX>           The AID to delete, 5 to 16 bytes of hex
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --related             Also delete related objects (P2 80): for a load file, its applications
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
@@ -692,6 +711,7 @@ Usage: sim-doctor gp make-default [OPTIONS] --aid <HEX>
 
 Options:
       --aid <HEX>           The application AID, 5 to 16 bytes of hex
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --trace               Add every APDU exchange (command and response hex) as data.trace
@@ -711,6 +731,7 @@ Usage: sim-doctor gp rename-isd [OPTIONS] --new-aid <HEX>
 
 Options:
       --new-aid <HEX>       The new ISD AID, 5 to 16 bytes of hex
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --trace               Add every APDU exchange (command and response hex) as data.trace
@@ -730,6 +751,7 @@ Usage: sim-doctor gp delete-key [OPTIONS]
 
 Options:
       --key-id <HEX>       The Key Identifier to delete (GP tag D0). If absent, every key id matches and only --key-version narrows the delete
+  -P, --profile <NAME>     Use a named card profile instead of the built-in default (#238)
       --key-version <HEX>  The Key Version Number to delete (GP tag D2). If absent, every version matches and only --key-id narrows the delete
       --related            Also delete related objects (P2 80)
       --allow-lockout      Send a delete that would remove the key set this session authenticated with, or every key on the card, as a WARNING instead of refusing it. Still needs --yes; without it nothing is sent
@@ -749,6 +771,7 @@ Usage: sim-doctor gp install [OPTIONS]
 
 Options:
       --load <CAP>              The CAP file (a zip of javacard/*.cap components)
+  -P, --profile <NAME>          Use a named card profile instead of the built-in default (#238)
       --install-only            Send INSTALL [for install and make selectable] only: the module is already on the card. Refuses --load; needs --package
       --update <HEX>            Update the registry entry of this instance AID: INSTALL [for registry update] (P1 40). The privileges and the install parameters sent REPLACE what the card holds, for good; the code of the applet is not replaced and the instance is not removed. Refuses --load, --package, --module, --app and --params
       --package <HEX>           The Executable Load File (package) AID. With --install-only, where no CAP is read, it names the package on the card. Defaults to the CAP package AID
@@ -789,6 +812,7 @@ Usage: sim-doctor gp create-sd [OPTIONS] --domain <HEX>
 
 Options:
       --domain <HEX>        The AID of the Security Domain to create, 5 to 16 bytes of hex
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --privileges <HEX>    Privileges, 1 or 3 bytes of hex (default 000000). The Security Domain privilege is always added. Card Lock and Card Terminate are refused [default: 000000]
       --allow-to            allow-to (tag 82): any class may be extradited into the new domain
       --allow-from          allow-from (tag 87): the new domain may be extradited out of it
@@ -813,6 +837,7 @@ Usage: sim-doctor gp put-key [OPTIONS] --new-key-version <HEX> <--new-keys-file 
 
 Options:
       --new-key-version <HEX>      The Key Version Number of the new keys, 01 to 7F
+  -P, --profile <NAME>             Use a named card profile instead of the built-in default (#238)
       --replace-key-version <HEX>  P1: 00 (default) adds the key set; 01 to 7F replaces the key set with that version [default: 00]
       --key-id <HEX>               The Key Identifier of the first key (the other two follow at +1 and +2) [default: 01]
       --new-keys-file <PATH>       File holding the new keys (keep it chmod 600)
@@ -837,6 +862,7 @@ Usage: sim-doctor gp cplc-set [OPTIONS] --kind <KIND> --data <HEX>
 
 Options:
       --kind <KIND>         pre-perso (DGI 9F67) or perso (DGI 9F66) [possible values: pre-perso, perso]
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --data <HEX>          The eight data bytes of the block as 16 hex digits
       --today               Write today's date (UTC) into the date bytes, overriding those in --data
       --reader <NAME>       The reader to use, matched against the driver's own name
@@ -858,6 +884,7 @@ Usage: sim-doctor gp personalize [OPTIONS] --aid <HEX> --data <HEX>
 
 Options:
       --aid <HEX>           The application or Security Domain AID, 5 to 16 bytes of hex
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --data <HEX>          The BER-TLV personalization data, as hex; sent as the STORE DATA body
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
@@ -874,7 +901,7 @@ Options:
 $ sim-doctor gp aram -h [exit 0]
 Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork's lock, all over an SCP03 channel. CHANGES THE CARD'S ACCESS RULES
 
-Usage: sim-doctor gp aram <COMMAND>
+Usage: sim-doctor gp aram [OPTIONS] <COMMAND>
 
 Commands:
   add         Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`
@@ -884,7 +911,8 @@ Commands:
   help        Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help (see more with '--help')
+  -P, --profile <NAME>  Use a named card profile instead of the built-in default (#238)
+  -h, --help            Print help (see more with '--help')
 
 $ sim-doctor gp aram add -h [exit 0]
 Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`
@@ -893,6 +921,7 @@ Usage: sim-doctor gp aram add [OPTIONS]
 
 Options:
       --aid <HEX>                  The application the rule is for: 5 to 16 bytes of hex, or the empty string for the empty AID-REF-DO that names every application
+  -P, --profile <NAME>             Use a named card profile instead of the built-in default (#238)
       --aid-empty                  No specific application: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)
       --device-app-id <HEX>        The device application's certificate hash or UUID, 20 or 32 bytes of hex. Empty (the default) matches any device application [default: ""]
       --pkg-ref <NAME>             The Android package name (PKG-REF-DO, an AOSP extension)
@@ -921,6 +950,7 @@ Usage: sim-doctor gp aram delete-all [OPTIONS]
 
 Options:
       --confirm-delete-all <TEXT>  Required acknowledgement beyond --yes: the literal DELETE-ALL
+  -P, --profile <NAME>             Use a named card profile instead of the built-in default (#238)
       --reader <NAME>              The reader to use, matched against the driver's own name
       --json                       Emit one JSON envelope of kind "gp" on stdout
       --trace                      Add every APDU exchange (command and response hex) as data.trace
@@ -939,6 +969,7 @@ Lock the ARA-M's STORE DATA (the single byte A1), so no rule can ever be added, 
 Usage: sim-doctor gp aram lock [OPTIONS]
 
 Options:
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --trace               Add every APDU exchange (command and response hex) as data.trace
@@ -958,6 +989,7 @@ Usage: sim-doctor gp aram config [OPTIONS]
 
 Options:
       --major <MAJOR>       The major part of the device interface version to offer [default: 0]
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --minor <MINOR>       The minor part of the device interface version to offer [default: 0]
       --patch <PATCH>       The patch part of the device interface version to offer [default: 1]
       --reader <NAME>       The reader to use, matched against the driver's own name
@@ -978,6 +1010,7 @@ Usage: sim-doctor gp move [OPTIONS] --aid <HEX> --from <HEX> --to <HEX>
 
 Options:
       --aid <HEX>           The AID of the object to move, 5 to 16 bytes of hex
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --from <HEX>          The AID of the Security Domain the object is in now, 5 to 16 bytes of hex. Checked against the object in the registry before anything is sent
       --to <HEX>            The AID of the destination Security Domain, 5 to 16 bytes of hex
       --reader <NAME>       The reader to use, matched against the driver's own name
@@ -998,6 +1031,7 @@ Verify a GlobalPlatform receipt: check that the receipt a Security Domain return
 Usage: sim-doctor gp receipt [OPTIONS] <--receipt-key-file <PATH>|--receipt-key-env <VAR>>
 
 Options:
+  -P, --profile <NAME>           Use a named card profile instead of the built-in default (#238)
       --receipt <HEX>            The receipt bytes on their own, hex. Use --response to hand over the whole response instead
       --response <HEX>           The Data field of the card's whole response, hex: the Confirmation Structure of Table 11-13
       --confirmation-data <HEX>  The Confirmation Data the receipt is bound to (Table 11-14), hex. Needed with --receipt, because the signature covers it and it is not part of the receipt
@@ -1021,6 +1055,7 @@ Usage: sim-doctor gp store-data [OPTIONS] <--data <HEX>|--dgi-tag <HEX>|--emv-pe
 
 Options:
       --data <HEX>               The data field as hex, sent exactly as given
+  -P, --profile <NAME>           Use a named card profile instead of the built-in default (#238)
       --dgi-tag <HEX>            A DGI tag, 1 to 4 hex digits, e.g. 0036, 8137 or 9F66
       --dgi-value <HEX>          That DGI's value as hex: the BER-TLVs it carries
       --emv-perso <HEX>          EMV PersoData (DGI 9F66): exactly 8 bytes of hex
@@ -1050,6 +1085,7 @@ Arguments:
   <HEX>  The APDU as hex: CLA INS P1 P2, then Lc and the data, then Le, as the card would receive it (for example 00A40000023F00)
 
 Options:
+  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
       --reader <NAME>       The reader to use, matched against the driver's own name
       --json                Emit one JSON envelope of kind "gp" on stdout
       --trace               Add every APDU exchange (command and response hex) as data.trace
