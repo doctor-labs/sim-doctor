@@ -2705,6 +2705,110 @@ impl fmt::Display for BitString {
     }
 }
 
+/// Cuts a received BoundProfilePackage (`BF36`) into the segments of 2.5.5,
+/// one STORE DATA sequence each: the `BF36` header with `BF23`; the `A0`
+/// header with its first `87`, then each further `87` alone; the `A1` header,
+/// then each `88` alone; the `A2` header with its first `87` (only when `A2`
+/// is present), then each further `87` alone; the `A3` header, then each `86`
+/// alone. This is the inverse of [`crate::bpp::Bpp::segments`], the cut the
+/// SM-DP+ side builds. It sends nothing: a package of any other shape is
+/// refused here, before the first segment is written.
+///
+/// # Errors
+///
+/// [`DecodeError::UnexpectedTag`] for a member out of order or with the wrong
+/// tag, [`DecodeError::MissingField`] for an absent or empty mandatory
+/// sequence, and the TLV reader errors for damaged structure.
+pub fn bpp_segments(package: &[u8]) -> Result<Vec<Vec<u8>>, DecodeError> {
+    let outer = parse(package)?;
+    let [bf36] = outer.as_slice() else {
+        return Err(DecodeError::MissingField("boundProfilePackage"));
+    };
+    let mut segments = Vec::new();
+    if bf36.tag != 0xBF36 {
+        return Err(DecodeError::WrongTag {
+            expected: 0xBF36,
+            found: bf36.tag,
+        });
+    }
+    // The members seen so far: BF23 = 1, A0 = 2, A1 = 3, A2 = 4, A3 = 5.
+    let mut order = 0u8;
+    for node in parse(bf36.value)? {
+        let next = match (node.tag, order) {
+            (0xBF23, 0) => {
+                segments.push([header_of(bf36.raw, bf36.value), node.raw.to_vec()].concat());
+                1
+            }
+            (0xA0, 1) => {
+                bpp_sequence(&mut segments, node.raw, node.value, 0x87, true)?;
+                2
+            }
+            (0xA1, 2) => {
+                bpp_sequence(&mut segments, node.raw, node.value, 0x88, false)?;
+                3
+            }
+            (0xA2, 3) => {
+                bpp_sequence(&mut segments, node.raw, node.value, 0x87, true)?;
+                4
+            }
+            (0xA3, 3 | 4) => {
+                bpp_sequence(&mut segments, node.raw, node.value, 0x86, false)?;
+                5
+            }
+            (found, _) => {
+                return Err(DecodeError::UnexpectedTag {
+                    context: "BoundProfilePackage",
+                    found,
+                })
+            }
+        };
+        order = next;
+    }
+    if order != 5 {
+        return Err(DecodeError::MissingField("boundProfilePackage member"));
+    }
+    Ok(segments)
+}
+
+fn header_of(raw: &[u8], value: &[u8]) -> Vec<u8> {
+    raw[..raw.len() - value.len()].to_vec()
+}
+
+/// One sequence of 2.5.5 segments: its header joins its first member when
+/// `joins_first`, every other member is a segment of its own.
+fn bpp_sequence(
+    out: &mut Vec<Vec<u8>>,
+    raw: &[u8],
+    value: &[u8],
+    child: u32,
+    joins_first: bool,
+) -> Result<(), DecodeError> {
+    let members = parse(value)?;
+    if members.is_empty() {
+        return Err(DecodeError::MissingField(
+            "boundProfilePackage sequence member",
+        ));
+    }
+    let head = header_of(raw, value);
+    for (index, member) in members.iter().enumerate() {
+        if member.tag != child {
+            return Err(DecodeError::UnexpectedTag {
+                context: "BoundProfilePackage",
+                found: member.tag,
+            });
+        }
+        if index == 0 && joins_first {
+            out.push([head.clone(), member.raw.to_vec()].concat());
+            continue;
+        }
+        if index == 0 {
+            out.push(head.clone());
+        }
+        out.push(member.raw.to_vec());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
