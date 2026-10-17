@@ -3767,6 +3767,7 @@ fn run_gp_delete_key(
         keys_file: delete_key.keys.keys_file.clone(),
         keys_env: delete_key.keys.keys_env.clone(),
         key_version: 0,
+        mode: gp::Scp03Mode::Mac,
     };
     let keys = match load_gp_keys(&kvn_args, delete_key.json) {
         Ok(keys) => keys,
