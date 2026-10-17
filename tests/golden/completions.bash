@@ -214,6 +214,9 @@ _sim__doctor() {
             sim__doctor__subcmd__fuzz,apdu)
                 cmd="sim__doctor__subcmd__fuzz__subcmd__apdu"
                 ;;
+            sim__doctor__subcmd__fuzz,compare)
+                cmd="sim__doctor__subcmd__fuzz__subcmd__compare"
+                ;;
             sim__doctor__subcmd__fuzz,help)
                 cmd="sim__doctor__subcmd__fuzz__subcmd__help"
                 ;;
@@ -225,6 +228,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__fuzz__subcmd__help,apdu)
                 cmd="sim__doctor__subcmd__fuzz__subcmd__help__subcmd__apdu"
+                ;;
+            sim__doctor__subcmd__fuzz__subcmd__help,compare)
+                cmd="sim__doctor__subcmd__fuzz__subcmd__help__subcmd__compare"
                 ;;
             sim__doctor__subcmd__fuzz__subcmd__help,help)
                 cmd="sim__doctor__subcmd__fuzz__subcmd__help__subcmd__help"
@@ -426,6 +432,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__fuzz,apdu)
                 cmd="sim__doctor__subcmd__help__subcmd__fuzz__subcmd__apdu"
+                ;;
+            sim__doctor__subcmd__help__subcmd__fuzz,compare)
+                cmd="sim__doctor__subcmd__help__subcmd__fuzz__subcmd__compare"
                 ;;
             sim__doctor__subcmd__help__subcmd__fuzz,mutate)
                 cmd="sim__doctor__subcmd__help__subcmd__fuzz__subcmd__mutate"
@@ -1523,7 +1532,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__fuzz)
-            opts="-h --help apdu ota mutate help"
+            opts="-h --help apdu ota mutate compare help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1562,8 +1571,22 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__fuzz__subcmd__compare)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__fuzz__subcmd__help)
-            opts="apdu ota mutate help"
+            opts="apdu ota mutate compare help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1577,6 +1600,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__fuzz__subcmd__help__subcmd__apdu)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__fuzz__subcmd__help__subcmd__compare)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2561,7 +2598,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__fuzz)
-            opts="apdu ota mutate"
+            opts="apdu ota mutate compare"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2575,6 +2612,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__fuzz__subcmd__apdu)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__fuzz__subcmd__compare)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

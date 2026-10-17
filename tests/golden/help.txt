@@ -604,10 +604,11 @@ APDU discovery and the OTA/SMS fuzz sweep
 Usage: sim-doctor fuzz <COMMAND>
 
 Commands:
-  apdu    CLA discovery (level 1) or CLA+INS discovery (level 2) over a session
-  ota     The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner's ENVELOPE builder
-  mutate  Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)
-  help    Print this message or the help of the given subcommand(s)
+  apdu     CLA discovery (level 1) or CLA+INS discovery (level 2) over a session
+  ota      The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner's ENVELOPE builder
+  mutate   Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)
+  compare  Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared
+  help     Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help  Print help (see more with '--help')
@@ -669,6 +670,18 @@ Options:
       --stop-on-first-finding  Stop after the first finding
       --json                   Emit one JSON envelope on stdout, and nothing else
   -h, --help                   Print help (see more with '--help')
+
+$ sim-doctor fuzz compare -h [exit 0]
+Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared
+
+Usage: sim-doctor fuzz compare [OPTIONS] <RESULT_FILE> <RESULT_FILE>...
+
+Arguments:
+  <RESULT_FILE> <RESULT_FILE>...  Two or more `fuzz ota --json` result files, each at most 8 MiB
+
+Options:
+      --json  Emit one JSON envelope on stdout, and nothing else
+  -h, --help  Print help
 
 $ sim-doctor euicc -h [exit 0]
 eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
