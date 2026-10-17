@@ -1487,6 +1487,85 @@ enum GpAction {
         #[command(flatten)]
         receipt: GpReceiptArgs,
     },
+    /// Write data to the selected Application or issuer security domain with
+    /// STORE DATA (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD
+    /// CONTENT.
+    ///
+    /// The data field comes from exactly one form: --data (hex, sent exactly as
+    /// given), --dgi-tag with --dgi-value (one DGI), --emv-perso (DGI 9F66) or
+    /// --emv-pre-perso (DGI 9F67, both exactly 8 bytes). A DGI form selects the
+    /// DGI structure in P1 unless --structure says otherwise. The field is cut
+    /// into STORE DATA blocks of --block-size bytes, P2 counts them from 0, b8
+    /// marks the last one, and no block is padded.
+    ///
+    /// Same safeguards as delete: a dry run unless --yes (offline without keys),
+    /// ONE SCP03 authentication attempt, the card cryptogram checked locally
+    /// before EXTERNAL AUTHENTICATE, keys from --keys-file/--keys-env only and
+    /// never printed, every block sent once and in order, stopping at the first
+    /// refusal, then a GET STATUS read-back. STORE DATA data is not in the card
+    /// registry, so nothing can be confirmed in advance and the read-back only
+    /// shows the issuer security domain still answers; the proof the data
+    /// landed is each block status word, all reported. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a write every block accepted, 1 otherwise.
+    StoreData {
+        #[command(flatten)]
+        payload: GpStoreDataPayload,
+        /// P1 b5-b4: none (00), dgi (01), ber-tlv (10). Defaults to dgi for a
+        /// --dgi-tag, --emv-perso or --emv-pre-perso payload, none otherwise.
+        #[arg(long, value_enum, value_name = "STRUCTURE")]
+        structure: Option<StructureArg>,
+        /// P1 b7-b6: none (00), app (01), encrypted (11).
+        #[arg(long, value_enum, value_name = "PROTECTION", default_value = "none")]
+        encryption: EncryptionArg,
+        /// P1 b1: let the card answer each block.
+        #[arg(long)]
+        response: bool,
+        /// Data field bytes per block, 1 to 255.
+        #[arg(long, value_name = "BYTES", default_value_t = gp::DEFAULT_STORE_DATA_BLOCK)]
+        block_size: usize,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+}
+
+/// Where `gp store-data` gets its data field. Exactly one form; the group is
+/// required and exclusive.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("store_data_payload").required(true)
+    .args(["data", "dgi_tag", "emv_perso", "emv_pre_perso"])))]
+struct GpStoreDataPayload {
+    /// The data field as hex, sent exactly as given.
+    #[arg(long, value_name = "HEX")]
+    data: Option<String>,
+    /// A DGI tag, 1 to 4 hex digits, e.g. 0036, 8137 or 9F66.
+    #[arg(long, value_name = "HEX", requires = "dgi_value")]
+    dgi_tag: Option<String>,
+    /// That DGI's value as hex: the BER-TLVs it carries.
+    #[arg(long, value_name = "HEX")]
+    dgi_value: Option<String>,
+    /// EMV PersoData (DGI 9F66): exactly 8 bytes of hex.
+    #[arg(long, value_name = "HEX")]
+    emv_perso: Option<String>,
+    /// EMV PrePersoData (DGI 9F67): exactly 8 bytes of hex.
+    #[arg(long, value_name = "HEX")]
+    emv_pre_perso: Option<String>,
+}
+
+/// `gp store-data --structure`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum StructureArg {
+    None,
+    Dgi,
+    BerTlv,
+}
+
+/// `gp store-data --encryption`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum EncryptionArg {
+    None,
+    App,
+    Encrypted,
 }
 
 #[derive(Subcommand)]
@@ -3351,6 +3430,16 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 to,
                 write,
             } => run_gp_move(&aid, &from, &to, &write),
+            GpAction::StoreData {
+                payload,
+                structure,
+                encryption,
+                response,
+                block_size,
+                write,
+            } => run_gp_store_data(
+                &payload, structure, encryption, response, block_size, &write,
+            ),
         },
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
@@ -5304,6 +5393,133 @@ fn load_dap(args: &GpDapArgs) -> Result<Option<gp::DapRequest>, (&'static str, S
         security_domain,
         hash,
     }))
+}
+
+/// `sim-doctor gp store-data`: a dry run unless `--yes`, offline without keys.
+/// The data field is built and every argument checked before a reader is
+/// opened, so a bad tag or a bad block size costs the card nothing.
+fn run_gp_store_data(
+    payload: &GpStoreDataPayload,
+    structure: Option<StructureArg>,
+    encryption: EncryptionArg,
+    response: bool,
+    block_size: usize,
+    w: &GpWriteFlags,
+) -> contract::ExitCode {
+    let refuse = |kind: &str, message: String| {
+        let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
+        report_refusal("gp", &message, data, w.json)
+    };
+    let unhex = |flag: &str, text: &str| -> Result<Vec<u8>, String> {
+        match hex::decode(text) {
+            Ok(bytes) if !bytes.is_empty() => Ok(bytes),
+            Ok(_) => Err(format!("{flag} must be at least one byte of hex")),
+            Err(_) => Err(format!("{flag} must be an even number of hex digits")),
+        }
+    };
+    let (data, derived) = match (
+        &payload.data,
+        &payload.dgi_tag,
+        &payload.emv_perso,
+        &payload.emv_pre_perso,
+    ) {
+        (Some(hex), None, None, None) => match unhex("--data", hex) {
+            Ok(d) => (d, gp::Structure::None),
+            Err(m) => return refuse("bad-hex", m),
+        },
+        (None, Some(tag), None, None) => {
+            let value = match unhex(
+                "--dgi-value",
+                payload.dgi_value.as_deref().unwrap_or_default(),
+            ) {
+                Ok(v) => v,
+                Err(m) => return refuse("bad-hex", m),
+            };
+            let tag = match u16::from_str_radix(tag, 16) {
+                Ok(t) => t,
+                Err(_) => {
+                    return refuse(
+                        "bad-dgi-tag",
+                        "--dgi-tag must be 1 to 4 hex digits, e.g. 0036 or 9F66".into(),
+                    )
+                }
+            };
+            match gp::dgi(tag, &[&value]) {
+                Ok(d) => (d, gp::Structure::Dgi),
+                Err(e) => return refuse("bad-dgi-tag", e.to_string()),
+            }
+        }
+        (None, None, Some(value), None) => match hex::decode(value) {
+            Err(_) => {
+                return refuse(
+                    "bad-hex",
+                    "--emv-perso must be an even number of hex digits".into(),
+                )
+            }
+            Ok(bytes) => match gp::emv_perso_data(&bytes) {
+                Ok(d) => (d, gp::Structure::Dgi),
+                Err(e) => return refuse("bad-emv-dgi", e.to_string()),
+            },
+        },
+        (None, None, None, Some(value)) => match hex::decode(value) {
+            Err(_) => {
+                return refuse(
+                    "bad-hex",
+                    "--emv-pre-perso must be an even number of hex digits".into(),
+                )
+            }
+            Ok(bytes) => match gp::emv_pre_perso_data(&bytes) {
+                Ok(d) => (d, gp::Structure::Dgi),
+                Err(e) => return refuse("bad-emv-dgi", e.to_string()),
+            },
+        },
+        _ => return refuse("bad-request", "give exactly one data field".into()),
+    };
+    let structure = match structure {
+        Some(StructureArg::None) => gp::Structure::None,
+        Some(StructureArg::Dgi) => gp::Structure::Dgi,
+        Some(StructureArg::BerTlv) => gp::Structure::BerTlv,
+        None => derived,
+    };
+    let encryption = match encryption {
+        EncryptionArg::None => gp::Encryption::None,
+        EncryptionArg::App => gp::Encryption::ApplicationDependent,
+        EncryptionArg::Encrypted => gp::Encryption::Encrypted,
+    };
+    let req = gp::StoreDataRequest {
+        data,
+        p1: gp::StoreDataP1 {
+            structure,
+            encryption,
+            response,
+        },
+        block_size,
+    };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::store_data_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp store-data", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp store-data",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::store_data(s, t, &req, &auth, w.yes),
+    )
 }
 
 /// `sim-doctor gp put-key`: a dry run unless `--yes`, offline without keys. The

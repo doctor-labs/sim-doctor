@@ -62,6 +62,17 @@
 //! `gp personalize` sends INSTALL [for personalization] and one STORE DATA over
 //! the same channel, behind the same dry run, pre-read and re-read as the rest.
 //!
+//! **STORE DATA (issue #234).** [`store_data_commands`] cuts one data object
+//! into GP STORE DATA blocks and [`dgi`] / [`emv_perso_data`] /
+//! [`emv_pre_perso_data`] build the DGI payloads, EMV form included. Those
+//! builders only put bytes on the page: [`store_data`] is what sends them.
+//! It is `gp store-data`, and it follows the same binding rules as the other
+//! writes: a dry run unless `--yes`, `--yes` needs keys, ONE SCP03
+//! authentication attempt with the card cryptogram checked locally, keys from a
+//! file or environment variable and never printed, every block MAC'd and sent
+//! once and in order, stopping at the first refusal, then a GET STATUS
+//! read-back.
+//!
 //! **Does not own, and never sends.** SET STATUS, INSTALL
 //! [for extradition / registry update], DELETE [key], PUT KEY
 //! for anything but an SCP03 AES-128 key set (RSA/ECC/DES keys, a lone DAP
@@ -2138,6 +2149,38 @@ pub enum BuildError {
     /// One AID is both added to and removed from the CREL notify list.
     #[error("--cl-notify and --cl-notify-remove both name AID {0}: the card would be told to add and remove the same CREL notify entry")]
     NotifyConflict(String),
+    /// A STORE DATA block size outside 1..=255.
+    #[error("STORE DATA block size {0} is outside 1..=255")]
+    StoreDataBlock(usize),
+    /// STORE DATA with no data.
+    #[error("a STORE DATA block needs at least one data byte")]
+    StoreDataEmpty,
+    /// More STORE DATA blocks than P2 can number.
+    #[error("{0} STORE DATA blocks, the block number P2 stops at 256")]
+    StoreDataBlocks(usize),
+    /// A tag that cannot be a DGI tag.
+    #[error("{tag:04X} is not a DGI tag")]
+    DgiTag {
+        /// The offending tag.
+        tag: u16,
+    },
+    /// A DGI with no BER-TLV inside it.
+    #[error("a DGI needs at least one BER-TLV inside it")]
+    DgiEmpty(u16),
+    /// An EMV PersoData or PrePersoData value that is not 8 bytes.
+    #[error("an EMV PersoData or PrePersoData DGI value is {0} bytes, GlobalPlatformPro takes 8")]
+    EmvValue(usize),
+    /// A C-MAC length over one byte.
+    #[error("a C-MAC is {len} bytes, at most 255 fit a one byte length")]
+    Cmac {
+        /// The length supplied.
+        len: usize,
+    },
+    /// A cipher block size that leaves no room for a block once the C-MAC is on it.
+    #[error(
+        "a {0} byte cipher block leaves no room for a STORE DATA block once the C-MAC is appended"
+    )]
+    CipherBlock(usize),
 }
 
 /// Default LOAD block size: pySim's, the old GlobalPlatformPro default, leaves
@@ -2264,6 +2307,404 @@ pub fn load_commands(
             )
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------
+// STORE DATA (issue #234)
+// ---------------------------------------------------------------------------
+
+/// Instruction byte of a STORE DATA command ([V] GlobalPlatformPro
+/// \`GPSession.INS_STORE_DATA\`, \`GPSession.java:64\`; pySim
+/// \`hdr = "80E2.."\`, \`pySim/global_platform/__init__.py:664\`).
+pub const INS_STORE_DATA: u8 = 0xE2;
+
+/// P1 b8: the last block of the STORE DATA sequence ([V] GlobalPlatformPro
+/// \`GPSession.P1_LAST_BLOCK\`, \`GPSession.java:75\`).
+pub const P1_LAST_BLOCK: u8 = 0x80;
+
+/// Data field bytes per STORE DATA block on a C-MAC SCP03 channel: the most a
+/// GP command message can carry once the 8 byte C-MAC is taken off the top.
+///
+/// [V] GP Card Spec v2.3.1 11.1.2: "All GlobalPlatform APDU command messages
+/// (excluding the APDU header) are limited to 255 bytes in length", and Lc is
+/// "Length of data field" with the MAC inside the data field (Table 11-88,
+/// "Application data and MAC (if present)"). 11.11.2.2 is the matching split
+/// rule: "If the overall length of the intended command message exceeds 255
+/// bytes, the individual (or group of) data shall be sent in multiple
+/// consecutive STORE DATA commands", the value field "shall be truncated in
+/// the STORE DATA command message containing the data structure length
+/// indicator (e.g. at the maximum length of the command message)".
+///
+/// So the rule is the largest block the channel allows, not a round number: it
+/// is what [`max_block_data`] returns for the channel, and a test asserts this
+/// constant and that call agree. Nothing in the Card Spec or in Amendment D
+/// names 240 for STORE DATA; that was the value here while the text was
+/// unreachable, and it was marked [U] for want of it.
+pub const DEFAULT_STORE_DATA_BLOCK: usize = 0xFF - scp03::MAC_LEN;
+
+/// P1 b5-b4, how the card reads the data field. The three values pySim offers
+/// in \`ADF_SD.StoreData\` (\`pySim/global_platform/__init__.py:597\`); \`rfu\` is
+/// not offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Structure {
+    /// \`00\`, no structure.
+    #[default]
+    None,
+    /// \`01\`, the data field is one or more DGIs.
+    Dgi,
+    /// \`10\`, the data field is a sequence of BER-TLVs.
+    BerTlv,
+}
+
+/// P1 b7-b6, how the data field is protected. pySim offers \`none\`,
+/// \`application_dependent\` and \`encrypted\`
+/// (\`pySim/global_platform/__init__.py:599\`); \`rfu\` is not offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Encryption {
+    /// \`00\`, clear on the wire.
+    #[default]
+    None,
+    /// \`01\`, what the card does with it depends on the application.
+    ApplicationDependent,
+    /// \`11\`, already encrypted under a key shared with the card.
+    Encrypted,
+}
+
+/// P1 of a STORE DATA block apart from the last-block bit b8, which
+/// [\`store_data_commands\`] sets on the last block of a sequence and clears on
+/// every other.
+///
+/// pySim reads P1 most significant bit first in \`ADF_SD.StoreData\`
+/// (\`pySim/global_platform/__init__.py:597\`): b8 last block, b7-b6 encryption,
+/// b5-b4 structure, b3-b2 unused, b1 a response may come back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StoreDataP1 {
+    /// How the card reads the data field.
+    pub structure: Structure,
+    /// How the data field is protected.
+    pub encryption: Encryption,
+    /// P1 b1: a response may be returned.
+    pub response: bool,
+}
+
+impl StoreDataP1 {
+    /// The P1 byte this asks for, \`last\` setting or clearing b8.
+    ///
+    /// Laid out by GP Card Spec v2.3.1 Table 11-89, "STORE DATA Reference
+    /// Control Parameter P1" (line 9639 of the public release text, bit diagram
+    /// at 9641-9654):
+    ///
+    /// ```text
+    ///  b8  b7  b6  b5  b4  b3  b2  b1    Meaning
+    ///   1   -   -   -   -   -   -   -    Last block                    '80'
+    ///   -   0   0   -   -   -   -   -    No encryption info / clear    '00'
+    ///   -   0   1   -   -   -   -   -    Application dependent         '20'
+    ///   -   1   1   -   -   -   -   -    Encrypted                     '60'
+    ///   -   -   -   0   0   -   -   -    No structure info             '00'
+    ///   -   -   -   0   1   -   -   -    DGI format                    '08'
+    ///   -   -   -   1   0   -   -   -    BER-TLV format                '10'
+    ///   -   -   -   -   -   -   -   0    ISO case 3, no response data   '00'
+    ///   -   -   -   -   -   X   X   -    RFU
+    /// ```
+    ///
+    /// b7 is `1 << 6` and b6 is `1 << 5`, so the two-bit encryption field is
+    /// `n << 5`; b5 is `1 << 4` and b4 is `1 << 3`, so the two-bit structure
+    /// field is `n << 3`. The b1 cell and the two RFU pairs, b3-b2 and
+    /// b7-b6 = 10 / b5-b4 = 11, are left clear, so `last` is the only way to
+    /// set b8 and this function is the only place b8 is ever set.
+    ///
+    /// The shifts were `n << 6` and `n << 4`, one bit high for each field, until
+    /// issue #234 corrected them against this table. That put `Encrypted` at
+    /// `'C0'`, whose top bit is b8, so an encrypted non-last block was
+    /// byte-identical to an encrypted last block; and it put `Dgi` at `'10'`,
+    /// the bit this table gives `BerTlv`. The byte vectors in this module's
+    /// tests were pinned to those wrong bits and were corrected with them. The
+    /// table above is the authority, not the tests.
+    ///
+    pub fn p1(self, last: bool) -> u8 {
+        let mut p1 = if last { P1_LAST_BLOCK } else { 0x00 };
+        // Table 11-89 puts b7 at '40' and b6 at '20', so this field is n << 5.
+        p1 |= match self.encryption {
+            Encryption::None => 0,
+            Encryption::ApplicationDependent => 1,
+            Encryption::Encrypted => 3,
+        } << 5;
+        // Table 11-89 puts b5 at '10' and b4 at '08', so this field is n << 3.
+        p1 |= match self.structure {
+            Structure::None => 0,
+            Structure::Dgi => 1,
+            Structure::BerTlv => 2,
+        } << 3;
+        if self.response {
+            p1 |= 0x01;
+        }
+        p1
+    }
+}
+
+/// EMV PersoData DGI tag \`9F66\` ([V] GlobalPlatformPro \`GPCommands.setPerso\`,
+/// \`GPCommands.java:40\`, which stores \`TLV.of(0x9F66, data)\`).
+pub const DGI_PERSO_DATA: u16 = 0x9F66;
+
+/// EMV PrePersoData DGI tag \`9F67\` ([V] GlobalPlatformPro
+/// \`GPCommands.setPrePerso\`, \`GPCommands.java:32\`, which stores
+/// \`TLV.of(0x9F67, data)\`).
+pub const DGI_PRE_PERSO_DATA: u16 = 0x9F67;
+
+/// Bytes of an EMV PersoData or PrePersoData DGI value ([V] GlobalPlatformPro
+/// \`GPCommands.setPrePerso\`, \`GPCommands.java:34\`: "PrePerso data must be 8
+/// bytes").
+pub const EMV_DGI_VALUE: usize = 8;
+
+/// ISO/IEC 7816-4 tag bytes: the first tag byte carries b8 set when the tag is
+/// two bytes. pySim writes its DGI tags the same way, \`0x0036\` as one byte \`36\`
+/// and \`0x8137\` as \`81 37\` (\`pySim/global_platform/__init__.py:282\`).
+fn tag_bytes(tag: u16) -> Vec<u8> {
+    if tag & 0x8000 == 0 {
+        vec![tag as u8]
+    } else {
+        vec![(tag >> 8) as u8, tag as u8]
+    }
+}
+
+/// One DGI (Data Group Identifier): the BER-TLV \`TT <BER length> <value>\` whose
+/// tag is the DGI tag and whose value holds one or more BER-TLVs.
+///
+/// This is the shape a GP STORE DATA block with P1 b5-b4 set to \`01\` carries:
+/// DGIs are BER-TLVs with their own tags, which is why pySim models each one as
+/// its own \`DGI_TLV_IE\` (\`pySim/global_platform/__init__.py:282\`, tags
+/// \`0x0036\`, \`0x8137\` and \`0x00b9\`). No \`BF\` style wrapper is added:
+/// neither reference has one.
+///
+/// \`elements\` are already-encoded BER-TLVs, passed through as they are.
+pub fn dgi(tag: u16, elements: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
+    if tag == 0x0000 || tag == 0xFFFF {
+        return Err(BuildError::DgiTag { tag });
+    }
+    if elements.is_empty() {
+        return Err(BuildError::DgiEmpty(tag));
+    }
+    let body = elements.concat();
+    let mut out = tag_bytes(tag);
+    out.extend(ber_len(body.len()));
+    out.extend_from_slice(&body);
+    Ok(out)
+}
+
+/// The EMV PersoData DGI \`9F66 08 <8 bytes>\`, exactly what GlobalPlatformPro
+/// \`GPCommands.setPerso\` puts on the wire.
+pub fn emv_perso_data(value: &[u8]) -> Result<Vec<u8>, BuildError> {
+    if value.len() != EMV_DGI_VALUE {
+        return Err(BuildError::EmvValue(value.len()));
+    }
+    dgi(DGI_PERSO_DATA, &[value])
+}
+
+/// The EMV PrePersoData DGI \`9F67 08 <8 bytes>\`, exactly what GlobalPlatformPro
+/// \`GPCommands.setPrePerso\` puts on the wire.
+pub fn emv_pre_perso_data(value: &[u8]) -> Result<Vec<u8>, BuildError> {
+    if value.len() != EMV_DGI_VALUE {
+        return Err(BuildError::EmvValue(value.len()));
+    }
+    dgi(DGI_PRE_PERSO_DATA, &[value])
+}
+
+/// Cuts one data object into STORE DATA blocks, and does not send them: \`80 E2
+/// <P1> <block number> Lc <piece> 00\`, case 4 with Le \`00\`.
+///
+/// b8 is set on the last block and cleared on every other, P2 numbers the
+/// blocks from 0, and **no block is padded**: each carries exactly
+/// \`block_size\` bytes except the last, which carries what is left over.
+///
+/// [V] GlobalPlatformPro \`GPSession.buildStoreDataCommands\`
+/// (\`GPSession.java:766\`) sets \`P1_LAST_BLOCK\` on the last block and clears
+/// it elsewhere, and \`GPSession.storeData(List<CommandAPDU>)\`
+/// (\`GPSession.java:755\`) replaces P2 with a counter starting at 0. pySim
+/// numbers from 0 as well (\`block_nr = 0\` at
+/// \`pySim/global_platform/__init__.py:656\`). Neither pads: the bytes a card
+/// has to see are the ones the caller built.
+///
+/// The padding a secure channel adds is a separate thing and is not applied
+/// here. It goes on the wire inside the channel wrapper, after the plain data
+/// field has been handed over, so the plain APDU this builds always carries an
+/// exact (unpadded) length. [\`max_block_data\`] is what sizes a block so the
+/// padding and the C-MAC still fit 255.
+///
+/// A payload whose length is an exact multiple of \`block_size\` is that many
+/// blocks, not that many plus an empty one.
+pub fn store_data_commands(
+    data: &[u8],
+    p1: StoreDataP1,
+    block_size: usize,
+) -> Result<Vec<Command>, BuildError> {
+    if !(1..=0xFF).contains(&block_size) {
+        return Err(BuildError::StoreDataBlock(block_size));
+    }
+    if data.is_empty() {
+        return Err(BuildError::StoreDataEmpty);
+    }
+    let count = data.len().div_ceil(block_size);
+    if count > 256 {
+        return Err(BuildError::StoreDataBlocks(count));
+    }
+    Ok(data
+        .chunks(block_size)
+        .enumerate()
+        .map(|(n, piece)| {
+            let last = n + 1 == count;
+            Command::case4(
+                Header::new(0x80, INS_STORE_DATA, p1.p1(last), n as u8),
+                piece.to_vec(),
+                Le::Short(0),
+            )
+        })
+        .collect())
+}
+
+/// The most data bytes one STORE DATA block may carry through a secure channel,
+/// from pySim \`SecureChannelProtocol.overhead\`
+/// (\`pySim/global_platform/scp.py:190\`).
+///
+/// With no cipher the channel only appends the C-MAC, so a block may hold
+/// \`255 - mac_len\` bytes. With a cipher, C-DECRYPTION pads the data field to
+/// a cipher block boundary before encrypting it: the padding is the usual NIST
+/// SP 800-38A one, \`80\` then \`00\`s, at least one byte (\`scp.py:44\`,
+/// \`pad80\`), which amendment D defers to GPCS B.2 (\`scp.py:198\`) and the
+/// card spec defers to NIST SP 800-38B (\`scp.py:200\`). The padded field plus
+/// the C-MAC must still fit 255, which leaves \`floor((255 - mac_len) /
+/// cipher_block) * cipher_block - 1\` bytes, one less than the largest block
+/// multiple.
+pub fn max_block_data(mac_len: usize, cipher_block: Option<usize>) -> Result<usize, BuildError> {
+    let Some(block) = cipher_block else {
+        if mac_len > 0xFF {
+            return Err(BuildError::Cmac { len: mac_len });
+        }
+        return Ok(0xFF - mac_len);
+    };
+    if !(1..=0xFF).contains(&block) {
+        return Err(BuildError::CipherBlock(block));
+    }
+    let room = 0xFFusize
+        .checked_sub(mac_len)
+        .ok_or(BuildError::CipherBlock(block))?;
+    let blocks = room / block;
+    if blocks == 0 {
+        return Err(BuildError::CipherBlock(block));
+    }
+    Ok(blocks * block - 1)
+}
+
+/// What `gp store-data` writes: one data object, how the card should read it,
+/// and how many of its bytes go in a block.
+#[derive(Debug, Clone, Default)]
+pub struct StoreDataRequest {
+    /// The data field, already built: raw bytes, one DGI or several.
+    pub data: Vec<u8>,
+    /// How the card reads the data field, and whether it may answer each block.
+    pub p1: StoreDataP1,
+    /// Data bytes per block; see [`DEFAULT_STORE_DATA_BLOCK`].
+    pub block_size: usize,
+}
+
+/// The step name every STORE DATA block carries in the plan and the trace.
+const STORE_DATA_STEP: &str = "store_data";
+
+fn store_data_plan_steps(req: &StoreDataRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(store_data_commands(&req.data, req.p1, req.block_size)?
+        .into_iter()
+        .map(|command| Planned {
+            step: STORE_DATA_STEP,
+            command,
+        })
+        .collect())
+}
+
+/// P1 b5-b4 as it is named on the command line, with the bits it sets.
+fn structure_name(s: Structure) -> &'static str {
+    match s {
+        Structure::None => "none (00)",
+        Structure::Dgi => "dgi (01)",
+        Structure::BerTlv => "ber-tlv (10)",
+    }
+}
+
+/// P1 b7-b6 as it is named on the command line, with the bits it sets.
+fn encryption_name(e: Encryption) -> &'static str {
+    match e {
+        Encryption::None => "none (00)",
+        Encryption::ApplicationDependent => "application-dependent (01)",
+        Encryption::Encrypted => "encrypted (11)",
+    }
+}
+
+fn store_data_target(req: &StoreDataRequest) -> Value {
+    json!({
+        "data": hex_of(&req.data),
+        "data_bytes": req.data.len(),
+        "structure": structure_name(req.p1.structure),
+        "encryption": encryption_name(req.p1.encryption),
+        "response": req.p1.response,
+        "block_size": req.block_size,
+        "block_maximum": max_block_data(scp03::MAC_LEN, None).unwrap_or(0),
+    })
+}
+
+/// `gp store-data` without keys: the offline dry run. Sends nothing and does
+/// not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError`] for an empty data field, a block size outside 1 to 255, or
+/// more than 256 blocks.
+pub fn store_data_dry_run(req: &StoreDataRequest) -> Result<Value, BuildError> {
+    let plan = store_data_plan_steps(req)?;
+    let mut data = offline_dry_run(
+        "store-data",
+        store_data_target(req),
+        &plan,
+        "no keys were given, so the card was not contacted; add --keys-file or --keys-env to open the secure channel and read the registry first, and --yes to send",
+    );
+    data["target"]["blocks"] = json!(plan.len());
+    Ok(data)
+}
+
+/// `gp store-data` over SCP03: authenticate once, GET STATUS, a dry run unless
+/// `yes`; otherwise every STORE DATA block MAC'd and in order, stopping at the
+/// first refusal (nothing retried, nothing skipped ahead), then a GET STATUS
+/// read-back.
+///
+/// STORE DATA writes data the card's registry does not list, so there is
+/// nothing to confirm in advance: `pre_read` reports the registry the write
+/// followed and the re-read shows the issuer security domain still answers GET
+/// STATUS after it. The proof the data landed is the per-block status word, and
+/// every one of them is reported in `result.steps`.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn store_data<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &StoreDataRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    write(
+        session,
+        trace,
+        auth,
+        yes,
+        "store-data",
+        store_data_target(req),
+        |_| store_data_plan_steps(req),
+        |registry| {
+            Ok(json!({
+                "registry_entries": registry.len(),
+                "note": "STORE DATA writes data the registry does not list, so there is nothing to check in advance beyond the secure channel being open and this GET STATUS",
+            }))
+        },
+        registry_complete,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -14362,5 +14803,413 @@ mod receipt_tests {
         );
         assert!(ReceiptKey::parse("nothex").is_err());
         assert!(ReceiptKey::parse(&format!("des:{}", "00".repeat(8))).is_err());
+    }
+
+    // -- STORE DATA (issue #234) --------------------------------------------
+
+    const SD: StoreDataP1 = StoreDataP1 {
+        structure: Structure::None,
+        encryption: Encryption::None,
+        response: false,
+    };
+
+    fn apdu_wire(cmds: &[Command]) -> Vec<String> {
+        cmds.iter()
+            .map(|c| hex::encode_upper(c.encode().unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn store_data_p1_sets_b8_only_when_asked() {
+        assert_eq!(SD.p1(false), 0x00);
+        assert_eq!(SD.p1(true), 0x80);
+    }
+
+    #[test]
+    fn store_data_p1_lands_each_bit_where_table_11_89_puts_it() {
+        // GP Card Spec v2.3.1 Table 11-89 (line 9639, bit diagram 9641-9654):
+        // b7-b6 carry encryption as 00/01/11 across the bits '40' and '20', and
+        // b5-b4 carry the structure as 00/01/10 across the bits '10' and '08'.
+        // Each is a two-bit field, so the one starting at b7 shifts by 5 and
+        // the one starting at b5 shifts by 3.
+        let mixed = StoreDataP1 {
+            structure: Structure::BerTlv,
+            encryption: Encryption::ApplicationDependent,
+            response: true,
+        };
+        // b7-b6 = 01 at '20', b5-b4 = 10 at '10', b1 set: '30' + '01'.
+        assert_eq!(mixed.p1(false), 0x31);
+        assert_eq!(mixed.p1(true), 0xB1);
+        let enc = StoreDataP1 {
+            encryption: Encryption::Encrypted,
+            ..Default::default()
+        };
+        // b7-b6 = 11 is '40' | '20' = '60' and leaves b8 clear, so an encrypted
+        // non-last block is no longer the same byte as an encrypted last block.
+        assert_eq!(enc.p1(false), 0x60);
+        assert_eq!(enc.p1(true), 0x80 | 0x60);
+        let dgi = StoreDataP1 {
+            structure: Structure::Dgi,
+            ..Default::default()
+        };
+        // b5-b4 = 01 is b4, '08'. '10' is b5, the spec's BerTlv row.
+        assert_eq!(dgi.p1(false), 0x08);
+        assert_eq!(dgi.p1(true), 0x88);
+        let ad = StoreDataP1 {
+            encryption: Encryption::ApplicationDependent,
+            ..Default::default()
+        };
+        // b7-b6 = 01 is b6, '20'.
+        assert_eq!(ad.p1(false), 0x20);
+        assert_eq!(ad.p1(true), 0xA0);
+    }
+
+    #[test]
+    fn store_data_p1_matches_table_11_89_in_every_combination() {
+        // The whole of Table 11-89 as one literal per cell: (structure,
+        // encryption, last) -> the P1 octet. b8 '80' only when last, b7-b6 the
+        // encryption field, b5-b4 the structure field, b1 clear.
+        const CASES: [(Structure, Encryption, bool, u8); 18] = [
+            // b5-b4 = 00, no structure info
+            (Structure::None, Encryption::None, false, 0x00),
+            (Structure::None, Encryption::None, true, 0x80),
+            (
+                Structure::None,
+                Encryption::ApplicationDependent,
+                false,
+                0x20,
+            ),
+            (
+                Structure::None,
+                Encryption::ApplicationDependent,
+                true,
+                0xA0,
+            ),
+            (Structure::None, Encryption::Encrypted, false, 0x60),
+            (Structure::None, Encryption::Encrypted, true, 0xE0),
+            // b5-b4 = 01, DGI, which is b4 = '08'
+            (Structure::Dgi, Encryption::None, false, 0x08),
+            (Structure::Dgi, Encryption::None, true, 0x88),
+            (
+                Structure::Dgi,
+                Encryption::ApplicationDependent,
+                false,
+                0x28,
+            ),
+            (Structure::Dgi, Encryption::ApplicationDependent, true, 0xA8),
+            (Structure::Dgi, Encryption::Encrypted, false, 0x68),
+            (Structure::Dgi, Encryption::Encrypted, true, 0xE8),
+            // b5-b4 = 10, BER-TLV, which is b5 = '10'
+            (Structure::BerTlv, Encryption::None, false, 0x10),
+            (Structure::BerTlv, Encryption::None, true, 0x90),
+            (
+                Structure::BerTlv,
+                Encryption::ApplicationDependent,
+                false,
+                0x30,
+            ),
+            (
+                Structure::BerTlv,
+                Encryption::ApplicationDependent,
+                true,
+                0xB0,
+            ),
+            (Structure::BerTlv, Encryption::Encrypted, false, 0x70),
+            (Structure::BerTlv, Encryption::Encrypted, true, 0xF0),
+        ];
+        for (structure, encryption, last, want) in CASES {
+            let p1 = StoreDataP1 {
+                structure,
+                encryption,
+                response: false,
+            };
+            assert_eq!(
+                p1.p1(last),
+                want,
+                "Table 11-89: structure {structure:?} encryption {encryption:?} last {last}"
+            );
+            // b3-b2 are the RFU pair ('04' and '02') and b1 is the ISO case
+            // bit ('01'), all clear for a request that asks for no response.
+            assert_eq!(p1.p1(last) & 0x07, 0x00);
+            // b8 is the only bit that tells a last block from a non-last one.
+            assert_eq!(p1.p1(true) ^ p1.p1(false), 0x80);
+        }
+        // b1 is set only by the caller, and only adds to the base byte.
+        let resp = StoreDataP1 {
+            structure: Structure::BerTlv,
+            encryption: Encryption::ApplicationDependent,
+            response: true,
+        };
+        assert_eq!(resp.p1(false), 0x31);
+        assert_eq!(resp.p1(true), 0xB1);
+    }
+
+    #[test]
+    fn three_store_data_blocks_repeat_the_base_p1_and_count_p2_from_zero() {
+        // Blocks 01 02 / 03 04 / 05 06, the same P1 on every block, P2 counting
+        // from 0, b8 on the last block only. The base P1 is Table 11-89's
+        // b7-b6 = 01 at '20', plus b5-b4 = 10 at '10', plus b1 = '31'. It was
+        // '61', which those same two shifts produced one bit high for each
+        // pair; Table 11-89 reads '61' as b7-b6 = 11 (encrypted) with no
+        // structure info.
+        let p1 = StoreDataP1 {
+            structure: Structure::BerTlv,
+            encryption: Encryption::ApplicationDependent,
+            response: true,
+        };
+        let cmds = store_data_commands(&[1, 2, 3, 4, 5, 6], p1, 2).unwrap();
+        assert_eq!(
+            apdu_wire(&cmds),
+            ["80E2310002010200", "80E2310102030400", "80E2B10202050600"]
+        );
+    }
+
+    #[test]
+    fn one_store_data_block_is_the_last_block() {
+        // TestStoreData.testSingleBlockGetsLastBlockBit: a single block is both
+        // first and last, so P1 is 0x88: b8 '80' plus Table 11-89's DGI row,
+        // which is b5-b4 = 01 at b4 = '08'.
+        let p1 = StoreDataP1 {
+            structure: Structure::Dgi,
+            ..Default::default()
+        };
+        let cmds = store_data_commands(&[0xAA], p1, 240).unwrap();
+        assert_eq!(apdu_wire(&cmds), ["80E2880001AA00"]);
+    }
+
+    #[test]
+    fn a_payload_crossing_the_block_boundary_is_numbered_from_zero() {
+        // 5 bytes at 2 a block: the last block carries the 1 byte that is
+        // left, neither a full block nor an empty one.
+        let cmds = store_data_commands(&[0x01, 0x02, 0x03, 0x04, 0x05], SD, 2).unwrap();
+        assert_eq!(
+            apdu_wire(&cmds),
+            ["80E2000002010200", "80E2000102030400", "80E28002010500"]
+        );
+    }
+
+    #[test]
+    fn an_exact_multiple_is_not_followed_by_an_empty_block() {
+        let cmds = store_data_commands(&[1, 2, 3, 4], SD, 2).unwrap();
+        assert_eq!(apdu_wire(&cmds), ["80E2000002010200", "80E2800102030400"]);
+    }
+
+    #[test]
+    fn no_store_data_block_is_padded_to_the_block_size() {
+        // Only the last block may be short, and it is short by exactly what is
+        // left over. The padding a C-DECRYPTION channel adds belongs to the
+        // channel wrapper (scp.py:594) and never appears in the plain data
+        // field this builds.
+        let cmds = store_data_commands(&[0xAA; 500], SD, 240).unwrap();
+        assert_eq!(cmds.len(), 3);
+        let encoded: Vec<Vec<u8>> = cmds.iter().map(|c| c.encode().unwrap()).collect();
+        assert_eq!(encoded[0][4], 240);
+        assert_eq!(encoded[1][4], 240);
+        assert_eq!(encoded[2][4], 20);
+        assert_eq!(
+            encoded.iter().map(|e| e.len()).collect::<Vec<_>>(),
+            [246, 246, 26]
+        );
+    }
+
+    #[test]
+    fn a_dgi_is_a_ber_tlv_carrying_the_dgi_tag() {
+        // pySim models DGIs as DGI_TLV_IE with tags 0x0036, 0x8137 and 0x00b9
+        // (pySim/global_platform/__init__.py:282). One byte tag when the first
+        // tag byte has b8 clear, two when it has b8 set.
+        assert_eq!(
+            dgi(0x0036, &[&[0xAA, 0xBB]]).unwrap(),
+            [0x36, 0x02, 0xAA, 0xBB]
+        );
+        assert_eq!(dgi(0x8137, &[&[0xCC]]).unwrap(), [0x81, 0x37, 0x01, 0xCC]);
+        assert_eq!(
+            dgi(0x00B9, &[&[0x80, 0x01]]).unwrap(),
+            [0xB9, 0x02, 0x80, 0x01]
+        );
+        assert_eq!(
+            dgi(0x0036, &[&[0x01], &[0x02, 0x03]]).unwrap(),
+            [0x36, 0x03, 0x01, 0x02, 0x03]
+        );
+        // A DGI value over 127 bytes takes the long BER length form.
+        let long = dgi(0x0036, &[&[0x5Au8; 128]]).unwrap();
+        assert_eq!(&long[..3], &[0x36, 0x81, 0x80]);
+    }
+
+    #[test]
+    fn the_emv_dgis_are_nine_f_66_and_nine_f_67() {
+        // GPCommands.setPerso and setPrePerso store TLV.of(0x9F66, data) and
+        // TLV.of(0x9F67, data), 8 bytes of data each.
+        let eight: Vec<u8> = (1u8..=8).collect();
+        assert_eq!(
+            emv_perso_data(&eight).unwrap(),
+            [0x9F, 0x66, 0x08, 1, 2, 3, 4, 5, 6, 7, 8]
+        );
+        assert_eq!(
+            hex::encode_upper(emv_pre_perso_data(&eight).unwrap()),
+            "9F67080102030405060708"
+        );
+        assert_eq!(
+            hex::encode_upper(emv_perso_data(&eight).unwrap()),
+            "9F66080102030405060708"
+        );
+    }
+
+    #[test]
+    fn an_emv_dgi_is_one_store_data_block() {
+        let eight: Vec<u8> = (1u8..=8).collect();
+        let payload = emv_perso_data(&eight).unwrap();
+        let p1 = StoreDataP1 {
+            structure: Structure::Dgi,
+            ..Default::default()
+        };
+        let cmds = store_data_commands(&payload, p1, DEFAULT_STORE_DATA_BLOCK).unwrap();
+        assert_eq!(apdu_wire(&cmds), ["80E288000B9F6608010203040506070800"]);
+    }
+
+    #[test]
+    fn max_block_data_is_py_sims_overhead_formula() {
+        // scp.py:194: no C-MAC means no overhead at all. scp.py:197: C-MAC only
+        // costs mac_len. scp.py:206: C-MAC plus C-DECRYPTION costs
+        // 255 - ((255 - mac_len) // bs * bs - 1), so what is left is one byte
+        // under the largest cipher block multiple.
+        assert_eq!(max_block_data(0, None).unwrap(), 255);
+        assert_eq!(max_block_data(8, None).unwrap(), 247);
+        assert_eq!(max_block_data(0, Some(16)).unwrap(), 239);
+        assert_eq!(max_block_data(8, Some(16)).unwrap(), 239);
+        assert_eq!(max_block_data(8, Some(8)).unwrap(), 239);
+        assert_eq!(max_block_data(4, Some(16)).unwrap(), 239);
+        assert_eq!(max_block_data(24, Some(24)).unwrap(), 215);
+    }
+
+    #[test]
+    fn the_default_store_data_block_is_the_one_a_cmac_channel_allows() {
+        // GP Card Spec v2.3.1 11.1.2: a command message is 255 bytes at most,
+        // and the C-MAC is inside the data field (Table 11-88).
+        assert_eq!(DEFAULT_STORE_DATA_BLOCK, 247);
+        assert_eq!(
+            DEFAULT_STORE_DATA_BLOCK,
+            max_block_data(scp03::MAC_LEN, None).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_store_data_dry_run_sends_nothing_and_names_the_payload() {
+        let req = StoreDataRequest {
+            data: dgi(0x8137, &[&[0x02, 0xAA, 0xBB]]).unwrap(),
+            p1: StoreDataP1 {
+                structure: Structure::Dgi,
+                ..Default::default()
+            },
+            block_size: DEFAULT_STORE_DATA_BLOCK,
+        };
+        let data = store_data_dry_run(&req).unwrap();
+        assert_eq!(data["card_touched"], false);
+        assert_eq!(data["dry_run"], true);
+        assert_eq!(data["sent"], false);
+        assert_eq!(data["operation"], "store-data");
+        assert_eq!(data["target"]["data"], "81370302AABB");
+        assert_eq!(data["target"]["data_bytes"], 6);
+        assert_eq!(data["target"]["structure"], "dgi (01)");
+        assert_eq!(data["target"]["encryption"], "none (00)");
+        assert_eq!(data["target"]["response"], false);
+        assert_eq!(data["target"]["blocks"], 1);
+        assert_eq!(data["target"]["block_size"], 247);
+        assert_eq!(data["target"]["block_maximum"], 247);
+        let apdus = data["plan"]["apdus"].as_array().unwrap();
+        assert_eq!(apdus.len(), 1);
+        assert_eq!(apdus[0]["step"], "store_data");
+        assert_eq!(apdus[0]["apdu"], "80E288000681370302AABB00");
+    }
+
+    #[test]
+    fn a_store_data_plan_cuts_the_payload_into_numbered_blocks_in_order() {
+        let data: Vec<u8> = (0u8..=249).collect();
+        let req = StoreDataRequest {
+            data,
+            p1: StoreDataP1 {
+                structure: Structure::BerTlv,
+                encryption: Encryption::ApplicationDependent,
+                response: true,
+            },
+            block_size: 120,
+        };
+        let plan = store_data_plan_steps(&req).unwrap();
+        assert_eq!(plan.len(), 3);
+        assert!(plan.iter().all(|p| p.step == STORE_DATA_STEP));
+        assert_eq!(plan[0].command.data().len(), 120);
+        assert_eq!(plan[1].command.data().len(), 120);
+        assert_eq!(plan[2].command.data().len(), 10);
+        let wire = apdu_wire(&store_data_commands(&req.data, req.p1, req.block_size).unwrap());
+        // Table 11-89: b7-b6 = 01 (application dependent) at '20', b5-b4 = 10
+        // (BER-TLV) at '10', b1 = 1, so the base P1 is '31', and b8 on the
+        // last block only makes it 'B1'.
+        assert!(wire[0].starts_with("80E23100"), "{}", wire[0]);
+        assert!(wire[1].starts_with("80E23101"), "{}", wire[1]);
+        assert!(wire[2].starts_with("80E2B102"), "{}", wire[2]);
+        assert_eq!(req.p1.p1(false), 0x31);
+        assert_eq!(req.p1.p1(true), 0xB1);
+        assert_eq!(structure_name(Structure::BerTlv), "ber-tlv (10)");
+        assert_eq!(
+            encryption_name(Encryption::ApplicationDependent),
+            "application-dependent (01)"
+        );
+    }
+
+    #[test]
+    fn store_data_refuses_input_it_would_have_to_guess() {
+        assert!(matches!(
+            store_data_commands(&[], SD, 240),
+            Err(BuildError::StoreDataEmpty)
+        ));
+        assert!(matches!(
+            store_data_commands(&[1], SD, 0),
+            Err(BuildError::StoreDataBlock(0))
+        ));
+        assert!(matches!(
+            store_data_commands(&[1], SD, 256),
+            Err(BuildError::StoreDataBlock(256))
+        ));
+        // P2 is one byte, so 256 blocks is the ceiling and 257 is a refusal.
+        assert!(matches!(
+            store_data_commands(&[0u8; 257], SD, 1),
+            Err(BuildError::StoreDataBlocks(257))
+        ));
+        assert!(store_data_commands(&[0u8; 256], SD, 1).is_ok());
+        assert!(matches!(
+            dgi(0x0000, &[&[1]]),
+            Err(BuildError::DgiTag { tag: 0x0000 })
+        ));
+        assert!(matches!(
+            dgi(0xFFFF, &[&[1]]),
+            Err(BuildError::DgiTag { tag: 0xFFFF })
+        ));
+        assert!(matches!(
+            dgi(0x9F66, &[]),
+            Err(BuildError::DgiEmpty(0x9F66))
+        ));
+        assert!(matches!(
+            emv_perso_data(&[1, 2, 3]),
+            Err(BuildError::EmvValue(3))
+        ));
+        assert!(matches!(
+            emv_pre_perso_data(&[0u8; 16]),
+            Err(BuildError::EmvValue(16))
+        ));
+        assert!(matches!(
+            max_block_data(0x100, None),
+            Err(BuildError::Cmac { len: 0x100 })
+        ));
+        assert!(matches!(
+            max_block_data(8, Some(0)),
+            Err(BuildError::CipherBlock(0))
+        ));
+        assert!(matches!(
+            max_block_data(8, Some(256)),
+            Err(BuildError::CipherBlock(256))
+        ));
+        assert!(matches!(
+            max_block_data(8, Some(254)),
+            Err(BuildError::CipherBlock(254))
+        ));
     }
 }

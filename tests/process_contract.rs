@@ -2783,6 +2783,221 @@ fn gp_install_refuses_to_guess_install_parameters() {
     let _ = std::fs::remove_file(cap);
 }
 
+/// `gp store-data` without keys is an OFFLINE dry run: the payload, the exact
+/// APDUs, exit 0, no reader opened (none exists in this test) and nothing sent.
+/// A write needs `--yes` AND keys. Usage errors (a missing or doubled data
+/// field, `--yes` with no key source, a key on the command line, both key
+/// sources, an unknown --structure) exit 129; a payload the builders refuse
+/// exits 1. Nothing here reaches a card either way.
+#[test]
+fn gp_store_data_is_an_offline_dry_run_and_needs_yes_and_keys() {
+    let _guard = spawn_lock();
+
+    let out = run(
+        &["gp", "store-data", "--data", "02010200", "--json"],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let data = env.payload().data();
+    assert_eq!(data["card_touched"], false);
+    assert_eq!(data["dry_run"], true);
+    assert_eq!(data["sent"], false);
+    assert_eq!(data["operation"], "store-data");
+    assert_eq!(data["target"]["data"], "02010200");
+    assert_eq!(data["target"]["data_bytes"], 4);
+    assert_eq!(data["target"]["structure"], "none (00)");
+    assert_eq!(data["target"]["blocks"], 1);
+    assert_eq!(data["plan"]["apdus"][0]["step"], "store_data");
+    assert_eq!(data["plan"]["apdus"][0]["apdu"], "80E28000040201020000");
+
+    // the DGI forms: one block each, P1 b5-b4 = 01 ('08') with the
+    // last-block bit ('80'), so P1 88
+    let forms: [(&[&str], &str); 3] = [
+        (
+            &[
+                "gp",
+                "store-data",
+                "--emv-perso",
+                "0102030405060708",
+                "--json",
+            ],
+            "80E288000B9F6608010203040506070800",
+        ),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--emv-pre-perso",
+                "0102030405060708",
+                "--json",
+            ],
+            "80E288000B9F6708010203040506070800",
+        ),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--dgi-tag",
+                "8137",
+                "--dgi-value",
+                "02AABB",
+                "--json",
+            ],
+            "80E288000681370302AABB00",
+        ),
+    ];
+    for (args, want) in forms {
+        let r = run(args, Stdio::piped());
+        assert_eq!(r.code(), 0, "{args:?}: {}", r.stderr);
+        let env = assert_exactly_one_envelope(&r.stdout, contract::ExitCode::Success);
+        assert_eq!(env.payload().data()["plan"]["apdus"][0]["apdu"], want);
+    }
+
+    // a payload crossing the block boundary is cut into numbered blocks, not padded
+    let big = "AB".repeat(500);
+    let r = run(
+        &[
+            "gp",
+            "store-data",
+            "--data",
+            &big,
+            "--block-size",
+            "240",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(r.code(), 0, "{}", r.stderr);
+    let env = assert_exactly_one_envelope(&r.stdout, contract::ExitCode::Success);
+    let apdus = env.payload().data()["plan"]["apdus"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(apdus.len(), 3);
+    let wire = apdus
+        .iter()
+        .map(|a| a["apdu"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(wire[0].len(), (4 + 1 + 240 + 1) * 2);
+    assert_eq!(wire[1].len(), (4 + 1 + 240 + 1) * 2);
+    assert_eq!(wire[2].len(), (4 + 1 + 20 + 1) * 2);
+    assert!(wire[0].starts_with("80E20000"), "{}", wire[0]);
+    assert!(wire[1].starts_with("80E20001"), "{}", wire[1]);
+    assert!(wire[2].starts_with("80E28002"), "{}", wire[2]);
+
+    for args in [
+        &["gp", "store-data", "--data", "02010200", "--yes"][..],
+        &["gp", "store-data", "--yes"],
+        &[
+            "gp",
+            "store-data",
+            "--data",
+            "02",
+            "--emv-perso",
+            "0102030405060708",
+        ],
+        &["gp", "store-data", "--dgi-tag", "8137"],
+        &["gp", "store-data", "--data", "02", "--key", "00"],
+        &[
+            "gp",
+            "store-data",
+            "--data",
+            "02",
+            "--keys-file",
+            "a",
+            "--keys-env",
+            "B",
+        ],
+        &["gp", "store-data", "--data", "02", "--structure", "nope"],
+    ] {
+        let r = run(args, Stdio::piped());
+        assert_eq!(r.code(), 129, "{args:?}: {}", r.stderr);
+    }
+
+    let refusals: [(&[&str], &str); 9] = [
+        (
+            &["gp", "store-data", "--data", "ZZ", "--json"][..],
+            "bad-hex",
+        ),
+        (&["gp", "store-data", "--data", "", "--json"], "bad-hex"),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--data",
+                "02",
+                "--block-size",
+                "0",
+                "--json",
+            ],
+            "bad-request",
+        ),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--data",
+                "02",
+                "--block-size",
+                "256",
+                "--json",
+            ],
+            "bad-request",
+        ),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--dgi-tag",
+                "GG",
+                "--dgi-value",
+                "AABB",
+                "--json",
+            ],
+            "bad-dgi-tag",
+        ),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--dgi-tag",
+                "0000",
+                "--dgi-value",
+                "AABB",
+                "--json",
+            ],
+            "bad-dgi-tag",
+        ),
+        (
+            &[
+                "gp",
+                "store-data",
+                "--dgi-tag",
+                "8137",
+                "--dgi-value",
+                "",
+                "--json",
+            ],
+            "bad-hex",
+        ),
+        (
+            &["gp", "store-data", "--emv-perso", "0102", "--json"],
+            "bad-emv-dgi",
+        ),
+        (
+            &["gp", "store-data", "--emv-pre-perso", "0102", "--json"],
+            "bad-emv-dgi",
+        ),
+    ];
+    for (args, kind) in refusals {
+        let r = run(args, Stdio::piped());
+        assert_eq!(r.code(), 1, "{args:?}: {}", r.stderr);
+        let env = assert_exactly_one_envelope(&r.stdout, contract::ExitCode::Findings);
+        assert_eq!(env.payload().data()["error"]["kind"], kind, "{args:?}");
+    }
+}
+
 /// `gp install --install-only` and `--update`: every flag combination that cannot
 /// be sent is a usage error with nothing sent, and each allowed form builds its
 /// own single APDU offline.
