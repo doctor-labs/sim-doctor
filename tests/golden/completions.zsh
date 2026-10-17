@@ -322,7 +322,9 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
-'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'(--list --info)--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'(--info)--list[Print the registry as a table\: scope, AID, lifecycle, privileges]' \
+'--info[Print each registry entry in detail, with its raw lifecycle and privilege bytes]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \

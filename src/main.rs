@@ -699,14 +699,24 @@ enum GpAction {
     /// card cryptogram is checked locally first: wrong keys stop with "keys do not
     /// match this card" and EXTERNAL AUTHENTICATE is not sent.
     ///
+    /// --list prints the registry as a table and --info one block per entry
+    /// (read-only text over the same GET STATUS data; no new APDUs). Neither
+    /// combines with --json.
+    ///
     /// Exit 0 when an ISD answered, 1 when none did or authentication stopped.
     Status {
         /// The reader to use, matched against the driver's own name.
         #[arg(long, value_name = "NAME")]
         reader: Option<String>,
         /// Emit one JSON envelope of kind "gp" on stdout.
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["list", "info"])]
         json: bool,
+        /// Print the registry as a table: scope, AID, lifecycle, privileges.
+        #[arg(long, conflicts_with = "info")]
+        list: bool,
+        /// Print each registry entry in detail, with its raw lifecycle and privilege bytes.
+        #[arg(long)]
+        info: bool,
         /// Add every APDU exchange (command and response hex) as data.trace.
         #[arg(long)]
         trace: bool,
@@ -1902,10 +1912,19 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             GpAction::Status {
                 reader,
                 json,
+                list,
+                info,
                 trace,
                 channel,
                 keys,
-            } => run_gp_status(reader.as_deref(), json, trace, channel.channel, &keys),
+            } => {
+                let view = match (list, info) {
+                    (true, _) => Some("list"),
+                    (_, true) => Some("info"),
+                    _ => None,
+                };
+                run_gp_status(reader.as_deref(), json, trace, channel.channel, &keys, view)
+            }
             GpAction::Select {
                 aid,
                 reader,
@@ -2623,6 +2642,8 @@ fn emit_gp(what: &str, data: serde_json::Value, json: bool) -> contract::ExitCod
         }
     } else if what == "gp info" {
         serde_json::to_string_pretty(&data).unwrap_or_default()
+    } else if let Some(view) = data["view"].as_str() {
+        gp::render_registry(&data, view == "info")
     } else {
         gp::render_text(&data)
     };
@@ -2672,19 +2693,28 @@ fn run_gp_status(
     trace: bool,
     channel: u8,
     args: &GpKeyArgs,
+    view: Option<&'static str>,
 ) -> contract::ExitCode {
+    // --list / --info: the text view is picked in emit_gp from data["view"]; the
+    // marker only exists on these text runs, never on the --json envelope.
+    let mark = |mut r: gp::Report| {
+        if let Some(view) = view {
+            r.data["view"] = serde_json::json!(view);
+        }
+        r
+    };
     let keys = match load_gp_keys(args, json) {
         Ok(Some(keys)) => keys,
         Ok(None) => {
             return run_gp("gp status", reader, json, trace, channel, |s, t| {
-                gp::status(s, t)
+                gp::status(s, t).map(mark)
             })
         }
         Err(code) => return code,
     };
     let auth = gp_auth(&keys, args, channel);
     run_gp("gp status", reader, json, trace, channel, |s, t| {
-        gp::status_authenticated(s, t, &auth)
+        gp::status_authenticated(s, t, &auth).map(mark)
     })
 }
 

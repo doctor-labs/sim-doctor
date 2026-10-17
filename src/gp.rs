@@ -1723,6 +1723,130 @@ pub fn render_text(data: &Value) -> String {
     out.join("\n")
 }
 
+/// `gp status --list` (a table) and `--info` (one block per entry): read-only text
+/// over `data.registry`, the entries GET STATUS already decoded. Sends nothing.
+/// Conventional choice: the table columns are scope, AID, lifecycle, privileges;
+/// `--info` shows the hex lifecycle and privilege bytes with their names, and the
+/// associated SD, version and module AIDs when the card gave them.
+pub fn render_registry(data: &Value, detail: bool) -> String {
+    let s = |v: &Value| crate::contract::sanitize(v.as_str().unwrap_or("-"));
+    let scopes = data["registry"].as_array().map_or(&[][..], Vec::as_slice);
+    let mut out = Vec::new();
+    for scope in scopes {
+        let n = scope["entries"].as_array().map_or(0, Vec::len);
+        let note = if scope["requires_authentication"] == true {
+            " (requires authentication)"
+        } else {
+            ""
+        };
+        let trunc = if scope["truncated"] == true {
+            " (truncated)"
+        } else {
+            ""
+        };
+        out.push(format!(
+            "{}: status {}, {n} entr(ies){note}{trunc}",
+            s(&scope["scope"]),
+            s(&scope["status"])
+        ));
+        if let Some(e) = scope.get("decode_error") {
+            out.push(format!("  decode error: {}", s(e)));
+        }
+    }
+    let entries: Vec<(String, &Value)> = scopes
+        .iter()
+        .flat_map(|scope| {
+            let name = s(&scope["scope"]);
+            scope["entries"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(move |e| (name.clone(), e))
+        })
+        .collect();
+    let privs = |e: &Value| {
+        e["privilege_names"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if !detail {
+        if entries.is_empty() {
+            return out.join("\n");
+        }
+        let mut rows: Vec<[String; 4]> =
+            vec![["SCOPE", "AID", "LIFECYCLE", "PRIVILEGES"].map(String::from)];
+        for (scope, e) in &entries {
+            rows.push([
+                scope.clone(),
+                s(&e["aid"]),
+                s(&e["lifecycle_name"]),
+                privs(e),
+            ]);
+        }
+        let mut w = [0usize; 4];
+        for r in &rows {
+            for (i, c) in r.iter().enumerate() {
+                w[i] = w[i].max(c.len());
+            }
+        }
+        for r in &rows {
+            out.push(
+                format!(
+                    "{:<a$}  {:<b$}  {:<c$}  {}",
+                    r[0],
+                    r[1],
+                    r[2],
+                    r[3],
+                    a = w[0],
+                    b = w[1],
+                    c = w[2]
+                )
+                .trim_end()
+                .to_owned(),
+            );
+        }
+    } else {
+        for (i, (scope, e)) in entries.iter().enumerate() {
+            if i > 0 {
+                out.push(String::new());
+            }
+            out.push(format!("{scope} {}", s(&e["aid"])));
+            out.push(format!(
+                "  {:<14} {} {}",
+                "lifecycle",
+                s(&e["lifecycle"]),
+                s(&e["lifecycle_name"])
+            ));
+            if let Some(p) = e.get("privileges") {
+                let names = privs(e);
+                let names = if names.is_empty() {
+                    "(none)".to_owned()
+                } else {
+                    names
+                };
+                out.push(format!("  {:<14} {} {names}", "privileges", s(p)));
+            }
+            for (key, label) in [
+                ("associated_security_domain", "associated SD"),
+                ("version", "version"),
+            ] {
+                if let Some(v) = e.get(key) {
+                    out.push(format!("  {label:<14} {}", s(v)));
+                }
+            }
+            if let Some(m) = e["modules"].as_array() {
+                let m: Vec<String> = m.iter().map(s).collect();
+                out.push(format!("  {:<14} {}", "modules", m.join(", ")));
+            }
+        }
+    }
+    out.join("\n")
+}
+
 /// The `delete` / `install` part of [`render_text`].
 fn render_write(out: &mut Vec<String>, op: &Value, data: &Value) {
     let s = |v: &Value| crate::contract::sanitize(v.as_str().unwrap_or("-"));
@@ -4101,6 +4225,62 @@ mod tests {
                 "unexpected {sent}"
             );
         }
+    }
+
+    #[test]
+    fn registry_list_and_info_are_read_only_views_of_the_status_data() {
+        let isd = tlv(
+            "E3",
+            &(tlv("4F", "A000000151000000") + &tlv("9F70", "0F") + &tlv("C5", "9E0000")),
+        );
+        let app = tlv(
+            "E3",
+            &(tlv("4F", "A0000000620001") + &tlv("9F70", "07") + &tlv("C5", "800000")),
+        );
+        let rows = [
+            (SEL1, "9000".to_string()),
+            ("80CA006600", recognition_hex(&["0215"]) + "9000"),
+            (&status_get("80", "02")[..], isd + "9000"),
+            (&status_get("40", "02")[..], app + "9000"),
+            (&status_get("20", "02")[..], "6A88".into()),
+            (&status_get("10", "02")[..], "6982".into()),
+        ];
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
+        let mut card = Card::new(&rows);
+        let r = status(&mut card, false).unwrap();
+        let list = render_registry(&r.data, false);
+        assert!(list.starts_with("isd: status 9000"), "{list}");
+        assert!(
+            list.contains("SCOPE") && list.contains("LIFECYCLE"),
+            "{list}"
+        );
+        assert!(list.contains("A000000151000000  SECURED"), "{list}");
+        assert!(list.contains("security_domain"), "{list}");
+        assert!(
+            list.contains("applications: status 9000, 1 entr(ies)"),
+            "{list}"
+        );
+        assert!(list.contains(
+            "load_files_and_modules: status 6982, 0 entr(ies) (requires authentication)"
+        ));
+        let info = render_registry(&r.data, true);
+        assert!(info.contains("isd A000000151000000"), "{info}");
+        assert!(info.contains("lifecycle      0F SECURED"), "{info}");
+        assert!(
+            info.contains("privileges     9E0000 security_domain"),
+            "{info}"
+        );
+        assert!(
+            info.contains("applications: status 9000, 1 entr(ies)"),
+            "{info}"
+        );
+        // Only the reads `gp status` already sends: no new APDU for the views.
+        let sent = card.sent.len();
+        render_registry(&r.data, true);
+        assert_eq!(card.sent.len(), sent);
+        let mut empty = Card::new(&[(SEL1, "6A82"), (SEL2, "6A82")]);
+        let none = status(&mut empty, false).unwrap();
+        assert_eq!(render_registry(&none.data, false), "");
     }
 
     #[test]

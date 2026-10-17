@@ -163,6 +163,8 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l list -d 'Print the registry as a table: scope, AID, lifecycle, privileges'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l info -d 'Print each registry entry in detail, with its raw lifecycle and privilege bytes'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from select" -l aid -d 'The application AID, 5 to 16 bytes of hex' -r

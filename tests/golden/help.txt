@@ -289,6 +289,8 @@ Usage: sim-doctor gp status [OPTIONS]
 Options:
       --reader <NAME>      The reader to use, matched against the driver's own name
       --json               Emit one JSON envelope of kind "gp" on stdout
+      --list               Print the registry as a table: scope, AID, lifecycle, privileges
+      --info               Print each registry entry in detail, with its raw lifecycle and privilege bytes
       --trace              Add every APDU exchange (command and response hex) as data.trace
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
