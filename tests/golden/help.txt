@@ -1598,24 +1598,27 @@ A pySim-shell style shell over the card: select files, read them, send APDUs
 Usage: sim-doctor card [OPTIONS]
 
 Options:
-      --reader <NAME>          The reader to use, matched against the driver's own name (default: the first reader)
-      --profile <PROFILE>      The command set the card speaks: uicc (class 00) or sim (class A0, GSM 11.11) [default: uicc] [possible values: uicc, sim]
-      --dialect <TABLE>        Which FCP tag table the card answers SELECT with (see `scan --help`) [default: ts-102-221]
-  -c <COMMANDS>                Run these `;`-separated commands and exit
-      --script <PATH>          Run the commands in this file, one per line (`#` starts a comment), and exit
-      --read-csv <PATH>        Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim's provisioning CSV (no ICCID, IMSI or Ki columns). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data
-      --write-csv <PATH>       Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim's provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged
-      --json                   Print every reply as one JSON record (for agents)
-      --chv-file <PATH>        File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history
-      --chv-env <VAR>          Environment variable holding the same text (entries separated by `;` or newlines)
-      --key-file <PATH>        pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600
-  -X, --exclusive              Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this shell is open. Off by default, which shares it
-      --yes                    Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...). Without it they print what they would send and the card is not touched by them
-      --dump <FILE>            Write every APDU exchange (command and response, hex) to FILE as JSON lines, in the SIM_DOCTOR_RECORD replay format. The data field of secret instructions (VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER, AUTHENTICATE) is redacted as FF bytes, and so are the response data of AUTHENTICATE (RES, CK, IK, Kc); such lines carry "redacted":true and no longer replay byte for byte. --dump-secrets records them raw. The file holds raw card data (ICCID, IMSI, file contents): review it before it goes anywhere. Refuses an existing file unless --force; never writes through a symlink or into a non-regular file. The file is owner-only (0600)
-      --force                  Let --dump overwrite an existing regular file
-      --dump-secrets           Record PINs and keys in plain text: the data field of VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER and AUTHENTICATE, and the response data of AUTHENTICATE (RES, CK, IK, Kc), is written raw. Keep the file private. Needs --dump
-      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
-  -h, --help                   Print help (see more with '--help')
+      --reader <NAME>           The reader to use, matched against the driver's own name (default: the first reader)
+      --profile <PROFILE>       The command set the card speaks: uicc (class 00) or sim (class A0, GSM 11.11) [default: uicc] [possible values: uicc, sim]
+      --dialect <TABLE>         Which FCP tag table the card answers SELECT with (see `scan --help`) [default: ts-102-221]
+  -c <COMMANDS>                 Run these `;`-separated commands and exit
+      --script <PATH>           Run the commands in this file, one per line (`#` starts a comment), and exit
+      --read-csv <PATH>         Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim's provisioning CSV (no ICCID, IMSI or Ki columns). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data
+      --write-csv <PATH>        Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim's provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged
+      --json                    Print every reply as one JSON record (for agents)
+      --chv-file <PATH>         File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history
+      --chv-env <VAR>           Environment variable holding the same text (entries separated by `;` or newlines)
+      --key-file <PATH>         pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600
+  -X, --exclusive               Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this shell is open. Off by default, which shares it
+      --card-key-csv <PATH>     CSV card key provider, as pySim's `--csv`: a version-marked CSV whose key columns are encrypted at rest. Answers for the values `--chv-file` / `--chv-env` do not hold
+      --card-key-key <PATH>     File holding the per-column transport keys that decrypt the CSV (`PIN1=<hex>` per line, keep it chmod 600). Never a value on the command line: it would land in shell history
+      --card-key-key-env <VAR>  Environment variable holding the same transport key text
+      --yes                     Send the commands that change the card (APDUs outside the read-only set, PIN checks, ...). Without it they print what they would send and the card is not touched by them
+      --dump <FILE>             Write every APDU exchange (command and response, hex) to FILE as JSON lines, in the SIM_DOCTOR_RECORD replay format. The data field of secret instructions (VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER, AUTHENTICATE) is redacted as FF bytes, and so are the response data of AUTHENTICATE (RES, CK, IK, Kc); such lines carry "redacted":true and no longer replay byte for byte. --dump-secrets records them raw. The file holds raw card data (ICCID, IMSI, file contents): review it before it goes anywhere. Refuses an existing file unless --force; never writes through a symlink or into a non-regular file. The file is owner-only (0600)
+      --force                   Let --dump overwrite an existing regular file
+      --dump-secrets            Record PINs and keys in plain text: the data field of VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER and AUTHENTICATE, and the response data of AUTHENTICATE (RES, CK, IK, Kc), is written raw. Keep the file private. Needs --dump
+      --simulator <HOST:PORT>   Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                    Print help (see more with '--help')
 
 $ sim-doctor erase -h [exit 0]
 Erase the provisioning records before programming: the reference programming tool's -e/--erase, as a command of its own

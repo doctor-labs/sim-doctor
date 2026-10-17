@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- `card`: a CSV card key provider (pySim's `--csv`, `CardKeyProviderCsv`), as
+  `--card-key-csv PATH` with `--card-key-key PATH` / `--card-key-key-env VAR` (#281). The CSV carries a version
+  marker and a header row, and its key columns are encrypted at rest under a per-column AES key-encryption
+  key (GSMA FS.28): a fresh IV per cell, an AES-CMAC tag, and the right columns opened only when a command
+  asks for them. A wrong transport key, an edited cell, a malformed row and a missing column are all
+  refused by name, and no key material reaches an output, an error or the file. The PostgreSQL half of the
+  issue is NOT built: it needs a database driver, and this repository takes no new crate.
+
 ### Fixed
 - `card` shell: VERIFY, UNBLOCK and CHANGE refuse a PIN or PUK the card reports blocked with SW `98 40` ("CHV blocked", ETSI TS 102 221) as well as `69 83`, before any secret is sent; the retry counter from `63 Cx` is reported as before (#195).
 - `sms decode` reads the SCTS timestamp as swapped semi-octets with a signed quarter-hour zone; it printed raw byte values before.

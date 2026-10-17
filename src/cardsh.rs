@@ -80,6 +80,9 @@ pub struct Opts {
     /// `query_card_key` reads rows from it. Secrets such as KI/OPC/ADM keys are printed only
     /// when explicitly requested in `--fields`, never in default output.
     pub card_key: Option<secrets::csv::CardKeyFile>,
+    /// The CSV card key provider (`--card-key-csv`), consulted for the values the PIN source does
+    /// not hold. Its key columns are encrypted at rest and opened one field at a time.
+    pub card_keys: Option<keycsv::CardKeyStore>,
 }
 
 /// What `select` learned about a file from its FCP.
@@ -1027,27 +1030,48 @@ impl Shell {
         })
     }
 
-    /// The secret `name` as stored (any length the source gave).
+    /// The secret `name` as stored (any length the source gave): the PIN source first, then the
+    /// CSV card key provider for what it does not hold, as pySim falls back to its providers.
     fn secret_bytes(&mut self, name: &str) -> Result<Vec<u8>, CmdErr> {
         Ok(self.secret_entry(name)?.0)
     }
 
     /// The secret `name` as stored, and whether it was written as `hex:`.
     fn secret_entry(&mut self, name: &str) -> Result<(Vec<u8>, bool), CmdErr> {
-        let Some(sec) = self.opts.secrets.clone() else {
+        let source = self.opts.secrets.clone();
+        let store = self.opts.card_keys.clone();
+        if source.is_none() && store.is_none() {
             return Err(CmdErr::new(
-                "no PIN source: start `card` with --chv-file PATH or --chv-env VAR",
+                "no PIN source: start `card` with --chv-file PATH, --chv-env VAR or --card-key-csv PATH",
             ));
-        };
-        let iccid = if sec.needs_iccid() {
-            Some(self.iccid()?)
-        } else {
-            None
-        };
-        let hex = sec.is_hex(name, iccid.as_deref());
-        sec.get(name, iccid.as_deref())
-            .zip(hex)
-            .ok_or_else(|| CmdErr::new(format!("the PIN source has no `{name}` entry")))
+        }
+        let mut iccid = None;
+        if source.as_ref().is_some_and(secrets::Secrets::needs_iccid)
+            || store
+                .as_ref()
+                .is_some_and(keycsv::CardKeyStore::needs_iccid)
+        {
+            iccid = Some(self.iccid()?);
+        }
+        if let Some(sec) = &source {
+            let hex = sec.is_hex(name, iccid.as_deref());
+            if let Some(found) = sec.get(name, iccid.as_deref()).zip(hex) {
+                return Ok(found);
+            }
+            if store.is_none() {
+                return Err(CmdErr::new(format!("the PIN source has no `{name}` entry")));
+            }
+        }
+        let store = store.expect("a provider was checked above");
+        let fields = store.get(&[name], iccid.as_deref()).map_err(CmdErr::new)?;
+        let value = fields
+            .get(&name.to_ascii_uppercase())
+            .map(String::as_str)
+            .unwrap_or_default();
+        // The CSV holds hex, so this is a `hex:` secret.
+        hex::decode(value)
+            .map(|v| (v, true))
+            .map_err(|_| CmdErr::new(format!("the card key CSV column `{name}` is not hex")))
     }
 
     /// Asks how many tries a key has left without spending one (a VERIFY or UNBLOCK with no data).
@@ -6197,6 +6221,7 @@ pub fn access_text_of(fcp_hex: &str, dialect: &TagSet) -> Option<String> {
 pub mod csvfile;
 pub mod decode;
 mod efs;
+pub mod keycsv;
 pub mod names;
 pub mod secrets;
 
@@ -6726,6 +6751,7 @@ mod tests {
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
                 card_key: None,
+                card_keys: None,
             },
         );
         let r = sh.exec("decode EF.SPN 01414253FFFF");
@@ -7631,6 +7657,7 @@ mod tests {
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
                 card_key: None,
+                card_keys: None,
             },
         );
         sh.equip(None, Profile::Uicc).unwrap();
@@ -8052,6 +8079,7 @@ mod tests {
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
                 card_key: None,
+                card_keys: None,
             },
         );
         sh.equip(None, Profile::Uicc).unwrap();
@@ -8085,6 +8113,7 @@ mod tests {
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
                 card_key: None,
+                card_keys: None,
             },
         );
         sh.equip(None, Profile::Uicc).unwrap();
