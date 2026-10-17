@@ -1381,6 +1381,31 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Verify a GlobalPlatform receipt: check that the receipt a Security Domain
+    /// returned is the signature its receipt generation key makes over the
+    /// response's Confirmation Data and the AIDs the operation named (GlobalPlatform
+    /// Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is
+    /// Table 11-14). READ-ONLY: no card is opened and nothing is sent, so the
+    /// receipt may come from a response you captured yourself.
+    ///
+    /// The receipt key comes from --receipt-key-file or --receipt-key-env, never
+    /// from the command line, and is never printed: only its key check value (24
+    /// bits, public) is shown. One key, hex, optionally KEY/KCV, optionally
+    /// prefixed aes: (the default) or des:.
+    ///
+    /// The signature is AES-CMAC over `Confirmation Data || AIDs` for an AES key
+    /// (B.2.2), or the Retail MAC of B.1.2.2 over the same data padded per B.1.3
+    /// for a DES key. The AIDs are the tail of Tables C-11 to C-16 and their order
+    /// depends on --kind.
+    ///
+    /// Exit 0 only when the receipt verifies. A receipt that does not verify is
+    /// reported as UNVERIFIED with the signature this key makes; a card that
+    /// returned none is reported as MISSING. Neither is ever a pass, and there is
+    /// no flag that turns either into one.
+    Receipt {
+        #[command(flatten)]
+        receipt: GpReceiptArgs,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1548,31 +1573,6 @@ struct GpReadWriteFlags {
     keys: GpKeyArgs,
     #[command(flatten)]
     channel: GpChannelArg,
-    /// Verify a GlobalPlatform receipt: check that the receipt a Security Domain
-    /// returned is the signature its receipt generation key makes over the
-    /// response's Confirmation Data and the AIDs the operation named (GlobalPlatform
-    /// Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is
-    /// Table 11-14). READ-ONLY: no card is opened and nothing is sent, so the
-    /// receipt may come from a response you captured yourself.
-    ///
-    /// The receipt key comes from --receipt-key-file or --receipt-key-env, never
-    /// from the command line, and is never printed: only its key check value (24
-    /// bits, public) is shown. One key, hex, optionally KEY/KCV, optionally
-    /// prefixed aes: (the default) or des:.
-    ///
-    /// The signature is AES-CMAC over `Confirmation Data || AIDs` for an AES key
-    /// (B.2.2), or the Retail MAC of B.1.2.2 over the same data padded per B.1.3
-    /// for a DES key. The AIDs are the tail of Tables C-11 to C-16 and their order
-    /// depends on --kind.
-    ///
-    /// Exit 0 only when the receipt verifies. A receipt that does not verify is
-    /// reported as UNVERIFIED with the signature this key makes; a card that
-    /// returned none is reported as MISSING. Neither is ever a pass, and there is
-    /// no flag that turns either into one.
-    Receipt {
-        #[command(flatten)]
-        receipt: GpReceiptArgs,
-    },
 }
 
 #[derive(Subcommand)]
