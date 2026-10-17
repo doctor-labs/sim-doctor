@@ -1319,6 +1319,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --spi1 'Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it'
             cand --spi2 'Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it'
             cand --class 'The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).'
+            cand --passthrough 'Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism'
             cand --i-understand-this-can-brick-the-card 'Required. Without it, `fuzz` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)'
             cand --allow-real-hardware 'Required in addition to the opt-in above when the reader''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, `fuzz` refuses to run against anything that is not recognisably the software card'
             cand --json 'Emit one JSON envelope on stdout, and nothing else'

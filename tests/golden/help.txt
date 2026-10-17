@@ -1461,6 +1461,8 @@ Options:
           Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it
       --class <CLASS>
           The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0). [possible values: etsi, gsm]
+      --passthrough <MODE>
+          Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester's OTA fuzzer does, instead of sweeping TAR x keyset x mechanism [possible values: default, bruteforce]
   -h, --help
           Print help (see more with '--help')
 
