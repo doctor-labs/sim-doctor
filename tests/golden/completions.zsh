@@ -1104,6 +1104,26 @@ all\:"33\: all four protections"))' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(receipt)
+_arguments "${_arguments_options[@]}" : \
+'(--response)--receipt=[The receipt bytes on their own, hex. Use --response to hand over the whole response instead]:HEX:_default' \
+'--response=[The Data field of the card'\''s whole response, hex\: the Confirmation Structure of Table 11-13]:HEX:_default' \
+'--confirmation-data=[The Confirmation Data the receipt is bound to (Table 11-14), hex. Needed with --receipt, because the signature covers it and it is not part of the receipt]:HEX:_default' \
+'--kind=[Which receipt this is. It fixes which AIDs the signature covers]:KIND:_default' \
+'--elf-aid=[Executable Load File AID, 5 to 16 bytes of hex (load, install, combined)]:HEX:_default' \
+'--sd-aid=[Security Domain AID, 5 to 16 bytes of hex (load, combined)]:HEX:_default' \
+'--app-aid=[Instance AID (install, combined), the deleted AID (delete), the application or ELF AID (extradite), the application AID (registry update). 5 to 16 bytes of hex]:HEX:_default' \
+'--from-aid=[Old Security Domain AID (extradite, registry update), 5 to 16 bytes]:HEX:_default' \
+'--to-aid=[New Security Domain AID (extradite, registry update), 5 to 16 bytes]:HEX:_default' \
+'--privileges=[Privileges being written, 0 to 3 bytes of hex (registry update)]:HEX:_default' \
+'--registry-params=[Registry Update Parameters being written, hex (registry update)]:HEX:_default' \
+'--receipt-key-file=[File holding the receipt generation key (keep it chmod 600)]:PATH:_files' \
+'--receipt-key-env=[Environment variable holding the receipt generation key]:VAR:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__gp__subcmd__help_commands" \
@@ -1289,6 +1309,10 @@ _arguments "${_arguments_options[@]}" : \
 esac
 ;;
 (move)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(receipt)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2500,6 +2524,10 @@ esac
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(receipt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3243,6 +3271,7 @@ _sim-doctor__subcmd__gp_commands() {
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
 'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'move:Move an object (an application, a load file or a key object) from one Security Domain to another\: INSTALL \[for extradition\], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT' \
+'receipt:Verify a GlobalPlatform receipt\: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response'\''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY\: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp commands' commands "$@"
@@ -3526,6 +3555,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
 'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'move:Move an object (an application, a load file or a key object) from one Security Domain to another\: INSTALL \[for extradition\], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT' \
+'receipt:Verify a GlobalPlatform receipt\: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response'\''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY\: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp help commands' commands "$@"
@@ -3692,6 +3722,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__put-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help put-key commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__receipt_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__receipt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help receipt commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__release-scp_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__release-scp_commands() {
     local commands; commands=()
@@ -3741,6 +3776,11 @@ _sim-doctor__subcmd__gp__subcmd__personalize_commands() {
 _sim-doctor__subcmd__gp__subcmd__put-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp put-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__receipt_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__receipt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp receipt commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__release-scp_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__release-scp_commands() {
@@ -3993,6 +4033,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
 'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'move:Move an object (an application, a load file or a key object) from one Security Domain to another\: INSTALL \[for extradition\], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT' \
+'receipt:Verify a GlobalPlatform receipt\: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response'\''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY\: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself' \
     )
     _describe -t commands 'sim-doctor help gp commands' commands "$@"
 }
@@ -4152,6 +4193,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__personalize_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__put-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp put-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__receipt_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__receipt_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp receipt commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__release-scp_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__release-scp_commands() {

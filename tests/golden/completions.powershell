@@ -300,6 +300,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
             [CompletionResult]::new('aram', 'aram', [CompletionResultType]::ParameterValue, 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES')
             [CompletionResult]::new('move', 'move', [CompletionResultType]::ParameterValue, 'Move an object (an application, a load file or a key object) from one Security Domain to another: INSTALL [for extradition], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT')
+            [CompletionResult]::new('receipt', 'receipt', [CompletionResultType]::ParameterValue, 'Verify a GlobalPlatform receipt: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -846,6 +847,25 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
+        'sim-doctor;gp;receipt' {
+            [CompletionResult]::new('--receipt', '--receipt', [CompletionResultType]::ParameterName, 'The receipt bytes on their own, hex. Use --response to hand over the whole response instead')
+            [CompletionResult]::new('--response', '--response', [CompletionResultType]::ParameterName, 'The Data field of the card''s whole response, hex: the Confirmation Structure of Table 11-13')
+            [CompletionResult]::new('--confirmation-data', '--confirmation-data', [CompletionResultType]::ParameterName, 'The Confirmation Data the receipt is bound to (Table 11-14), hex. Needed with --receipt, because the signature covers it and it is not part of the receipt')
+            [CompletionResult]::new('--kind', '--kind', [CompletionResultType]::ParameterName, 'Which receipt this is. It fixes which AIDs the signature covers')
+            [CompletionResult]::new('--elf-aid', '--elf-aid', [CompletionResultType]::ParameterName, 'Executable Load File AID, 5 to 16 bytes of hex (load, install, combined)')
+            [CompletionResult]::new('--sd-aid', '--sd-aid', [CompletionResultType]::ParameterName, 'Security Domain AID, 5 to 16 bytes of hex (load, combined)')
+            [CompletionResult]::new('--app-aid', '--app-aid', [CompletionResultType]::ParameterName, 'Instance AID (install, combined), the deleted AID (delete), the application or ELF AID (extradite), the application AID (registry update). 5 to 16 bytes of hex')
+            [CompletionResult]::new('--from-aid', '--from-aid', [CompletionResultType]::ParameterName, 'Old Security Domain AID (extradite, registry update), 5 to 16 bytes')
+            [CompletionResult]::new('--to-aid', '--to-aid', [CompletionResultType]::ParameterName, 'New Security Domain AID (extradite, registry update), 5 to 16 bytes')
+            [CompletionResult]::new('--privileges', '--privileges', [CompletionResultType]::ParameterName, 'Privileges being written, 0 to 3 bytes of hex (registry update)')
+            [CompletionResult]::new('--registry-params', '--registry-params', [CompletionResultType]::ParameterName, 'Registry Update Parameters being written, hex (registry update)')
+            [CompletionResult]::new('--receipt-key-file', '--receipt-key-file', [CompletionResultType]::ParameterName, 'File holding the receipt generation key (keep it chmod 600)')
+            [CompletionResult]::new('--receipt-key-env', '--receipt-key-env', [CompletionResultType]::ParameterName, 'Environment variable holding the receipt generation key')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
         'sim-doctor;gp;help' {
             [CompletionResult]::new('cert', 'cert', [CompletionResultType]::ParameterValue, '`gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA')
@@ -866,6 +886,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
             [CompletionResult]::new('aram', 'aram', [CompletionResultType]::ParameterValue, 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES')
             [CompletionResult]::new('move', 'move', [CompletionResultType]::ParameterValue, 'Move an object (an application, a load file or a key object) from one Security Domain to another: INSTALL [for extradition], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT')
+            [CompletionResult]::new('receipt', 'receipt', [CompletionResultType]::ParameterValue, 'Verify a GlobalPlatform receipt: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -976,6 +997,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;gp;help;move' {
+            break
+        }
+        'sim-doctor;gp;help;receipt' {
             break
         }
         'sim-doctor;gp;help;help' {
@@ -1692,6 +1716,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
             [CompletionResult]::new('aram', 'aram', [CompletionResultType]::ParameterValue, 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES')
             [CompletionResult]::new('move', 'move', [CompletionResultType]::ParameterValue, 'Move an object (an application, a load file or a key object) from one Security Domain to another: INSTALL [for extradition], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT')
+            [CompletionResult]::new('receipt', 'receipt', [CompletionResultType]::ParameterValue, 'Verify a GlobalPlatform receipt: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself')
             break
         }
         'sim-doctor;help;gp;cert' {
@@ -1801,6 +1826,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;gp;move' {
+            break
+        }
+        'sim-doctor;help;gp;receipt' {
             break
         }
         'sim-doctor;help;trace' {
