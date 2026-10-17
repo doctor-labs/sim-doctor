@@ -994,72 +994,6 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
-}
-
-#[derive(Subcommand)]
-enum CrsAction {
-    /// List the applications the Contactless Registry Service holds for
-    /// contactless, with their lifecycle, contactless state and registry data.
-    /// Read-only, no keys.
-    List {
-        /// Narrow the listing to applications whose AID starts with these bytes.
-        #[arg(long, value_name = "HEX")]
-        aid: Option<String>,
-        /// The reader to use, matched against the driver's own name.
-        #[arg(long, value_name = "NAME")]
-        reader: Option<String>,
-        /// Emit one JSON envelope of kind "gp" on stdout.
-        #[arg(long)]
-        json: bool,
-        /// Add every APDU exchange (command and response hex) as data.trace.
-        #[arg(long)]
-        trace: bool,
-        #[command(flatten)]
-        channel: GpChannelArg,
-    },
-    /// Read the Contactless Registry Service version and event counter
-    /// (GET DATA [A5]). Read-only, no keys.
-    Info {
-        /// The reader to use, matched against the driver's own name.
-        #[arg(long, value_name = "NAME")]
-        reader: Option<String>,
-        /// Emit one JSON envelope of kind "gp" on stdout.
-        #[arg(long)]
-        json: bool,
-        /// Add every APDU exchange (command and response hex) as data.trace.
-        #[arg(long)]
-        trace: bool,
-        #[command(flatten)]
-        channel: GpChannelArg,
-    },
-    /// Activate one application for contactless (CRS SET STATUS with P2 01).
-    /// CHANGES CARD STATE.
-    ///
-    /// WARNING: activating an application for contactless changes what the card
-    /// answers in a reader from that moment on; deactivating one can leave it
-    /// unreachable to every terminal that relies on contactless. This is not
-    /// undone by this tool. It is a dry run unless --yes, which needs
-    /// --keys-file or --keys-env.
-    Activate {
-        /// The application AID, 5 to 16 bytes of hex.
-        #[arg(value_name = "AID")]
-        aid: String,
-        #[command(flatten)]
-        write: GpWriteFlags,
-    },
-    /// Deactivate one application for contactless (CRS SET STATUS with P2 00).
-    /// CHANGES CARD STATE.
-    ///
-    /// WARNING: deactivating an application can leave it unreachable to every
-    /// terminal that relies on contactless, and this tool does not undo it. It
-    /// is a dry run unless --yes, which needs --keys-file or --keys-env.
-    Deactivate {
-        /// The application AID, 5 to 16 bytes of hex.
-        #[arg(value_name = "AID")]
-        aid: String,
-        #[command(flatten)]
-        write: GpWriteFlags,
-    },
     /// Write the CPLC pre-personalization or personalization block (STORE DATA
     /// with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso)
     /// over SCP03. WARNING: this writes card-identifying CPLC data, and the change
@@ -1130,6 +1064,72 @@ enum CrsAction {
     Aram {
         #[command(subcommand)]
         action: AramAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum CrsAction {
+    /// List the applications the Contactless Registry Service holds for
+    /// contactless, with their lifecycle, contactless state and registry data.
+    /// Read-only, no keys.
+    List {
+        /// Narrow the listing to applications whose AID starts with these bytes.
+        #[arg(long, value_name = "HEX")]
+        aid: Option<String>,
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        #[command(flatten)]
+        channel: GpChannelArg,
+    },
+    /// Read the Contactless Registry Service version and event counter
+    /// (GET DATA [A5]). Read-only, no keys.
+    Info {
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        #[command(flatten)]
+        channel: GpChannelArg,
+    },
+    /// Activate one application for contactless (CRS SET STATUS with P2 01).
+    /// CHANGES CARD STATE.
+    ///
+    /// WARNING: activating an application for contactless changes what the card
+    /// answers in a reader from that moment on; deactivating one can leave it
+    /// unreachable to every terminal that relies on contactless. This is not
+    /// undone by this tool. It is a dry run unless --yes, which needs
+    /// --keys-file or --keys-env.
+    Activate {
+        /// The application AID, 5 to 16 bytes of hex.
+        #[arg(value_name = "AID")]
+        aid: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+    /// Deactivate one application for contactless (CRS SET STATUS with P2 00).
+    /// CHANGES CARD STATE.
+    ///
+    /// WARNING: deactivating an application can leave it unreachable to every
+    /// terminal that relies on contactless, and this tool does not undo it. It
+    /// is a dry run unless --yes, which needs --keys-file or --keys-env.
+    Deactivate {
+        /// The application AID, 5 to 16 bytes of hex.
+        #[arg(value_name = "AID")]
+        aid: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
     },
 }
 
