@@ -49,6 +49,9 @@ _sim__doctor() {
             sim__doctor,install)
                 cmd="sim__doctor__subcmd__install"
                 ;;
+            sim__doctor,keygen)
+                cmd="sim__doctor__subcmd__keygen"
+                ;;
             sim__doctor,mcp)
                 cmd="sim__doctor__subcmd__mcp"
                 ;;
@@ -499,6 +502,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,install)
                 cmd="sim__doctor__subcmd__help__subcmd__install"
                 ;;
+            sim__doctor__subcmd__help,keygen)
+                cmd="sim__doctor__subcmd__help__subcmd__keygen"
+                ;;
             sim__doctor__subcmd__help,mcp)
                 cmd="sim__doctor__subcmd__help__subcmd__mcp"
                 ;;
@@ -827,7 +833,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded fuzz euicc card help"
+            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3673,7 +3679,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded fuzz euicc card help"
+            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4498,6 +4504,20 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__keygen)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__help__subcmd__mcp)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -4846,6 +4866,56 @@ _sim__doctor() {
                     return 0
                     ;;
                 --dir)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__keygen)
+            opts="-z -j -h --secret-file --secret-env --index --salt --mcc --mnc --mnclen --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --secret-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -z)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --secret-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --index)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --salt)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mcc)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mnc)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mnclen)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

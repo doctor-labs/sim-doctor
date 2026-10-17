@@ -41,6 +41,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
             cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
+            cand keygen 'Generate one card''s Ki, OPc, ICCID and IMSI from a secret you hold'
             cand fuzz 'APDU discovery and the OTA/SMS fuzz sweep'
             cand euicc 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes'
             cand card 'A pySim-shell style shell over the card: select files, read them, send APDUs'
@@ -895,6 +896,20 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;ota-expanded;help;help'= {
         }
+        &'sim-doctor;keygen'= {
+            cand -z 'File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped'
+            cand --secret-file 'File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped'
+            cand --secret-env 'Environment variable holding the secret'
+            cand -j 'Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom'
+            cand --index 'Card number: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom'
+            cand --salt 'Random mode''s salt, 64 hex digits. It is printed with the card, so this is how a printed random card is regenerated. It is a public input, not a secret'
+            cand --mcc 'Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3'
+            cand --mnc 'Mobile Network Code, at most --mnclen digits, zero-padded to that width'
+            cand --mnclen 'Width of the MNC: 2 or 3, or 0 to keep the MNC''s own length (pySim''s `auto`)'
+            cand --json 'Emit one JSON envelope of kind "keygen" on stdout'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
         &'sim-doctor;fuzz'= {
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
@@ -1194,6 +1209,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
             cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
+            cand keygen 'Generate one card''s Ki, OPc, ICCID and IMSI from a secret you hold'
             cand fuzz 'APDU discovery and the OTA/SMS fuzz sweep'
             cand euicc 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes'
             cand card 'A pySim-shell style shell over the card: select files, read them, send APDUs'
@@ -1362,6 +1378,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;ota-expanded;decode'= {
         }
         &'sim-doctor;help;ota-expanded;por'= {
+        }
+        &'sim-doctor;help;keygen'= {
         }
         &'sim-doctor;help;fuzz'= {
             cand apdu 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session'

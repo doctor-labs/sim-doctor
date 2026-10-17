@@ -1470,6 +1470,22 @@ esac
     ;;
 esac
 ;;
+(keygen)
+_arguments "${_arguments_options[@]}" : \
+'-z+[File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped]:PATH:_files' \
+'--secret-file=[File holding the secret (keep it chmod 600). Surrounding whitespace, the trailing newline an editor adds, is stripped]:PATH:_files' \
+'--secret-env=[Environment variable holding the secret]:VAR:_default' \
+'-j+[Card number\: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom]:N:_default' \
+'--index=[Card number\: the Nth card of the batch, which makes every field of it reproducible for as long as the secret is. Without it a fresh salt is drawn from the OS on each run, the way pySim draws Ki from urandom]:N:_default' \
+'--salt=[Random mode'\''s salt, 64 hex digits. It is printed with the card, so this is how a printed random card is regenerated. It is a public input, not a secret]:HEX:_default' \
+'--mcc=[Mobile Country Code, 1 to 3 decimal digits, zero-padded to 3]:DIGITS:_default' \
+'--mnc=[Mobile Network Code, at most --mnclen digits, zero-padded to that width]:DIGITS:_default' \
+'--mnclen=[Width of the MNC\: 2 or 3, or 0 to keep the MNC'\''s own length (pySim'\''s \`auto\`)]:DIGITS:_default' \
+'--json[Emit one JSON envelope of kind "keygen" on stdout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -2302,6 +2318,10 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(keygen)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__fuzz_commands" \
@@ -2453,6 +2473,7 @@ _sim-doctor_commands() {
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
+'keygen:Generate one card'\''s Ki, OPc, ICCID and IMSI from a secret you hold' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -3313,6 +3334,7 @@ _sim-doctor__subcmd__help_commands() {
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
+'keygen:Generate one card'\''s Ki, OPc, ICCID and IMSI from a secret you hold' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -3667,6 +3689,11 @@ _sim-doctor__subcmd__help__subcmd__install_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help install commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__keygen_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__keygen_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help keygen commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__mcp_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__mcp_commands() {
     local commands; commands=()
@@ -3809,6 +3836,11 @@ _sim-doctor__subcmd__help__subcmd__why_commands() {
 _sim-doctor__subcmd__install_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor install commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__keygen_commands] )) ||
+_sim-doctor__subcmd__keygen_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor keygen commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__mcp_commands] )) ||
 _sim-doctor__subcmd__mcp_commands() {
