@@ -80,6 +80,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --face 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report'
             cand --theme 'The face''s colours: mono, clinical or contrast (default: the tool''s own)'
             cand --color 'Colour the face: auto (a terminal and no NO_COLOR), always or never'
+            cand -X 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
+            cand --exclusive 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
             cand --json 'Emit one JSON envelope on stdout, and nothing else'
             cand --tui 'Show the findings in an interactive terminal view instead of the report'
             cand -b 'Break after finding all files the card claims to have (DF count matches)'
@@ -111,12 +113,16 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;profile;probe'= {
             cand --reader 'Which PC/SC reader to use'
+            cand -X 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
+            cand --exclusive 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
             cand --json 'Emit one JSON envelope instead of the report'
             cand -h 'Print help'
             cand --help 'Print help'
         }
         &'sim-doctor;profile;match'= {
             cand --reader 'Which PC/SC reader to use'
+            cand -X 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
+            cand --exclusive 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
             cand --json 'Emit one JSON envelope instead of the report'
             cand -h 'Print help'
             cand --help 'Print help'
@@ -208,6 +214,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --handler 'A feeder instead of a person: `get = command`, `done = command` and `error = command`, one per line (`#` starts a comment). The command is run directly, not through a shell'
             cand --chv-file 'File holding PINs, PUKs and ADM keys for plan commands that need them (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history'
             cand --chv-env 'Environment variable holding the same text (entries separated by `;` or newlines)'
+            cand -X 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
+            cand --exclusive 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
             cand --yes 'Send the batch. Without it, every card''s plan is printed and not one byte is sent'
             cand --retry-failed 'Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this'
             cand --json 'Print one JSON envelope on stdout, and nothing else'
@@ -1619,6 +1627,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --mode 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened'
             cand --key-kdf 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro''s own vectors. The keys stay in the file or the environment variable: a template name is not key material'
             cand --channel 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it'
+            cand -X 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
+            cand --exclusive 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
             cand --dry-run 'Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send'
             cand --yes 'Send the erase. Needs --class, --records, --confirm-iccid and a key source'
             cand --json 'Emit one JSON envelope of kind "program-erase" on stdout'

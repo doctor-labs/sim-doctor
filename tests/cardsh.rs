@@ -2210,3 +2210,25 @@ fn card_keys(
         .output()
         .expect("the binary runs")
 }
+
+#[test]
+fn exclusive_flag_is_documented_on_every_command_that_opens_a_reader() {
+    // Help is the one place -X shows without a card: every command that opens a reader must name
+    // it, so the operator can see which share mode the command asks for.
+    for args in [
+        vec!["scan", "--help"],
+        vec!["erase", "--help"],
+        vec!["batch", "--help"],
+        vec!["profile", "probe", "--help"],
+        vec!["profile", "match", "--help"],
+        vec!["shell", "--help"],
+        vec!["explore", "--help"],
+    ] {
+        let help = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+            .args(&args)
+            .output()
+            .expect("the binary runs");
+        let text = String::from_utf8_lossy(&help.stdout);
+        assert!(text.contains("-X, --exclusive"), "{args:?}: {text}");
+    }
+}

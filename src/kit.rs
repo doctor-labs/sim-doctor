@@ -92,6 +92,8 @@ struct Run {
     legacy: bool,
     /// `--sffs`: follow standard identifiers only.
     sffs: bool,
+    /// `-X`: PC/SC exclusive access for the card read.
+    exclusive: bool,
 }
 
 impl Run {
@@ -120,6 +122,7 @@ impl Run {
             csv: None,
             legacy: false,
             sffs: false,
+            exclusive: card.exclusive,
         }
     }
 
@@ -134,6 +137,7 @@ impl Run {
         Run {
             reader: args.reader.clone(),
             reader_index: args.reader_index,
+            exclusive: args.exclusive,
             dialect: args.dialect,
             limits: limits_from(&args.walk_limits),
             break_after_count_match: args.walk_limits.break_after_count_match,
@@ -220,7 +224,7 @@ impl SimDoctor {
             self.refuse(&scan::Failure::new(kind, err.to_string()))
         };
         let (mut session, reader, atr) =
-            open_scan_session(args.reader.as_deref(), false, args.reader_index)
+            open_scan_session(args.reader.as_deref(), args.exclusive, args.reader_index)
                 .map_err(|f| self.refuse(&f))?;
         let session: &mut dyn CardSession = &mut *session;
 

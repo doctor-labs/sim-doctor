@@ -68,6 +68,7 @@ Select a card's master file, walk everything under it, and report
 Usage: sim-doctor scan [OPTIONS]
 
 Options:
+  -X, --exclusive              Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --json                   Emit one JSON envelope on stdout, and nothing else
       --tui                    Show the findings in an interactive terminal view instead of the report
       --dialect <TABLE>        Which FCP tag table this card answers SELECT with [default: ts-102-221]
@@ -129,6 +130,7 @@ Probe a card and report which profiles matched, with the evidence
 Usage: sim-doctor profile probe [OPTIONS]
 
 Options:
+  -X, --exclusive      Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --reader <NAME>  Which PC/SC reader to use
       --json           Emit one JSON envelope instead of the report
   -h, --help           Print help
@@ -142,6 +144,7 @@ Arguments:
   <NAME>  The `-t` name, spelled as `sim-doctor profile list` prints it
 
 Options:
+  -X, --exclusive      Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --reader <NAME>  Which PC/SC reader to use
       --json           Emit one JSON envelope instead of the report
   -h, --help           Print help
@@ -228,6 +231,7 @@ Program a batch of cards, one at a time, with a crash-safe state file
 Usage: sim-doctor batch [OPTIONS] --plan <PATH> --state <PATH>
 
 Options:
+  -X, --exclusive              Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --plan <PATH>            The plan: a `sim-doctor-batch-plan/1` JSON document naming every card, its ICCID and the commands to send it. Read and checked in full before any card is touched
       --state <PATH>           The state file. The only record of which cards are programmed and verified; its absence means the batch has not started, and an unreadable one stops the run rather than restarting it
       --reader <NAME>          The reader to use, matched against the driver's own name (default: the first reader)
@@ -1783,6 +1787,7 @@ Erase the provisioning records before programming: the reference programming too
 Usage: sim-doctor erase [OPTIONS]
 
 Options:
+  -X, --exclusive              Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --class <CLASS>          The pySim card class being erased: it decides which provisioning EFs are written and their record lengths (18/130/102 for magicsim, 18/74/50 for supersim, one EF of 18 for fakemagicsim). Required [possible values: magicsim, supersim, fakemagicsim]
       --records <N>            How many record slots of each file to erase. Required, and never defaulted: the reference derives it from the card
       --dry-run                Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send
@@ -1806,6 +1811,7 @@ The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift
 Usage: sim-doctor shell [OPTIONS]
 
 Options:
+  -X, --exclusive            Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --reader <NAME>        The reader to use, matched against the driver's own name
       --reader-index <N>     The reader to use, by its index in `sim-doctor readers` (counted from 0)
       --dialect <TABLE>      Which FCP tag table this card answers SELECT with (see `scan --help`) [default: ts-102-221]
@@ -1825,6 +1831,7 @@ The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift
 Usage: sim-doctor explore [OPTIONS]
 
 Options:
+  -X, --exclusive            Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it
       --reader <NAME>        The reader to use, matched against the driver's own name
       --reader-index <N>     The reader to use, by its index in `sim-doctor readers` (counted from 0)
       --dialect <TABLE>      Which FCP tag table this card answers SELECT with (see `scan --help`) [default: ts-102-221]

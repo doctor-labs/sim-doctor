@@ -86,6 +86,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--face', '--face', [CompletionResultType]::ParameterName, 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report')
             [CompletionResult]::new('--theme', '--theme', [CompletionResultType]::ParameterName, 'The face''s colours: mono, clinical or contrast (default: the tool''s own)')
             [CompletionResult]::new('--color', '--color', [CompletionResultType]::ParameterName, 'Colour the face: auto (a terminal and no NO_COLOR), always or never')
+            [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
+            [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
             [CompletionResult]::new('--tui', '--tui', [CompletionResultType]::ParameterName, 'Show the findings in an interactive terminal view instead of the report')
             [CompletionResult]::new('-b', '-b', [CompletionResultType]::ParameterName, 'Break after finding all files the card claims to have (DF count matches)')
@@ -120,6 +122,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;profile;probe' {
             [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'Which PC/SC reader to use')
+            [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
+            [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope instead of the report')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
@@ -127,6 +131,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;profile;match' {
             [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'Which PC/SC reader to use')
+            [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
+            [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope instead of the report')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
@@ -238,6 +244,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--handler', '--handler', [CompletionResultType]::ParameterName, 'A feeder instead of a person: `get = command`, `done = command` and `error = command`, one per line (`#` starts a comment). The command is run directly, not through a shell')
             [CompletionResult]::new('--chv-file', '--chv-file', [CompletionResultType]::ParameterName, 'File holding PINs, PUKs and ADM keys for plan commands that need them (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history')
             [CompletionResult]::new('--chv-env', '--chv-env', [CompletionResultType]::ParameterName, 'Environment variable holding the same text (entries separated by `;` or newlines)')
+            [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
+            [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the batch. Without it, every card''s plan is printed and not one byte is sent')
             [CompletionResult]::new('--retry-failed', '--retry-failed', [CompletionResultType]::ParameterName, 'Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Print one JSON envelope on stdout, and nothing else')
@@ -1855,6 +1863,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--mode', '--mode', [CompletionResultType]::ParameterName, 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened')
             [CompletionResult]::new('--key-kdf', '--key-kdf', [CompletionResultType]::ParameterName, 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro''s own vectors. The keys stay in the file or the environment variable: a template name is not key material')
             [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it')
+            [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
+            [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--dry-run', '--dry-run', [CompletionResultType]::ParameterName, 'Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send')
             [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the erase. Needs --class, --records, --confirm-iccid and a key source')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "program-erase" on stdout')
