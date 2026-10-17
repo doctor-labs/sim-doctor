@@ -663,24 +663,24 @@ mod tests {
         context[8..].copy_from_slice(&card);
         let (enc_key, mac_key) = (hex(MASTER_16), hex(MASTER_16));
         let keys = scp03::derive_session_keys(
-            enc_key[..16].try_into().expect("16"),
-            mac_key[..16].try_into().expect("16"),
+            &scp03::Key::new(&enc_key[..16]).expect("16"),
+            &scp03::Key::new(&mac_key[..16]).expect("16"),
             &host,
             &card,
         );
         assert_eq!(
             counter_kdf(&enc_key, &scp03_block_a(0x04, 128), &context, 16).expect("kdf"),
-            keys.enc.to_vec(),
+            keys.enc.as_bytes().to_vec(),
             "S-ENC"
         );
         assert_eq!(
             counter_kdf(&mac_key, &scp03_block_a(0x06, 128), &context, 16).expect("kdf"),
-            keys.mac.to_vec(),
+            keys.mac.as_bytes().to_vec(),
             "S-MAC"
         );
         assert_eq!(
             counter_kdf(&mac_key, &scp03_block_a(0x07, 128), &context, 16).expect("kdf"),
-            keys.rmac.to_vec(),
+            keys.rmac.as_bytes().to_vec(),
             "S-RMAC"
         );
     }

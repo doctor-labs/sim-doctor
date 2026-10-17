@@ -17,7 +17,8 @@
 //! UPDATE (`80 50`) and EXTERNAL AUTHENTICATE (`84 82`) stay forbidden on the live
 //! operator SIM everywhere else.
 //!
-//! **Scope.** AES-128 keys, 8-byte challenges and 8-byte cryptograms/MACs
+//! **Scope.** AES-128, AES-192 and AES-256 keys (16, 24 or 32 bytes), 8-byte
+//! challenges and 8-byte cryptograms/MACs
 //! (the "i" = 0x00/0x10 profiles). All four protections of Amendment D 6.2: the
 //! C-MAC, C-ENC (the host encrypts the command data; the card's half of that
 //! same bit is C-DECRYPTION), R-MAC (the card MACs the response) and R-ENC
@@ -30,12 +31,16 @@ pub const NAME: &str = "scp03";
 
 use crate::apdu::{Command, Header, Le, StatusWord};
 use crate::rules;
-use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
-use aes::Aes128;
+use aes::cipher::consts::U16;
+use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, BlockSizeUser, KeyInit};
+use aes::{Aes128, Aes192, Aes256};
 use cmac::{Cmac, Mac};
 
-/// Length of an AES-128 key, a MAC chaining value and a full CMAC output.
+/// Length of an AES block, of a MAC chaining value and of a full CMAC output:
+/// 16 bytes whatever the key length is.
 pub const BLOCK: usize = 16;
+/// Length of the longest AES key, AES-256.
+pub const MAX_KEY_LEN: usize = 32;
 /// Length of a host or card challenge.
 pub const CHALLENGE_LEN: usize = 8;
 /// Length of a cryptogram and of a transmitted C-MAC.
@@ -103,37 +108,135 @@ pub enum Error {
     UnsupportedLevel(u8, String),
 }
 
-/// AES-CMAC (NIST SP 800-38B), full 16-byte output.
-pub(crate) fn cmac(key: &[u8; BLOCK], parts: &[&[u8]]) -> [u8; BLOCK] {
-    // The key is exactly 16 bytes, so new_from_slice cannot fail.
-    let mut mac = <Cmac<Aes128> as KeyInit>::new_from_slice(key).expect("16-byte AES-128 key");
-    for part in parts {
-        mac.update(part);
-    }
-    mac.finalize().into_bytes().into()
+/// An AES key: 16, 24 or 32 bytes, i.e. AES-128, AES-192 or AES-256.
+///
+/// SCP03 sizes each derived key to the static key it comes from (Amendment D
+/// 4.1.5: the KDF parameter `L` is the length of the derived value), so the
+/// key length belongs to the key and not to the cipher: AES-192 and AES-256
+/// keys are keyed CMACs too, and both still produce a 16-byte MAC.
+#[derive(Clone, Copy)]
+pub struct Key {
+    bytes: [u8; MAX_KEY_LEN],
+    len: usize,
 }
 
-/// One block of the SP 800-108 counter-mode KDF as Amendment D uses it:
-/// `CMAC(key, 0^11 || constant || 0x00 || L(2) || counter(1) || context)`.
+impl Key {
+    /// `None` for any length AES does not have.
+    pub fn new(bytes: &[u8]) -> Option<Self> {
+        if !matches!(bytes.len(), 16 | 24 | 32) {
+            return None;
+        }
+        let mut key = Self {
+            bytes: [0u8; MAX_KEY_LEN],
+            len: bytes.len(),
+        };
+        key.bytes[..bytes.len()].copy_from_slice(bytes);
+        Some(key)
+    }
+
+    /// The 16-byte case, for the callers that hold a fixed `[u8; BLOCK]`.
+    pub const fn from_aes128(bytes: &[u8; BLOCK]) -> Self {
+        let mut key = Self {
+            bytes: [0u8; MAX_KEY_LEN],
+            len: BLOCK,
+        };
+        let mut i = 0;
+        while i < BLOCK {
+            key.bytes[i] = bytes[i];
+            i += 1;
+        }
+        key
+    }
+
+    /// The key bytes: 16, 24 or 32 of them.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+
+    /// The key as a fixed array, `None` unless it is an AES-128 key.
+    pub fn as_aes128(&self) -> Option<&[u8; BLOCK]> {
+        self.as_bytes().try_into().ok()
+    }
+
+    /// The key length in bits, which is the KDF parameter `L`: 128, 192 or 256.
+    pub fn bits(&self) -> u16 {
+        (self.len * 8) as u16
+    }
+}
+
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for Key {}
+
+// Key material must not reach logs or panic messages through `{:?}`.
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Key(AES-{})", self.bits())
+    }
+}
+
+/// AES-CMAC (NIST SP 800-38B) over `parts`, full 16-byte output.
 ///
-/// Only counter 1 is needed: every output is at most 128 bits.
-fn kdf(key: &[u8; BLOCK], constant: u8, l_bits: u16, context: &[u8]) -> [u8; BLOCK] {
-    let mut label = [0u8; 16];
-    label[11] = constant;
-    label[13..15].copy_from_slice(&l_bits.to_be_bytes());
-    label[15] = 0x01;
-    cmac(key, &[&label, context])
+/// The key length picks the cipher; the output is one block either way.
+pub(crate) fn cmac(key: &Key, parts: &[&[u8]]) -> [u8; BLOCK] {
+    macro_rules! run {
+        ($cipher:ty) => {{
+            // The caller matched the key length to the cipher, so new_from_slice
+            // cannot fail.
+            let mut mac = <Cmac<$cipher> as KeyInit>::new_from_slice(key.as_bytes())
+                .expect("a key of the cipher length");
+            for part in parts {
+                mac.update(part);
+            }
+            mac.finalize().into_bytes().into()
+        }};
+    }
+    match key.as_bytes().len() {
+        16 => run!(Aes128),
+        24 => run!(Aes192),
+        _ => run!(Aes256),
+    }
+}
+
+/// The SP 800-108 counter-mode KDF as Amendment D 4.1.5 uses it:
+/// `CMAC(key, 0^11 || constant || 0x00 || L(2) || counter(1) || context)`,
+/// counter 1 upwards, until `L` bits are derived.
+///
+/// `L` is the length of the derived value, not of the block: 128, 192 or 256
+/// bits for a session key, 64 for a cryptogram. AES-192 and AES-256 therefore
+/// run the counter twice where AES-128 runs it once, and `L` = 256 is coded
+/// `01 00` in the two-byte field (pySim `scp03_key_derivation` loops on
+/// `len(dk) < l // 8` in exactly this way).
+fn kdf(key: &Key, constant: u8, l_bits: u16, context: &[u8]) -> Vec<u8> {
+    let want = usize::from(l_bits / 8);
+    let mut out = Vec::with_capacity(want);
+    for counter in 1..u8::MAX {
+        let mut label = [0u8; BLOCK];
+        label[11] = constant;
+        label[13..15].copy_from_slice(&l_bits.to_be_bytes());
+        label[15] = counter;
+        out.extend_from_slice(&cmac(key, &[&label, context]));
+        if out.len() >= want {
+            break;
+        }
+    }
+    out.truncate(want);
+    out
 }
 
 /// The three session keys of one SCP03 session.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionKeys {
     /// S-ENC: keys C-ENC (card-side C-DECRYPTION) and R-ENC.
-    pub enc: [u8; BLOCK],
+    pub enc: Key,
     /// S-MAC, keys the C-MAC and both cryptograms.
-    pub mac: [u8; BLOCK],
+    pub mac: Key,
     /// S-RMAC, keys the R-MAC.
-    pub rmac: [u8; BLOCK],
+    pub rmac: Key,
 }
 
 // Key material must not reach logs or panic messages through `{:?}`.
@@ -152,17 +255,28 @@ fn context(host: &[u8; CHALLENGE_LEN], card: &[u8; CHALLENGE_LEN]) -> [u8; 2 * C
 
 /// Derives S-ENC, S-MAC and S-RMAC from the static keys and both challenges.
 pub fn derive_session_keys(
-    static_enc: &[u8; BLOCK],
-    static_mac: &[u8; BLOCK],
+    static_enc: &Key,
+    static_mac: &Key,
     host: &[u8; CHALLENGE_LEN],
     card: &[u8; CHALLENGE_LEN],
 ) -> SessionKeys {
     let ctx = context(host, card);
     SessionKeys {
-        enc: kdf(static_enc, DDC_S_ENC, 128, &ctx),
-        mac: kdf(static_mac, DDC_S_MAC, 128, &ctx),
-        rmac: kdf(static_mac, DDC_S_RMAC, 128, &ctx),
+        enc: derived(static_enc, DDC_S_ENC, &ctx),
+        mac: derived(static_mac, DDC_S_MAC, &ctx),
+        rmac: derived(static_mac, DDC_S_RMAC, &ctx),
     }
+}
+
+/// One session key. `L` is the length in bits of the static key, so S-ENC is as
+/// long as the static ENC key and S-MAC and S-RMAC as long as the static MAC
+/// key: splitting a key set into ENC, MAC and DEK does not change with the
+/// length (pySim `Scp03SessionKeys.__init__` and GlobalPlatformPro
+/// `PlaintextCardKeys.deriveSession` both derive each key from its own static
+/// key with the length of that key in bits as `L`).
+fn derived(static_key: &Key, constant: u8, ctx: &[u8]) -> Key {
+    let out = kdf(static_key, constant, static_key.bits(), ctx);
+    Key::new(&out).expect("the KDF returns one output of the length of the key")
 }
 
 /// Which side's cryptogram.
@@ -176,7 +290,7 @@ pub enum Side {
 
 /// The 8-byte authentication cryptogram of one side, keyed with S-MAC.
 pub fn cryptogram(
-    s_mac: &[u8; BLOCK],
+    s_mac: &Key,
     side: Side,
     host: &[u8; CHALLENGE_LEN],
     card: &[u8; CHALLENGE_LEN],
@@ -234,8 +348,20 @@ fn unpad80(data: &[u8]) -> Result<Vec<u8>, Error> {
 /// to). Written on the bare block cipher rather than through the `cbc` crate,
 /// whose cipher 0.5 types are a different major version from the ones `cmac`
 /// and this file's AES key conversions already use.
-fn cbc_encrypt(s_enc: &[u8; BLOCK], iv: &[u8; BLOCK], data: &[u8]) -> Vec<u8> {
-    let cipher = Aes128::new(&(*s_enc).into());
+fn cbc_encrypt(s_enc: &Key, iv: &[u8; BLOCK], data: &[u8]) -> Vec<u8> {
+    match s_enc.as_bytes().len() {
+        16 => cbc_encrypt_with::<Aes128>(s_enc, iv, data),
+        24 => cbc_encrypt_with::<Aes192>(s_enc, iv, data),
+        _ => cbc_encrypt_with::<Aes256>(s_enc, iv, data),
+    }
+}
+
+fn cbc_encrypt_with<C: BlockCipherEncrypt + KeyInit + BlockSizeUser<BlockSize = U16>>(
+    s_enc: &Key,
+    iv: &[u8; BLOCK],
+    data: &[u8],
+) -> Vec<u8> {
+    let cipher = C::new_from_slice(s_enc.as_bytes()).expect("a key of the cipher length");
     let mut prev = *iv;
     let mut out = Vec::with_capacity(data.len());
     for chunk in data.chunks_exact(BLOCK) {
@@ -252,11 +378,23 @@ fn cbc_encrypt(s_enc: &[u8; BLOCK], iv: &[u8; BLOCK], data: &[u8]) -> Vec<u8> {
 }
 
 /// The inverse of [`cbc_encrypt`].
-fn cbc_decrypt(s_enc: &[u8; BLOCK], iv: &[u8; BLOCK], data: &[u8]) -> Result<Vec<u8>, Error> {
+fn cbc_decrypt(s_enc: &Key, iv: &[u8; BLOCK], data: &[u8]) -> Result<Vec<u8>, Error> {
     if data.is_empty() || data.len() % BLOCK != 0 {
         return Err(Error::NotWholeBlocks(data.len()));
     }
-    let cipher = Aes128::new(&(*s_enc).into());
+    Ok(match s_enc.as_bytes().len() {
+        16 => cbc_decrypt_with::<Aes128>(s_enc, iv, data),
+        24 => cbc_decrypt_with::<Aes192>(s_enc, iv, data),
+        _ => cbc_decrypt_with::<Aes256>(s_enc, iv, data),
+    })
+}
+
+fn cbc_decrypt_with<C: BlockCipherDecrypt + KeyInit + BlockSizeUser<BlockSize = U16>>(
+    s_enc: &Key,
+    iv: &[u8; BLOCK],
+    data: &[u8],
+) -> Vec<u8> {
+    let cipher = C::new_from_slice(s_enc.as_bytes()).expect("a key of the cipher length");
     let mut prev = *iv;
     let mut out = Vec::with_capacity(data.len());
     for chunk in data.chunks_exact(BLOCK) {
@@ -271,7 +409,7 @@ fn cbc_decrypt(s_enc: &[u8; BLOCK], iv: &[u8; BLOCK], data: &[u8]) -> Result<Vec
         out.extend_from_slice(&plain);
         prev.copy_from_slice(chunk);
     }
-    Ok(out)
+    out
 }
 
 /// An SCP03 security level this tool will build.
@@ -361,9 +499,9 @@ fn r_mac_applies(sw: &[u8]) -> bool {
 /// and does not advance it.
 #[derive(Clone)]
 pub struct Channel {
-    s_enc: [u8; BLOCK],
-    s_mac: [u8; BLOCK],
-    s_rmac: [u8; BLOCK],
+    s_enc: Key,
+    s_mac: Key,
+    s_rmac: Key,
     chain: [u8; BLOCK],
     block_nr: u64,
     level: SecurityLevel,
@@ -826,7 +964,7 @@ mod tests {
     // `cmac` crate: pins the PRF the KDF is built on.
     #[test]
     fn cmac_nist_sp_800_38b() {
-        let key = h::<16>("2b7e151628aed2a6abf7158809cf4f3c");
+        let key = Key::from_aes128(&h("2b7e151628aed2a6abf7158809cf4f3c"));
         assert_eq!(cmac(&key, &[]), h::<16>("bb1d6929e95937287fa37d129b756746"));
         assert_eq!(
             cmac(&key, &[&h::<16>("6bc1bee22e409f96e93d7e117393172a")]),
@@ -905,10 +1043,15 @@ mod tests {
     fn kdf_and_cryptograms_match_known_answers() {
         for v in VECTORS {
             let (host, card) = (h::<8>(v[2]), h::<8>(v[3]));
-            let keys = derive_session_keys(&h(v[0]), &h(v[1]), &host, &card);
-            assert_eq!(keys.enc, h::<16>(v[4]), "S-ENC {}", v[0]);
-            assert_eq!(keys.mac, h::<16>(v[5]), "S-MAC {}", v[0]);
-            assert_eq!(keys.rmac, h::<16>(v[6]), "S-RMAC {}", v[0]);
+            let keys = derive_session_keys(
+                &Key::from_aes128(&h(v[0])),
+                &Key::from_aes128(&h(v[1])),
+                &host,
+                &card,
+            );
+            assert_eq!(keys.enc.as_bytes(), &h::<16>(v[4])[..], "S-ENC {}", v[0]);
+            assert_eq!(keys.mac.as_bytes(), &h::<16>(v[5])[..], "S-MAC {}", v[0]);
+            assert_eq!(keys.rmac.as_bytes(), &h::<16>(v[6])[..], "S-RMAC {}", v[0]);
             assert_eq!(
                 cryptogram(&keys.mac, Side::Card, &host, &card),
                 h::<8>(v[7])
@@ -937,8 +1080,8 @@ mod tests {
     #[test]
     fn c_mac_wrap_and_chain() {
         let keys = derive_session_keys(
-            &h("000102030405060708090A0B0C0D0E0F"),
-            &h("101112131415161718191A1B1C1D1E1F"),
+            &Key::from_aes128(&h("000102030405060708090A0B0C0D0E0F")),
+            &Key::from_aes128(&h("101112131415161718191A1B1C1D1E1F")),
             &h("0001020304050607"),
             &h("08090A0B0C0D0E0F"),
         );
@@ -974,8 +1117,8 @@ mod tests {
     #[test]
     fn replays_pysim_scp03_session() {
         let (enc, mac) = (
-            h::<16>("000102030405060708090a0b0c0d0e0f"),
-            h::<16>("101112131415161718191a1b1c1d1e1f"),
+            Key::from_aes128(&h("000102030405060708090a0b0c0d0e0f")),
+            Key::from_aes128(&h("101112131415161718191a1b1c1d1e1f")),
         );
         let host = h::<8>("b13e5f938fc108c4");
         assert_eq!(
@@ -997,7 +1140,12 @@ mod tests {
             &resp.card_cryptogram
         ));
         // a card holding other keys fails the check: the "wrong key" stop
-        let wrong = derive_session_keys(&enc, &[0xFF; 16], &host, &resp.card_challenge);
+        let wrong = derive_session_keys(
+            &enc,
+            &Key::from_aes128(&[0xFF; 16]),
+            &host,
+            &resp.card_challenge,
+        );
         assert!(!verify_card_cryptogram(
             &wrong,
             &host,
@@ -1052,10 +1200,8 @@ mod tests {
         // an independent Python model of Amendment D 6.2.4 (it reproduces the
         // basic-channel vectors of this file) with that class byte.
         let keys = derive_session_keys(
-            &<[u8; 16]>::try_from(hex::decode("000102030405060708090A0B0C0D0E0F").unwrap())
-                .unwrap(),
-            &<[u8; 16]>::try_from(hex::decode("101112131415161718191A1B1C1D1E1F").unwrap())
-                .unwrap(),
+            &Key::from_aes128(&h("000102030405060708090A0B0C0D0E0F")),
+            &Key::from_aes128(&h("101112131415161718191A1B1C1D1E1F")),
             &[0xB1, 0x3E, 0x5F, 0x93, 0x8F, 0xC1, 0x08, 0xC4],
             &[0x3E, 0xB5, 0x10, 0x47, 0x49, 0x5B, 0x24, 0x9F],
         );
@@ -1079,7 +1225,12 @@ mod tests {
 
     #[test]
     fn wrap_rejects_oversize_data() {
-        let keys = derive_session_keys(&[0; 16], &[0; 16], &[0; 8], &[0; 8]);
+        let keys = derive_session_keys(
+            &Key::from_aes128(&[0; 16]),
+            &Key::from_aes128(&[0; 16]),
+            &[0; 8],
+            &[0; 8],
+        );
         let big = Command::case3(Header::new(0x80, 0xE2, 0, 0), vec![1u8; 248]);
         assert_eq!(Channel::new(&keys).wrap(&big), Err(Error::TooLong(248)));
     }
@@ -1255,7 +1406,12 @@ mod tests {
         let init = b(v.init_upd_cmd);
         let host: [u8; CHALLENGE_LEN] = init[5..13].try_into().expect("8-byte host challenge");
         let iur = InitializeUpdateResponse::parse(&b(v.init_upd_rsp)).expect("pySim's response");
-        let keys = derive_session_keys(&h(PYSIM_ENC), &h(PYSIM_MAC), &host, &iur.card_challenge);
+        let keys = derive_session_keys(
+            &Key::from_aes128(&h(PYSIM_ENC)),
+            &Key::from_aes128(&h(PYSIM_MAC)),
+            &host,
+            &iur.card_challenge,
+        );
         assert!(
             verify_card_cryptogram(&keys, &host, &iur.card_challenge, &iur.card_cryptogram),
             "pySim's card cryptogram"
@@ -1562,5 +1718,188 @@ mod tests {
         assert!(!by_default.security_level().c_enc());
         assert!(!by_default.security_level().r_mac());
         assert!(!by_default.security_level().r_enc());
+    }
+
+    // The AES-128 bytes are what they were before AES-192 and AES-256 were
+    // added: the same inputs give the same outputs. Source:
+    // OpenPhysical/Gp4Net scripts/scp03_test_vectors.json at commit
+    // 55a974b9affe77eb3ad1b07ac8dfdc4a3aaa34c5 (vector 0), the file and vector
+    // `kdf_and_cryptograms_match_known_answers` already pins, plus the
+    // challenges of pySim SCP03_Test_AES128_11.
+    #[test]
+    fn aes_128_output_is_unchanged() {
+        let (enc, mac) = (
+            Key::from_aes128(&h("000102030405060708090A0B0C0D0E0F")),
+            Key::from_aes128(&h("101112131415161718191A1B1C1D1E1F")),
+        );
+        let (host, card) = (h("0001020304050607"), h("08090A0B0C0D0E0F"));
+        let keys = derive_session_keys(&enc, &mac, &host, &card);
+        assert_eq!(
+            keys.enc.as_bytes(),
+            &h::<16>("3619112820D79FF81146E6862151F521")[..]
+        );
+        assert_eq!(
+            keys.mac.as_bytes(),
+            &h::<16>("E2B6C0D5DC55B27602375D7A983A2B3C")[..]
+        );
+        assert_eq!(
+            keys.rmac.as_bytes(),
+            &h::<16>("35210536E8D79B6574FC6F8B6049630D")[..]
+        );
+        assert_eq!(keys.enc.bits(), 128);
+        assert_eq!(keys.mac.bits(), 128);
+        assert_eq!(
+            cryptogram(&keys.mac, Side::Card, &host, &card),
+            h::<8>("6E3E560916763FAA")
+        );
+        assert_eq!(
+            cryptogram(&keys.mac, Side::Host, &host, &card),
+            h::<8>("C44D56DED351F5A4")
+        );
+        // A key never prints its bytes.
+        assert_eq!(format!("{:?}", enc), "Key(AES-128)");
+    }
+
+    /// The plain commands pySim wraps, parsed as APDUs: case 1 to case 4.
+    fn get(hex_cmd: &str) -> Command {
+        let b = hex::decode(hex_cmd).unwrap();
+        let (header, rest) = (Header::new(b[0], b[1], b[2], b[3]), &b[4..]);
+        match rest {
+            [] => Command::case1(header),
+            [le] => Command::case2(header, Le::Short(*le)),
+            [lc, tail @ ..] if tail.len() == usize::from(*lc) => {
+                Command::case3(header, tail.to_vec())
+            }
+            [lc, tail @ ..] => Command::case4(
+                header,
+                tail[..usize::from(*lc)].to_vec(),
+                Le::Short(tail[usize::from(*lc)]),
+            ),
+        }
+    }
+
+    /// One byte of a hex string, as the APDU field it sits in.
+    fn hex_byte(pair: &str) -> u8 {
+        u8::from_str_radix(pair, 16).unwrap()
+    }
+
+    /// Replays one pySim SCP03 test class: the INITIALIZE UPDATE command is
+    /// built as pySim built it, the card cryptogram in the recorded response
+    /// verifies with `enc`/`mac`, the EXTERNAL AUTHENTICATE comes out as
+    /// `ext_auth`, and the five chained C-MAC commands as `cases`.
+    #[allow(clippy::too_many_arguments)]
+    fn replay_pysim_session(
+        enc: &str,
+        mac: &str,
+        init_cmd: &str,
+        init_rsp: &str,
+        level: u8,
+        ext_auth: &str,
+        cases: &[(&str, &str)],
+    ) {
+        let (enc, mac) = (
+            Key::new(&hex::decode(enc).unwrap()).unwrap(),
+            Key::new(&hex::decode(mac).unwrap()).unwrap(),
+        );
+        // 80 <ins> <kvn> 00 08 <host challenge> 00
+        let host = h::<8>(&init_cmd[10..26]);
+        assert_eq!(
+            hex::encode(
+                initialize_update(hex_byte(&init_cmd[4..6]), &host)
+                    .encode()
+                    .unwrap()
+            ),
+            init_cmd
+        );
+        let iur = InitializeUpdateResponse::parse(&hex::decode(init_rsp).unwrap()).unwrap();
+        let keys = derive_session_keys(&enc, &mac, &host, &iur.card_challenge);
+        // Each derived key is as long as the static key it came from.
+        assert_eq!(keys.enc.bits(), enc.bits());
+        assert_eq!(keys.mac.bits(), mac.bits());
+        assert_eq!(keys.rmac.bits(), mac.bits());
+        assert_eq!(format!("{:?}", enc), format!("Key(AES-{})", enc.bits()));
+        assert!(verify_card_cryptogram(
+            &keys,
+            &host,
+            &iur.card_challenge,
+            &iur.card_cryptogram
+        ));
+        let host_cg = cryptogram(&keys.mac, Side::Host, &host, &iur.card_challenge);
+        let mut ch = Channel::new(&keys);
+        let ea = external_authenticate(&mut ch, level, &host_cg).unwrap();
+        assert_eq!(hex::encode(ea.encode().unwrap()), ext_auth);
+        for (plain, wire) in cases {
+            let wrapped = ch.wrap(&get(plain)).unwrap();
+            assert_eq!(hex::encode(wrapped.encode().unwrap()), *wire, "{plain}");
+        }
+    }
+
+    // pySim tests/unittests/test_globalplatform.py: KEYSET_AES192 (line 170)
+    // and class SCP03_Test_AES192_11 (line 212), 24-byte ENC, MAC and DEK at
+    // kvn 0x31. The expected bytes are the ones pySim asserts.
+    #[test]
+    fn replays_pysim_scp03_session_aes192() {
+        replay_pysim_session(
+            "000102030405060708090a0b0c0d0e0f0001020304050607",
+            "101112131415161718191a1b1c1d1e1f1011121314151617",
+            "80503100087396430b768b085b00",
+            "000000000000000000003103708cfc23522ffdbf1e5df5542cac8fd866000003",
+            0x11,
+            "84821100102145ed30b146f5db252fb7e624cec244",
+            &[
+                (
+                    "80E2910006BF3E035C015A00",
+                    "84e291000ebf3e035c015aff42cf801d14394400",
+                ),
+                ("80F22002", "84f22002084584e4f6784811ee"),
+                ("80ca006600", "84ca006608937776ebe190fa3000"),
+                (
+                    "80F220020a4f0212345c054f9f70c5",
+                    "84f22002124f0212345c054f9f70c59a52bddf3040368c",
+                ),
+                ("80f28002024f0000", "84f280020a4f009804b11411f7393d00"),
+            ],
+        );
+    }
+
+    // pySim tests/unittests/test_globalplatform.py: KEYSET_AES256 (line 172)
+    // and class SCP03_Test_AES256_11 (line 248), 32-byte ENC, MAC and DEK at
+    // kvn 0x32. The widest case: `L` = 256 is coded `01 00` in the KDF label
+    // and the counter runs twice, as it does for AES-192.
+    #[test]
+    fn replays_pysim_scp03_session_aes256() {
+        replay_pysim_session(
+            "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f",
+            "101112131415161718191a1b1c1d1e1f101112131415161718191a1b1c1d1e1f",
+            "805032000811666d57866c6f5400",
+            "0000000000000000000032037053ea8847efa7674e41498a4d66cf0dee000003",
+            0x11,
+            "84821100102f2ad190eff2fafc4908996d1cebd310",
+            &[
+                (
+                    "80E2910006BF3E035C015A00",
+                    "84e291000ebf3e035c015af4b680372542b59d00",
+                ),
+                ("80F22002", "84f2200208d618b7da68d5fe52"),
+                ("80ca006600", "84ca0066088f3e055db23ad5e500"),
+                (
+                    "80F220020a4f0212345c054f9f70c5",
+                    "84f22002124f0212345c054f9f70c5b6e15cc42404915e",
+                ),
+                ("80f28002024f0000", "84f280020a4f00aa124aa74afe7f7500"),
+            ],
+        );
+    }
+
+    // A key set is one length throughout: an ENC of 20 bytes is not a key.
+    #[test]
+    fn only_the_three_aes_key_lengths_are_keys() {
+        assert!(Key::new(&[0; 16]).is_some());
+        assert!(Key::new(&[0; 24]).is_some());
+        assert!(Key::new(&[0; 32]).is_some());
+        assert!(Key::new(&[0; 20]).is_none());
+        assert_eq!(Key::new(&[0; 24]).unwrap().as_bytes().len(), 24);
+        assert_eq!(Key::new(&[7; 24]).unwrap().as_aes128(), None);
+        assert_eq!(Key::from_aes128(&[7; 16]).as_aes128(), Some(&[7; 16]));
     }
 }

@@ -890,9 +890,18 @@ pub enum KeyError {
     /// Not one to three keys.
     #[error("expected 1 to 3 keys (ENC [MAC [DEK]]), found {0}")]
     Count(usize),
-    /// A token is not 32 hex digits, optionally `/` and 6 hex digits of KCV.
-    #[error("key {0} is not 32 hex digits (AES-128), optionally followed by /KCV of 6 hex digits")]
+    /// A token is not 32, 48 or 64 hex digits, optionally `/` and 6 hex of KCV.
+    #[error(
+        "key {0} is not 32, 48 or 64 hex digits (AES-128, -192 or -256), optionally followed \
+         by /KCV of 6 hex digits"
+    )]
     Format(usize),
+    /// A key set whose keys are not all one AES length. pySim asserts
+    /// `len(enc) == len(mac) == len(dek)` in `GpCardKeyset`, and SCP03 derives
+    /// every session key from one static key, so a set that mixes lengths is
+    /// not a key set.
+    #[error("key {0} is {1} bytes and key {2} is {3}: a key set is one AES key length")]
+    MixedLength(usize, usize, usize, usize),
     /// A DAP key that is not 16, 24 or 32 bytes of hex.
     #[error("the DAP key is not 32, 48 or 64 hex digits (AES-128, -192 or -256), optionally followed by /KCV of 6 hex digits")]
     DapFormat,
@@ -911,15 +920,16 @@ pub enum KeyError {
     },
 }
 
-/// The static AES-128 keys of an SCP03 key set. The DEK is kept (one key means
+/// The static AES keys of an SCP03 key set: AES-128, AES-192 or AES-256, and a
+/// key set is one length throughout. The DEK is kept (one key means
 /// ENC = MAC = DEK, as GlobalPlatformPro's `--key`): PUT KEY encrypts the new
 /// keys under it, and as the new key set the text must name all three keys.
 ///
 /// `Debug` is redacted. Not `Clone`, not `Serialize`.
 pub struct Keys {
-    enc: [u8; 16],
-    mac: [u8; 16],
-    dek: Option<[u8; 16]>,
+    enc: scp03::Key,
+    mac: scp03::Key,
+    dek: Option<scp03::Key>,
     count: usize,
     stated: [bool; 2],
 }
@@ -960,14 +970,14 @@ impl Keys {
             };
             let key = hex::decode(key_hex)
                 .ok()
-                .and_then(|v| <[u8; 16]>::try_from(v).ok())
+                .and_then(|v| scp03::Key::new(&v))
                 .ok_or(KeyError::Format(n))?;
             if let Some(kcv_hex) = kcv_hex {
                 let want = hex::decode(kcv_hex)
                     .ok()
                     .and_then(|v| <[u8; 3]>::try_from(v).ok())
                     .ok_or(KeyError::Format(n))?;
-                let got = aes_kcv(&key).expect("16-byte key");
+                let got = aes_kcv(key.as_bytes()).expect("16, 24 or 32 bytes");
                 if got != want {
                     return Err(KeyError::Kcv {
                         index: n,
@@ -983,6 +993,18 @@ impl Keys {
         }
         if tokens.len() == 1 {
             stated[1] = stated[0];
+        }
+        if let Some(first) = keys.first() {
+            for (i, key) in keys.iter().enumerate().skip(1) {
+                if key.bits() != first.bits() {
+                    return Err(KeyError::MixedLength(
+                        i + 1,
+                        key.as_bytes().len(),
+                        1,
+                        first.as_bytes().len(),
+                    ));
+                }
+            }
         }
         Ok(Self {
             enc: keys[0],
@@ -1201,9 +1223,11 @@ pub(crate) struct Established {
 /// path, and that keeps its keys at 16 bytes, which is what the rest of the
 /// secure channel is built for.
 fn diversified_keys(master: &Keys, name: &str, kdd: &[u8; 10]) -> Result<Keys, kdd::Error> {
-    let key = |purpose: kdd::Purpose| -> Result<[u8; 16], kdd::Error> {
-        let bytes = kdd::diversify(&master.enc, name, kdd, purpose, kdd::Scp::Kdf)?;
-        <[u8; 16]>::try_from(bytes.as_slice()).map_err(|_| kdd::Error::MasterKeyLength(bytes.len()))
+    let key = |purpose: kdd::Purpose| -> Result<scp03::Key, kdd::Error> {
+        let bytes = kdd::diversify(master.enc.as_bytes(), name, kdd, purpose, kdd::Scp::Kdf)?;
+        <[u8; 16]>::try_from(bytes.as_slice())
+            .map(|b| scp03::Key::from_aes128(&b))
+            .map_err(|_| kdd::Error::MasterKeyLength(bytes.len()))
     };
     Ok(Keys {
         enc: key(kdd::Purpose::Enc)?,
@@ -1375,17 +1399,18 @@ fn channel_report(auth: &Auth<'_>, est: &Established, card_keys: Option<&Value>)
         keys.iter()
             .find(|k| k["key_version"].as_u64() == Some(u64::from(kvn)))
     });
+    let keys = est.keys.as_ref().unwrap_or(auth.keys);
     let key_info = match card {
         Some(k) => json!({
             "found": true,
             "card_key_type": k["key_type_name"],
             "card_key_length": k["key_length"],
-            "matches_supplied": k["key_type"] == "88" && k["key_length"] == 16,
+            "matches_supplied": k["key_type"] == "88"
+                && k["key_length"] == keys.enc.as_bytes().len(),
         }),
         None => json!({ "found": false }),
     };
-    let keys = est.keys.as_ref().unwrap_or(auth.keys);
-    let kcv = |key: &[u8; 16], stated: bool| {
+    let kcv = |key: &[u8], stated: bool| {
         json!({
             "kcv": hex::encode_upper(aes_kcv(key).expect("16-byte key")),
             "stated_kcv": if stated { "match" } else { "not-stated" },
@@ -1400,8 +1425,8 @@ fn channel_report(auth: &Auth<'_>, est: &Established, card_keys: Option<&Value>)
         "card_cryptogram_verified": true,
         "enc_key_exercised": false,
         "key_kdf": auth.kdf.unwrap_or("none"),
-        "enc_key": kcv(&keys.enc, keys.stated[0]),
-        "mac_key": kcv(&keys.mac, keys.stated[1]),
+        "enc_key": kcv(keys.enc.as_bytes(), keys.stated[0]),
+        "mac_key": kcv(keys.mac.as_bytes(), keys.stated[1]),
         "card_key_info": key_info,
         "kcv_on_card": "not exposed: GET DATA key information carries id, version, type and length only",
     })
@@ -1803,7 +1828,7 @@ pub fn render_text(data: &Value) -> String {
         }
         if c["card_key_info"]["matches_supplied"] == false {
             out.push(format!(
-                "  card key type {} length {} differs from the supplied AES-128 key",
+                "  card key type {} length {} differs from the supplied AES key",
                 s(&c["card_key_info"]["card_key_type"]),
                 c["card_key_info"]["card_key_length"]
             ));
@@ -4646,22 +4671,51 @@ fn put_key_params(req: &PutKeyRequest) -> Result<[[u8; 16]; 3], BuildError> {
             "the first key identifier is 00 to 7D so that the second and third key identifiers stay within 7F (11.8.2.2)",
         ));
     }
-    match (req.new_keys.is_key_set(), req.new_keys.dek) {
-        (true, Some(dek)) => Ok([req.new_keys.enc, req.new_keys.mac, dek]),
-        _ => Err(BuildError::PutKey(
+    let (true, Some(dek)) = (req.new_keys.is_key_set(), req.new_keys.dek) else {
+        return Err(BuildError::PutKey(
             "a new key set is three keys, ENC MAC DEK",
-        )),
+        ));
+    };
+    // The command is built with key type 88 (AES) and one 16-byte block per key,
+    // which is the only form pySim and GlobalPlatformPro are recorded to emit.
+    // Nothing either of them states for a 24- or 32-byte key, so a new key set
+    // of those lengths is refused here rather than written as a guess.
+    let mut fixed = [[0u8; 16]; 3];
+    for (slot, key) in fixed
+        .iter_mut()
+        .zip([req.new_keys.enc, req.new_keys.mac, dek])
+    {
+        match key.as_aes128() {
+            Some(key) => *slot = *key,
+            None => {
+                return Err(BuildError::PutKey(
+                    "PUT KEY writes AES-128 keys: key type 88 with one 16-byte block per key is \
+                     the only length either reference states, so a new key set of AES-192 or \
+                     AES-256 keys is refused here",
+                ))
+            }
+        }
     }
+    Ok(fixed)
 }
 
 /// AES-ECB of one block. For a 16 byte key this is also AES-CBC with a zero ICV,
 /// the encryption Amendment D v1.1.2 6.2.8 prescribes, because it is one block.
-fn dek_encrypt(dek: &[u8; 16], key: &[u8; 16]) -> [u8; 16] {
-    let mut block = (*key).into();
-    aes::Aes128::new_from_slice(dek)
-        .expect("16-byte key")
-        .encrypt_block(&mut block);
-    block.into()
+fn dek_encrypt(dek: &scp03::Key, key: &[u8; 16]) -> [u8; 16] {
+    macro_rules! enc {
+        ($cipher:ty) => {{
+            let mut block = (*key).into();
+            <$cipher>::new_from_slice(dek.as_bytes())
+                .expect("16, 24 or 32 bytes")
+                .encrypt_block(&mut block);
+            <[u8; 16]>::from(block)
+        }};
+    }
+    match dek.bits() {
+        128 => enc!(aes::Aes128),
+        192 => enc!(aes::Aes192),
+        _ => enc!(aes::Aes256),
+    }
 }
 
 /// Builds, and does not send, PUT KEY for a new SCP03 key set: `80 D8 <P1> <P2
@@ -4684,7 +4738,10 @@ fn dek_encrypt(dek: &[u8; 16], key: &[u8; 16]) -> [u8; 16] {
 /// # Errors
 ///
 /// [`BuildError`] for a parameter outside what the specification allows.
-pub fn put_key_command(req: &PutKeyRequest, current_dek: &[u8; 16]) -> Result<Command, BuildError> {
+pub fn put_key_command(
+    req: &PutKeyRequest,
+    current_dek: &scp03::Key,
+) -> Result<Command, BuildError> {
     let keys = put_key_params(req)?;
     let mut data = vec![req.new_version];
     for key in &keys {
@@ -7480,17 +7537,17 @@ mod tests {
 
     fn assert_no_key_material(out: &str) {
         let session = scp03::derive_session_keys(
-            &<[u8; 16]>::try_from(hex::decode(ENC_HEX).unwrap()).unwrap(),
-            &<[u8; 16]>::try_from(hex::decode(MAC_HEX).unwrap()).unwrap(),
+            &scp03::Key::new(&hex::decode(ENC_HEX).unwrap()).unwrap(),
+            &scp03::Key::new(&hex::decode(MAC_HEX).unwrap()).unwrap(),
             &HOST_CHALLENGE,
             &[0x3E, 0xB5, 0x10, 0x47, 0x49, 0x5B, 0x24, 0x9F],
         );
         for secret in [
             hex::decode(ENC_HEX).unwrap(),
             hex::decode(MAC_HEX).unwrap(),
-            session.enc.to_vec(),
-            session.mac.to_vec(),
-            session.rmac.to_vec(),
+            session.enc.as_bytes().to_vec(),
+            session.mac.as_bytes().to_vec(),
+            session.rmac.as_bytes().to_vec(),
         ] {
             assert!(
                 !out.contains(&hex::encode(&secret)),
@@ -7641,8 +7698,8 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(k.stated, [true, true]);
-        assert_eq!(aes_kcv(&k.enc).unwrap(), [0xC3, 0x52, 0x80]);
-        assert_eq!(aes_kcv(&k.mac).unwrap(), [0x01, 0x38, 0x08]);
+        assert_eq!(aes_kcv(k.enc.as_bytes()).unwrap(), [0xC3, 0x52, 0x80]);
+        assert_eq!(aes_kcv(k.mac.as_bytes()).unwrap(), [0x01, 0x38, 0x08]);
         // one key is both
         let one = Keys::parse(ENC_HEX).unwrap();
         assert_eq!(one.enc, one.mac);
@@ -8102,8 +8159,8 @@ mod tests {
     fn mac_sequence(commands: &[Command]) -> String {
         let iur = scp03::InitializeUpdateResponse::parse(&hex::decode(INIT_UPDATE_RESP).unwrap())
             .unwrap();
-        let enc: [u8; 16] = hex::decode(ENC_HEX).unwrap().try_into().unwrap();
-        let mac: [u8; 16] = hex::decode(MAC_HEX).unwrap().try_into().unwrap();
+        let enc = scp03::Key::new(&hex::decode(ENC_HEX).unwrap()).unwrap();
+        let mac = scp03::Key::new(&hex::decode(MAC_HEX).unwrap()).unwrap();
         let sk = scp03::derive_session_keys(&enc, &mac, &HOST_CHALLENGE, &iur.card_challenge);
         let host_cg = scp03::cryptogram(
             &sk.mac,
@@ -8695,7 +8752,10 @@ mod tests {
         let r = delete(&mut card, true, &delete_request(APP1), &auth(&keys), true).unwrap();
         let out = everything(&r, &keys);
         assert_no_key_material(&out);
-        assert!(!out.contains(&hex::encode(keys.enc)) && !out.contains(&hex::encode(keys.mac)));
+        assert!(
+            !out.contains(&hex::encode(keys.enc.as_bytes()))
+                && !out.contains(&hex::encode(keys.mac.as_bytes()))
+        );
         // the ENC key is never exercised by a C-MAC-only write
         assert_eq!(r.data["secure_channel"]["enc_key_exercised"], false);
     }
@@ -8791,7 +8851,7 @@ mod tests {
 
     #[test]
     fn put_key_command_is_byte_exact_with_pysim() {
-        let dek = <[u8; 16]>::try_from(hex::decode(DEK_HEX).unwrap()).unwrap();
+        let dek = scp03::Key::new(&hex::decode(DEK_HEX).unwrap()).unwrap();
         let c = put_key_command(&put_request(0x31, 0, false), &dek).unwrap();
         assert_eq!(hex::encode_upper(c.encode().unwrap()), PLAIN_PUT_ADD);
         let c = put_key_command(&put_request(0x30, 0x30, true), &dek).unwrap();
@@ -10766,6 +10826,87 @@ mod tests {
             assert_eq!(sent_ins(&card, ins), 0);
         }
     }
+    // The AES key check value (GP Card Spec B.6: the first 3 bytes of the AES
+    // encryption of 16 bytes of 01) is defined for every AES key length: pySim
+    // `compute_kcv_aes` (pySim/global_platform/__init__.py) and
+    // GlobalPlatformPro `GPCrypto.kcv_aes` both encrypt the same 16 bytes with
+    // the key as given. The AES-128 values are pySim SCP03_KCV_Test
+    // (test_globalplatform.py, lines 326 to 328); the AES-192 and AES-256 ones
+    // were computed with `openssl enc -aes-192-ecb -K <key> -nopad` over 16
+    // bytes of 01, the invocation that reproduces the three pySim values.
+    #[test]
+    fn aes_kcv_covers_all_three_key_lengths() {
+        for (key, kcv) in [
+            ("000102030405060708090a0b0c0d0e0f", "C35280"),
+            ("101112131415161718191a1b1c1d1e1f", "013808"),
+            ("202122232425262728292a2b2c2d2e2f", "840DE5"),
+            ("000102030405060708090a0b0c0d0e0f0001020304050607", "42D79D"),
+            ("101112131415161718191a1b1c1d1e1f1011121314151617", "DC4F0E"),
+            ("202122232425262728292a2b2c2d2e2f2021222324252627", "9C71C6"),
+            (
+                "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f",
+                "17B3E9",
+            ),
+            (
+                "101112131415161718191a1b1c1d1e1f101112131415161718191a1b1c1d1e1f",
+                "0202BF",
+            ),
+            (
+                "202122232425262728292a2b2c2d2e2f202122232425262728292a2b2c2d2e2f",
+                "C061C0",
+            ),
+        ] {
+            let bytes = hex::decode(key).unwrap();
+            assert_eq!(hex::encode_upper(aes_kcv(&bytes).unwrap()), kcv, "{key}");
+            // A key file may state the KCV, and a stated KCV that matches is
+            // taken at any of the three lengths.
+            let k = Keys::parse(&format!("{key}/{kcv}")).unwrap();
+            assert_eq!(k.enc.as_bytes(), bytes.as_slice());
+        }
+        // 20 bytes is not an AES key length at all.
+        assert_eq!(aes_kcv(&[0; 20]), Err(KeyLength(20)));
+    }
+
+    // A key set is one length throughout. pySim KEYSET_AES192 and KEYSET_AES256
+    // (test_globalplatform.py, lines 170 and 172) are 24 and 32 bytes, and its
+    // `GpCardKeyset` asserts that ENC, MAC and DEK are all one length.
+    #[test]
+    fn keys_parse_at_192_and_256_bits() {
+        let (enc192, mac192) = (
+            "000102030405060708090a0b0c0d0e0f0001020304050607",
+            "101112131415161718191a1b1c1d1e1f1011121314151617",
+        );
+        let k = Keys::parse(&format!("{enc192} {mac192}")).unwrap();
+        assert_eq!(k.enc.bits(), 192);
+        assert_eq!(k.mac.as_bytes().len(), 24);
+        assert_eq!(k.mac.as_bytes(), hex::decode(mac192).unwrap().as_slice());
+        assert!(!k.has_dek());
+        let enc256 = "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f";
+        let one = Keys::parse(enc256).unwrap();
+        assert_eq!(one.enc.bits(), 256);
+        assert_eq!(one.enc.as_bytes().len(), 32);
+        assert_eq!(one.enc, one.mac);
+        assert!(one.has_dek());
+        // A set that mixes lengths is refused, and 40 hex digits is not a key.
+        assert!(Keys::parse(&format!("{enc192} {ENC_HEX}")).is_err());
+        assert!(Keys::parse(&"00".repeat(20)).is_err());
+    }
+
+    // PUT KEY is built here with key type 88 (AES) and one 16-byte block per
+    // key, the only form pySim and GlobalPlatformPro are recorded to emit, so a
+    // new key set of AES-192 or AES-256 keys is refused rather than guessed at.
+    #[test]
+    fn put_key_refuses_a_new_key_set_that_is_not_aes_128() {
+        let k192 = "00".repeat(24);
+        let mut r = put_request(0x31, 0, false);
+        r.new_keys = Keys::parse(&format!("{k192} {k192} {k192}")).unwrap();
+        let dek = scp03::Key::from_aes128(&[0xEE; 16]);
+        let err = put_key_command(&r, &dek).unwrap_err();
+        assert!(
+            err.to_string().contains("PUT KEY writes AES-128 keys"),
+            "{err}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -11830,17 +11971,17 @@ mod crs_tests {
 
     fn assert_no_key_material(out: &str) {
         let session = scp03::derive_session_keys(
-            &<[u8; 16]>::try_from(hex::decode(ENC_HEX).unwrap()).unwrap(),
-            &<[u8; 16]>::try_from(hex::decode(MAC_HEX).unwrap()).unwrap(),
+            &scp03::Key::new(&hex::decode(ENC_HEX).unwrap()).unwrap(),
+            &scp03::Key::new(&hex::decode(MAC_HEX).unwrap()).unwrap(),
             &HOST_CHALLENGE,
             &[0x3E, 0xB5, 0x10, 0x47, 0x49, 0x5B, 0x24, 0x9F],
         );
         for secret in [
             hex::decode(ENC_HEX).unwrap(),
             hex::decode(MAC_HEX).unwrap(),
-            session.enc.to_vec(),
-            session.mac.to_vec(),
-            session.rmac.to_vec(),
+            session.enc.as_bytes().to_vec(),
+            session.mac.as_bytes().to_vec(),
+            session.rmac.as_bytes().to_vec(),
         ] {
             assert!(
                 !out.contains(&hex::encode(&secret)),

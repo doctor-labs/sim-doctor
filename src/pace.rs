@@ -403,7 +403,7 @@ pub fn mac8(key: &[u8; KEY_LEN], parts: &[&[u8]]) -> [u8; TOKEN_LEN] {
     let aes: [u8; 16] = key[..16]
         .try_into()
         .expect("a 32-byte key has 16 leading bytes");
-    let full = cmac(&aes, parts);
+    let full = cmac(&crate::scp03::Key::from_aes128(&aes), parts);
     full[..TOKEN_LEN].try_into().expect("8 bytes")
 }
 
