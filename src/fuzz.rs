@@ -50,6 +50,10 @@ pub const NAME: &str = "fuzz";
 /// The `type` every `fuzz ota` envelope carries.
 pub const KIND: &str = "fuzz";
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
+use std::path::Path;
+
 use serde_json::{json, Value};
 
 use crate::apdu::StatusWord;
@@ -802,6 +806,254 @@ pub fn findings(audit: &Audit) -> Vec<crate::rules::Finding> {
     found
 }
 
+/// The most bytes one result file may hold: the ceiling a baseline has, so a
+/// comparison is never fed a file a baseline would refuse.
+pub const MAX_RESULT_BYTES: usize = crate::baseline::MAX_BASELINE_BYTES;
+
+/// Disagreements the text report lists before it stops; `--json` has them all.
+pub const TEXT_DISAGREEMENTS: usize = 20;
+
+/// One (TAR, keyset, mechanism) triple: the key two runs are matched on.
+pub type Triple = (u32, u8, (u8, u8));
+
+/// One `fuzz ota` run, read back from its JSON envelope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Run {
+    /// The path it was read from, as the operator named it.
+    pub label: String,
+    /// The reader the run was taken on.
+    pub reader: String,
+    /// Whether the run covered everything it was asked to.
+    pub complete: bool,
+    /// Every triple the run probed, and whether the card accepted it.
+    pub outcomes: BTreeMap<Triple, bool>,
+}
+
+/// Reads one `fuzz ota` run from a file.
+///
+/// Refuses anything that is not a regular file, and a file over
+/// [`MAX_RESULT_BYTES`]; the size is enforced while reading, through a `take`,
+/// for the same reason [`crate::baseline::Baseline::load`] does it that way.
+///
+/// # Errors
+///
+/// A message naming the file, for an unreadable, oversized or non-regular
+/// file, and everything [`Run::from_envelope`] refuses.
+pub fn read_run(path: &Path) -> Result<Run, String> {
+    let label = path.display().to_string();
+    let meta = std::fs::metadata(path).map_err(|error| format!("cannot read {label}: {error}"))?;
+    if !meta.is_file() {
+        return Err(format!("{label} is not a regular file"));
+    }
+    let file =
+        std::fs::File::open(path).map_err(|error| format!("cannot read {label}: {error}"))?;
+    let mut text = String::new();
+    file.take(u64::try_from(MAX_RESULT_BYTES).expect("a megabyte fits in u64") + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| format!("cannot read {label}: {error}"))?;
+    if text.len() > MAX_RESULT_BYTES {
+        return Err(format!("{label} is larger than {MAX_RESULT_BYTES} bytes"));
+    }
+    Run::from_envelope(&label, &text)
+}
+
+/// Reads one probe object of an [`Audit::to_json`] `probes` list.
+fn parse_probe(probe: &Value) -> Option<(Triple, bool)> {
+    let tar = u32::try_from(probe["tar_decimal"].as_u64()?).ok()?;
+    let keyset = u8::try_from(probe["keyset"].as_u64()?).ok()?;
+    let spi = |name: &str| -> Option<u8> {
+        u8::from_str_radix(probe["mechanism"][name].as_str()?, 16).ok()
+    };
+    let accepted = match probe["outcome"].as_str()? {
+        "accepted" => true,
+        "refused" => false,
+        _ => return None,
+    };
+    Some(((tar, keyset, (spi("spi1")?, spi("spi2")?)), accepted))
+}
+
+impl Run {
+    /// Reads a run from the text of a `fuzz` envelope whose data carries an
+    /// `audit` with a `probes` list, which is what `fuzz ota` emits.
+    ///
+    /// # Errors
+    ///
+    /// A message naming `label` when the text is not JSON, is not a `fuzz`
+    /// envelope, or has a probe missing a field this module reads.
+    pub fn from_envelope(label: &str, text: &str) -> Result<Self, String> {
+        let not_a_run = || format!("{label} is not a fuzz ota result (no audit.probes)");
+        let value: Value =
+            serde_json::from_str(text).map_err(|error| format!("{label} is not JSON: {error}"))?;
+        if value["type"] != KIND {
+            return Err(not_a_run());
+        }
+        let data = &value["payload"]["data"];
+        let audit = &data["audit"];
+        let probes = audit["probes"].as_array().ok_or_else(not_a_run)?;
+        let mut outcomes = BTreeMap::new();
+        for probe in probes {
+            let (triple, accepted) = parse_probe(probe).ok_or_else(not_a_run)?;
+            outcomes.insert(triple, accepted);
+        }
+        Ok(Self {
+            label: label.to_string(),
+            reader: data["reader"].as_str().unwrap_or("").to_string(),
+            complete: audit["complete"].as_bool().unwrap_or(false),
+            outcomes,
+        })
+    }
+}
+
+/// How one keyset did across the compared runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeysetRank {
+    /// The keyset.
+    pub keyset: u8,
+    /// Accepted (run, triple) pairs under this keyset.
+    pub accepted: usize,
+    /// (run, triple) pairs probed under this keyset.
+    pub probes: usize,
+}
+
+/// Two or more runs set against each other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comparison {
+    /// The runs, in the order they were named.
+    pub runs: Vec<Run>,
+    /// Triples every run probed: the only ones compared.
+    pub common: usize,
+    /// Triples some run probed and another did not, so left out.
+    pub excluded: usize,
+    /// Keysets, most accepted first; a tie goes to the lower keyset.
+    pub keysets: Vec<KeysetRank>,
+    /// Common triples some runs accepted and others refused, with the labels
+    /// of the runs that accepted them. Sorted by triple.
+    pub disagreements: Vec<(Triple, Vec<String>)>,
+}
+
+/// Compares runs triple by triple and ranks keysets by how often the card accepted under them.
+///
+/// Only triples every run probed are compared, so a quick run set against a
+/// full one compares the overlap and says how much was left out.
+pub fn compare(runs: Vec<Run>) -> Comparison {
+    let every: BTreeSet<Triple> = runs
+        .iter()
+        .flat_map(|run| run.outcomes.keys().copied())
+        .collect();
+    let common: Vec<Triple> = every
+        .iter()
+        .copied()
+        .filter(|triple| runs.iter().all(|run| run.outcomes.contains_key(triple)))
+        .collect();
+    let mut per_keyset: BTreeMap<u8, KeysetRank> = BTreeMap::new();
+    let mut disagreements = Vec::new();
+    for triple in &common {
+        let mut accepting = Vec::new();
+        for run in &runs {
+            let accepted = run.outcomes[triple];
+            let rank = per_keyset.entry(triple.1).or_insert(KeysetRank {
+                keyset: triple.1,
+                accepted: 0,
+                probes: 0,
+            });
+            rank.probes += 1;
+            if accepted {
+                rank.accepted += 1;
+                accepting.push(run.label.clone());
+            }
+        }
+        if !accepting.is_empty() && accepting.len() < runs.len() {
+            disagreements.push((*triple, accepting));
+        }
+    }
+    let mut keysets: Vec<KeysetRank> = per_keyset.into_values().collect();
+    keysets.sort_by(|a, b| b.accepted.cmp(&a.accepted).then(a.keyset.cmp(&b.keyset)));
+    Comparison {
+        common: common.len(),
+        excluded: every.len() - common.len(),
+        runs,
+        keysets,
+        disagreements,
+    }
+}
+
+impl Comparison {
+    /// The `compare` block a report carries.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "runs": self.runs.iter().map(|run| json!({
+                "file": run.label,
+                "reader": run.reader,
+                "complete": run.complete,
+                "probed": run.outcomes.len(),
+                "accepted": run.outcomes.values().filter(|accepted| **accepted).count(),
+            })).collect::<Vec<_>>(),
+            "common_probes": self.common,
+            "excluded_probes": self.excluded,
+            "keysets": self.keysets.iter().enumerate().map(|(index, rank)| json!({
+                "rank": index + 1,
+                "keyset": rank.keyset,
+                "accepted": rank.accepted,
+                "probes": rank.probes,
+            })).collect::<Vec<_>>(),
+            "disagreements": {
+                "count": self.disagreements.len(),
+                "triples": self.disagreements.iter().map(|((tar, keyset, (spi1, spi2)), accepting)| json!({
+                    "tar": tar::hex(*tar),
+                    "tar_decimal": tar,
+                    "keyset": keyset,
+                    "mechanism": { "spi1": format!("{spi1:02X}"), "spi2": format!("{spi2:02X}") },
+                    "accepted_in": accepting,
+                })).collect::<Vec<_>>(),
+            },
+        })
+    }
+
+    /// The human-readable report: the runs, the keyset ranking, then the
+    /// first [`TEXT_DISAGREEMENTS`] disagreements.
+    pub fn text(&self) -> String {
+        let mut text = format!(
+            "fuzz compare: {} runs, {} common probes, {} excluded\n",
+            self.runs.len(),
+            self.common,
+            self.excluded
+        );
+        for run in &self.runs {
+            let accepted = run.outcomes.values().filter(|accepted| **accepted).count();
+            text.push_str(&format!(
+                "  {}: {accepted} of {} accepted, complete: {}\n",
+                run.label,
+                run.outcomes.len(),
+                if run.complete { "yes" } else { "no" }
+            ));
+        }
+        text.push_str("keysets, most accepted first:\n");
+        for (index, rank) in self.keysets.iter().enumerate() {
+            text.push_str(&format!(
+                "  {}. keyset {}: {} of {} accepted\n",
+                index + 1,
+                rank.keyset,
+                rank.accepted,
+                rank.probes
+            ));
+        }
+        text.push_str(&format!(
+            "disagreements: {} (accepted by some runs, refused by others)\n",
+            self.disagreements.len()
+        ));
+        for ((tar, keyset, (spi1, spi2)), accepting) in
+            self.disagreements.iter().take(TEXT_DISAGREEMENTS)
+        {
+            text.push_str(&format!(
+                "  TAR {} keyset {keyset} mechanism {spi1:02X}/{spi2:02X}: accepted in {}\n",
+                tar::hex(*tar),
+                accepting.join(", ")
+            ));
+        }
+        text.trim_end().to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1015,6 +1267,108 @@ mod tests {
         let specs = specs();
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].id().as_str(), OTA_MECHANISM_ACCEPTED_RULE);
+    }
+
+    fn envelope(kind: &str, probes: Value) -> String {
+        json!({
+            "type": kind,
+            "payload": { "code": 0, "message": "ok", "data": {
+                "reader": "swICC",
+                "audit": { "complete": true, "probes": probes },
+            } },
+        })
+        .to_string()
+    }
+
+    fn probe(tar: u32, keyset: u8, spi2: &str, outcome: &str) -> Value {
+        json!({
+            "tar": tar::hex(tar),
+            "tar_decimal": tar,
+            "keyset": keyset,
+            "mechanism": { "spi1": "00", "spi2": spi2 },
+            "outcome": outcome,
+            "status": null,
+        })
+    }
+
+    #[test]
+    fn compare_ranks_keysets_and_lists_the_triples_runs_disagree_on() {
+        let a = Run::from_envelope(
+            "a.json",
+            &envelope(
+                "fuzz",
+                json!([
+                    probe(0x000001, 0, "00", "accepted"),
+                    probe(0x000001, 1, "00", "refused"),
+                    probe(0x000002, 1, "01", "accepted"),
+                    probe(0x000009, 2, "00", "refused"),
+                ]),
+            ),
+        )
+        .unwrap();
+        let b = Run::from_envelope(
+            "b.json",
+            &envelope(
+                "fuzz",
+                json!([
+                    probe(0x000001, 0, "00", "refused"),
+                    probe(0x000001, 1, "00", "accepted"),
+                    probe(0x000002, 1, "01", "accepted"),
+                ]),
+            ),
+        )
+        .unwrap();
+        let comparison = compare(vec![a, b]);
+        assert_eq!(comparison.common, 3);
+        assert_eq!(comparison.excluded, 1);
+        assert_eq!(
+            comparison.keysets,
+            vec![
+                KeysetRank {
+                    keyset: 1,
+                    accepted: 3,
+                    probes: 4
+                },
+                KeysetRank {
+                    keyset: 0,
+                    accepted: 1,
+                    probes: 2
+                },
+            ]
+        );
+        assert_eq!(
+            comparison.disagreements,
+            vec![
+                ((1, 0, (0, 0)), vec!["a.json".to_string()]),
+                ((1, 1, (0, 0)), vec!["b.json".to_string()]),
+            ]
+        );
+        let json = comparison.to_json();
+        assert_eq!(json["disagreements"]["count"], 2);
+        assert_eq!(json["keysets"][0]["rank"], 1);
+        assert_eq!(json["disagreements"]["triples"][0]["tar"], "000001");
+    }
+
+    #[test]
+    fn identical_runs_have_no_disagreements() {
+        let run = || {
+            Run::from_envelope(
+                "same.json",
+                &envelope("fuzz", json!([probe(0x000001, 0, "00", "accepted")])),
+            )
+            .unwrap()
+        };
+        let comparison = compare(vec![run(), run()]);
+        assert!(comparison.disagreements.is_empty());
+        assert_eq!(comparison.excluded, 0);
+    }
+
+    #[test]
+    fn a_file_that_is_not_an_ota_run_is_refused() {
+        assert!(Run::from_envelope("x", "not json").is_err());
+        assert!(Run::from_envelope("x", &envelope("doctor/1", json!([]))).is_err());
+        assert!(Run::from_envelope("x", &envelope("fuzz", json!("nope"))).is_err());
+        assert!(Run::from_envelope("x", &envelope("fuzz", json!([{ "tar_decimal": 1 }]))).is_err());
     }
 }
 

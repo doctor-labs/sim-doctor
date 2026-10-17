@@ -531,6 +531,24 @@ enum FuzzAction {
     /// fuzz/malformed-command-accepted finding. --dry-run prints the plan and
     /// sends nothing. Running this against a real reader is not implemented.
     Mutate(FuzzMutateArgs),
+
+    /// Compares two or more `fuzz ota` JSON results: keysets ranked by how
+    /// often the card accepted under them, and the (TAR, keyset, mechanism)
+    /// triples the runs disagree on. Offline and read-only: it reads result
+    /// files and sends nothing. Only triples every run probed are compared.
+    Compare(FuzzCompareArgs),
+}
+
+/// Everything `sim-doctor fuzz compare` takes.
+#[derive(Args)]
+struct FuzzCompareArgs {
+    /// Two or more `fuzz ota --json` result files, each at most 8 MiB.
+    #[arg(required = true, num_args = 2.., value_name = "RESULT_FILE")]
+    files: Vec<std::path::PathBuf>,
+
+    /// Emit one JSON envelope on stdout, and nothing else.
+    #[arg(long)]
+    json: bool,
 }
 
 /// Everything `sim-doctor fuzz mutate` takes.
@@ -1957,6 +1975,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             FuzzAction::Apdu(args) => run_fuzz_apdu(args),
             FuzzAction::Ota(args) => run_fuzz_ota(args),
             FuzzAction::Mutate(args) => run_fuzz_mutate(args),
+            FuzzAction::Compare(args) => run_fuzz_compare(args),
         },
     }
 }
@@ -4060,6 +4079,60 @@ fn run_fuzz_apdu(args: FuzzApduArgs) -> contract::ExitCode {
             &findings,
             args.safety.json,
         )
+    }
+}
+
+/// Runs `sim-doctor fuzz compare`: reads each result file, then compares them.
+///
+/// A file that cannot be read or is not a `fuzz ota` result refuses the whole
+/// comparison with exit 2 and names the file; nothing is compared from a
+/// partial set.
+fn run_fuzz_compare(args: FuzzCompareArgs) -> contract::ExitCode {
+    let mut runs = Vec::with_capacity(args.files.len());
+    for path in &args.files {
+        match fuzz::read_run(path) {
+            Ok(run) => runs.push(run),
+            Err(message) => {
+                eprintln!("sim-doctor: {message}");
+                if args.json {
+                    let envelope = contract::Envelope::new(
+                        fuzz::KIND,
+                        contract::ExitCode::Error,
+                        message.as_str(),
+                        serde_json::json!({ "error": { "kind": "bad-result" } }),
+                    );
+                    if let Ok(line) = envelope.to_json() {
+                        println!("{line}");
+                    }
+                }
+                return contract::ExitCode::Error;
+            }
+        }
+    }
+    let comparison = fuzz::compare(runs);
+    if args.json {
+        let envelope = contract::Envelope::new(
+            fuzz::KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            serde_json::json!({ "compare": comparison.to_json() }),
+        );
+        match envelope.to_json() {
+            Ok(line) => println!("{line}"),
+            Err(err) => {
+                eprintln!("sim-doctor: {err}");
+                return contract::ExitCode::Error;
+            }
+        }
+        contract::ExitCode::Success
+    } else {
+        match emit_stdout(&comparison.text(), "the fuzz comparison") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => {
+                eprintln!("sim-doctor: {message}");
+                contract::ExitCode::Error
+            }
+        }
     }
 }
 
