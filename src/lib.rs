@@ -157,7 +157,6 @@ pub mod signals;
 pub mod skill;
 pub mod sms;
 pub mod sysmocom;
-pub mod sysmocom;
 pub mod tar;
 pub mod tlv;
 pub mod trace;
