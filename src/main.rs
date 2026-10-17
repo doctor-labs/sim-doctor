@@ -637,6 +637,12 @@ struct FuzzApduArgs {
 struct FuzzOtaArgs {
     #[command(flatten)]
     safety: FuzzSafety,
+
+    /// Like `--quick`, but probes only the three TARs SIMTester's `-poke`
+    /// probes: 000000, B00001 and B00010 - the quick keysets and mechanisms
+    /// still apply, so a run finishes in milliseconds.
+    #[arg(long, conflicts_with = "quick")]
+    poke: bool,
 }
 
 /// Everything `sim-doctor gp` takes.
@@ -4566,6 +4572,7 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
 
     let sweep = fuzz::Sweep {
         quick: args.safety.quick,
+        poke: args.poke,
         class: tar::Class::Etsi,
     };
     let audit = match fuzz::audit(

@@ -976,6 +976,7 @@ _arguments "${_arguments_options[@]}" : \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '--quick[Probe a small, documented subset instead of the full space]' \
+'(--quick)--poke[Like \`--quick\`, but probes only the three TARs SIMTester'\''s \`-poke\` probes\: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0

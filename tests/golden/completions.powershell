@@ -700,6 +700,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--allow-real-hardware', '--allow-real-hardware', [CompletionResultType]::ParameterName, 'Required in addition to the opt-in above when the reader''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, `fuzz` refuses to run against anything that is not recognisably the software card')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
             [CompletionResult]::new('--quick', '--quick', [CompletionResultType]::ParameterName, 'Probe a small, documented subset instead of the full space')
+            [CompletionResult]::new('--poke', '--poke', [CompletionResultType]::ParameterName, 'Like `--quick`, but probes only the three TARs SIMTester''s `-poke` probes: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break

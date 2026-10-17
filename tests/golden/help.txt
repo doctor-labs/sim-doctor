@@ -731,6 +731,8 @@ Options:
           Emit one JSON envelope on stdout, and nothing else
       --quick
           Probe a small, documented subset instead of the full space
+      --poke
+          Like `--quick`, but probes only the three TARs SIMTester's `-poke` probes: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds
   -h, --help
           Print help
 

@@ -43,6 +43,17 @@
 //! asks for, for the same reason [`crate::tar::MAX_PROBES`] exists: this tool
 //! will not put an unbounded loop behind a flag. A sweep that hit the cap
 //! reports [`Audit::is_complete`] as false and marks every finding partial.
+//!
+//! # The three-TAR "poke" mode (issue #267)
+//!
+//! SIMTester's `-poke` is "same as quick-fuzz, but only probes 3 TARs
+//! (000000, B00001, B00010)". This crate's `--poke` (on `fuzz ota`) probes
+//! exactly those three, with the quick keysets and mechanisms, and reports
+//! which mode it ran under in the audit block (`"poke": true`). Two of the
+//! three are `RFM:` in SIMTester, whose meaning is the user data chosen for
+//! the Command Packet: SIMTester's RFM user data is `A0A4000002 3F00`, which
+//! is exactly this crate's fixed [`crate::tar::PROBE_USER_DATA`], so the
+//! envelope builder sends the same packet for all three.
 
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "fuzz";
@@ -480,6 +491,19 @@ fn ota_alg(nibble: u8, key: &[u8]) -> Result<otacrypto::Alg, otacrypto::Error> {
         })
     }
 }
+/// The three TARs the "poke" sweep probes (issue #267).
+///
+/// \[V] SIMTester `SIMTester.java` at `d197fef`, the POKE case of the
+/// fuzzing-level switch: `TARs = [RAM:000000, RFM:B00001, RFM:B00010]` -
+/// "same as quick-fuzz, but only probes 3 TARs". Two of the three are
+/// `RFM:`, and SIMTester's RFM user data is
+/// `A0A4000002 3F00` (its `Fuzzer.java` `generateCommandPacket`), which is
+/// exactly [`crate::tar::PROBE_USER_DATA`], so this crate's envelope builder
+/// sends the same Command Packet for all three; no user-data variant is
+/// needed. What makes a TAR "RAM" and what makes one "RFM" in SIMTester is
+/// the user data chosen for it, not the TAR value, and the poke TARs
+/// `000000`/`B00001`/`B00010` are the values themselves.
+pub const POKE_TARS: [u32; 3] = [0x00_00_00, 0xB0_00_01, 0xB0_00_10];
 
 /// TARs a full sweep probes: [`crate::tar::FOCUSED_BANDS`], the same
 /// bounded default a TAR audit uses, for the same reason - the full
@@ -498,6 +522,9 @@ pub fn tars(quick: bool) -> Vec<u32> {
 pub struct Sweep {
     /// Fewer TARs, keysets and mechanisms, so a run finishes in milliseconds.
     pub quick: bool,
+    /// The three-TAR "poke": like quick, but only [`POKE_TARS`] (issue #267).
+    /// Takes precedence over `quick` when both are set.
+    pub poke: bool,
     /// The ENVELOPE class, same meaning as [`crate::tar::Class`].
     pub class: Class,
 }
@@ -506,8 +533,22 @@ impl Default for Sweep {
     fn default() -> Self {
         Self {
             quick: false,
+            poke: false,
             class: Class::Etsi,
         }
+    }
+}
+
+/// Which keysets and mechanisms a sweep probes, by mode.
+///
+/// Poke and quick use the same small subsets (SIMTester's `-poke` is "same
+/// as quick-fuzz, but only probes 3 TARs"); only the full sweep uses the
+/// reference tool's whole keyset and mechanism spaces.
+fn keysets_and_mechanisms(sweep: Sweep) -> (&'static [u8], &'static [(u8, u8)]) {
+    if sweep.poke || sweep.quick {
+        (&QUICK_KEYSETS, &QUICK_MECHANISMS)
+    } else {
+        (&KEYSETS, &MECHANISMS)
     }
 }
 
@@ -573,6 +614,7 @@ impl Audit {
     pub fn to_json(&self) -> Value {
         json!({
             "quick": self.sweep.quick,
+            "poke": self.sweep.poke,
             "class": self.sweep.class.id(),
             "max_probes": MAX_PROBES,
             "probed": self.probes.len(),
@@ -620,17 +662,12 @@ pub fn audit<S: CardSession + ?Sized>(
     policy: &Policy,
     interrupt: &mut dyn FnMut() -> bool,
 ) -> Result<Audit, tar::Error> {
-    let tar_list = tars(sweep.quick);
-    let keysets: &[u8] = if sweep.quick {
-        &QUICK_KEYSETS
+    let tar_list: Vec<u32> = if sweep.poke {
+        POKE_TARS.to_vec()
     } else {
-        &KEYSETS
+        tars(sweep.quick)
     };
-    let mechanisms: &[(u8, u8)] = if sweep.quick {
-        &QUICK_MECHANISMS
-    } else {
-        &MECHANISMS
-    };
+    let (keysets, mechanisms) = keysets_and_mechanisms(sweep);
 
     // 1. Calibration: the TAR audit's own baseline TARs, at keyset 0 and the
     // first mechanism, which is enough to tell "this card answers everything
@@ -1119,6 +1156,7 @@ mod tests {
             &mut card,
             Sweep {
                 quick: true,
+                poke: false,
                 class: Class::Etsi,
             },
             &Policy::default(),
@@ -1137,6 +1175,7 @@ mod tests {
             &mut card,
             Sweep {
                 quick: true,
+                poke: false,
                 class: Class::Etsi,
             },
             &Policy::default(),
@@ -1155,6 +1194,7 @@ mod tests {
             &mut card,
             Sweep {
                 quick: false,
+                poke: false,
                 class: Class::Etsi,
             },
             &Policy::default(),
@@ -1175,6 +1215,7 @@ mod tests {
             &mut card,
             Sweep {
                 quick: false,
+                poke: false,
                 class: Class::Etsi,
             },
             &Policy::default(),
@@ -1369,6 +1410,98 @@ mod tests {
         assert!(Run::from_envelope("x", &envelope("doctor/1", json!([]))).is_err());
         assert!(Run::from_envelope("x", &envelope("fuzz", json!("nope"))).is_err());
         assert!(Run::from_envelope("x", &envelope("fuzz", json!([{ "tar_decimal": 1 }]))).is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // The OTA quick "poke" mode (issue #267): the three TARs SIMTester's
+    // `-poke` probes, everything else the quick set's.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn poke_tars_are_simtester_exactly() {
+        // [V] SIMTester `SIMTester.java` (d197fef), the POKE case of the
+        // fuzzing-level switch: RAM:000000, RFM:B00001, RFM:B00010.
+        assert_eq!(POKE_TARS, [0x00_00_00, 0xB0_00_01, 0xB0_00_10]);
+        assert_eq!(POKE_TARS.len(), 3, "poke probes exactly three TARs");
+    }
+
+    #[test]
+    fn poke_sweep_probes_exactly_the_three_poke_tars_in_order() {
+        let mut card = swsim_like();
+        let audit = audit(
+            &mut card,
+            Sweep {
+                quick: false,
+                poke: true,
+                class: Class::Etsi,
+            },
+            &Policy::default(),
+            &mut || false,
+        )
+        .unwrap();
+        let expected = POKE_TARS.len() * QUICK_KEYSETS.len() * QUICK_MECHANISMS.len();
+        assert_eq!(audit.probes.len(), expected);
+        assert!(expected < MAX_PROBES);
+        // TAR outer: every probe of the first three triples is the first TAR.
+        let stride = QUICK_KEYSETS.len() * QUICK_MECHANISMS.len();
+        for (i, tar_expected) in POKE_TARS.iter().enumerate() {
+            for probe in &audit.probes[i * stride..(i + 1) * stride] {
+                assert_eq!(probe.tar, *tar_expected);
+            }
+        }
+    }
+
+    #[test]
+    fn a_card_with_no_tar_check_reports_nothing_accepted_in_poke_mode() {
+        let mut card = swsim_like();
+        let audit = audit(
+            &mut card,
+            Sweep {
+                quick: false,
+                poke: true,
+                class: Class::Etsi,
+            },
+            &Policy::default(),
+            &mut || false,
+        )
+        .unwrap();
+        assert!(audit.is_complete());
+        assert!(audit.accepted().count() == 0);
+        assert!(findings(&audit).is_empty());
+    }
+
+    #[test]
+    fn the_audit_json_says_which_mode_it_ran() {
+        let mut card = swsim_like();
+        let audit = audit(
+            &mut card,
+            Sweep {
+                quick: false,
+                poke: true,
+                class: Class::Etsi,
+            },
+            &Policy::default(),
+            &mut || false,
+        )
+        .unwrap();
+        let json = audit.to_json();
+        assert_eq!(json["poke"], serde_json::json!(true));
+        assert_eq!(json["quick"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn poke_tars_are_sent_through_the_envelope_builder() {
+        // Every poke TAR must build into a real ENVELOPE APDU, else the sweep
+        // would abort before it ever reached the card.
+        for tar in POKE_TARS {
+            let Some(apdu) = tar::envelope_apdu_with(tar, Class::Etsi, 0, 0, 0) else {
+                panic!("the ENVELOPE for TAR {tar:06X} does not fit");
+            };
+            assert!(
+                apdu.starts_with(&[Class::Etsi.octet(), tar::INS_ENVELOPE, 0x00, 0x00]),
+                "{apdu:?}"
+            );
+        }
     }
 }
 
