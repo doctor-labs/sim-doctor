@@ -142,6 +142,12 @@ _sim__doctor() {
             sim__doctor__subcmd__euicc,enable)
                 cmd="sim__doctor__subcmd__euicc__subcmd__enable"
                 ;;
+            sim__doctor__subcmd__euicc,get-certs)
+                cmd="sim__doctor__subcmd__euicc__subcmd__get__subcmd__certs"
+                ;;
+            sim__doctor__subcmd__euicc,get-eim-configuration-data)
+                cmd="sim__doctor__subcmd__euicc__subcmd__get__subcmd__eim__subcmd__configuration__subcmd__data"
+                ;;
             sim__doctor__subcmd__euicc,help)
                 cmd="sim__doctor__subcmd__euicc__subcmd__help"
                 ;;
@@ -177,6 +183,12 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__euicc__subcmd__help,enable)
                 cmd="sim__doctor__subcmd__euicc__subcmd__help__subcmd__enable"
+                ;;
+            sim__doctor__subcmd__euicc__subcmd__help,get-certs)
+                cmd="sim__doctor__subcmd__euicc__subcmd__help__subcmd__get__subcmd__certs"
+                ;;
+            sim__doctor__subcmd__euicc__subcmd__help,get-eim-configuration-data)
+                cmd="sim__doctor__subcmd__euicc__subcmd__help__subcmd__get__subcmd__eim__subcmd__configuration__subcmd__data"
                 ;;
             sim__doctor__subcmd__euicc__subcmd__help,help)
                 cmd="sim__doctor__subcmd__euicc__subcmd__help__subcmd__help"
@@ -630,6 +642,12 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__euicc,enable)
                 cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__enable"
+                ;;
+            sim__doctor__subcmd__help__subcmd__euicc,get-certs)
+                cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__get__subcmd__certs"
+                ;;
+            sim__doctor__subcmd__help__subcmd__euicc,get-eim-configuration-data)
+                cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__get__subcmd__eim__subcmd__configuration__subcmd__data"
                 ;;
             sim__doctor__subcmd__help__subcmd__euicc,info)
                 cmd="sim__doctor__subcmd__help__subcmd__euicc__subcmd__info"
@@ -1338,7 +1356,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__euicc)
-            opts="-h --help info profiles challenge notifications nickname enable disable delete reset set-default-dp store-data help"
+            opts="-h --help info profiles challenge get-certs get-eim-configuration-data notifications nickname enable disable delete reset set-default-dp store-data help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1455,8 +1473,60 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__euicc__subcmd__get__subcmd__certs)
+            opts="-h --reader --json --aid --max-segment --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --aid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --max-segment)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__euicc__subcmd__get__subcmd__eim__subcmd__configuration__subcmd__data)
+            opts="-h --reader --json --aid --max-segment --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --aid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --max-segment)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__euicc__subcmd__help)
-            opts="info profiles challenge notifications nickname enable disable delete reset set-default-dp store-data help"
+            opts="info profiles challenge get-certs get-eim-configuration-data notifications nickname enable disable delete reset set-default-dp store-data help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1512,6 +1582,34 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__euicc__subcmd__help__subcmd__enable)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__euicc__subcmd__help__subcmd__get__subcmd__certs)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__euicc__subcmd__help__subcmd__get__subcmd__eim__subcmd__configuration__subcmd__data)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -4490,7 +4588,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__euicc)
-            opts="info profiles challenge notifications nickname enable disable delete reset set-default-dp store-data"
+            opts="info profiles challenge get-certs get-eim-configuration-data notifications nickname enable disable delete reset set-default-dp store-data"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4546,6 +4644,34 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__euicc__subcmd__enable)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__euicc__subcmd__get__subcmd__certs)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__euicc__subcmd__get__subcmd__eim__subcmd__configuration__subcmd__data)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
