@@ -4409,7 +4409,7 @@ fn run_erase_on_card(
         Ok(readers) => readers,
         Err(err) => return refuse("context-unavailable", err.to_string()),
     };
-    let reader = match pick_reader(&readers, args.reader.as_deref()) {
+    let reader = match pick_reader(&readers, args.reader.as_deref(), None) {
         Ok(reader) => reader,
         Err(failure) => {
             return report_refusal(erase::KIND, &failure.message, failure.data(), args.json)
