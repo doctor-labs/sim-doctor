@@ -1795,6 +1795,18 @@ _arguments "${_arguments_options[@]}" : \
 ':address -- The new default SM-DP+ address, as a UTF-8 string:_default' \
 && ret=0
 ;;
+(store-data)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--yes[Send it. Without it nothing is sent and no card is contacted\: the STORE DATA blocks it would become are printed, each with its CLA/INS/P1/P2/Lc and payload bytes, and \`card_touched\` is false]' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::payload -- The ES10x request as hex\: `BF3E00`, `bf 3e 00`, `bf3e\:00` and `0xBF3E00` all parse. `-`, or no argument at all, reads it from stdin. Bounded\: more than 8192 bytes is refused:_default' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__euicc__subcmd__help_commands" \
@@ -1868,6 +1880,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (set-default-dp)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(store-data)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2430,6 +2446,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(store-data)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -2597,6 +2617,7 @@ _sim-doctor__subcmd__euicc_commands() {
 'delete:Delete a profile (lpac \`profile delete\`, ES10c DeleteProfile). A dry run unless \`--yes\`\: the profile is erased permanently and can only come back by downloading it again from the operator. An enabled profile is refused. Never exposed over MCP' \
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
 'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
+'store-data:One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA\: the escape hatch for a function this tool does not implement (pySim-shell \`do_es10x_store_data\`). A dry run unless \`--yes\`\: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc commands' commands "$@"
@@ -2634,6 +2655,7 @@ _sim-doctor__subcmd__euicc__subcmd__help_commands() {
 'delete:Delete a profile (lpac \`profile delete\`, ES10c DeleteProfile). A dry run unless \`--yes\`\: the profile is erased permanently and can only come back by downloading it again from the operator. An enabled profile is refused. Never exposed over MCP' \
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
 'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
+'store-data:One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA\: the escape hatch for a function this tool does not implement (pySim-shell \`do_es10x_store_data\`). A dry run unless \`--yes\`\: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc help commands' commands "$@"
@@ -2711,6 +2733,11 @@ _sim-doctor__subcmd__euicc__subcmd__help__subcmd__reset_commands() {
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__set-default-dp_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc help set-default-dp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__store-data_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__store-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help store-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__info_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__info_commands() {
@@ -2791,6 +2818,11 @@ _sim-doctor__subcmd__euicc__subcmd__reset_commands() {
 _sim-doctor__subcmd__euicc__subcmd__set-default-dp_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc set-default-dp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__store-data_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__store-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc store-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__fix_commands] )) ||
 _sim-doctor__subcmd__fix_commands() {
@@ -3401,6 +3433,7 @@ _sim-doctor__subcmd__help__subcmd__euicc_commands() {
 'delete:Delete a profile (lpac \`profile delete\`, ES10c DeleteProfile). A dry run unless \`--yes\`\: the profile is erased permanently and can only come back by downloading it again from the operator. An enabled profile is refused. Never exposed over MCP' \
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
 'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
+'store-data:One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA\: the escape hatch for a function this tool does not implement (pySim-shell \`do_es10x_store_data\`). A dry run unless \`--yes\`\: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP' \
     )
     _describe -t commands 'sim-doctor help euicc commands' commands "$@"
 }
@@ -3472,6 +3505,11 @@ _sim-doctor__subcmd__help__subcmd__euicc__subcmd__reset_commands() {
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__set-default-dp_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help euicc set-default-dp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__store-data_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__store-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc store-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__fix_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__fix_commands() {
