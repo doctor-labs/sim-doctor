@@ -2106,6 +2106,17 @@ pub enum BuildError {
     /// The Install Parameters field does not hold the mandatory C9 tag.
     #[error("install parameters must be TLV that holds the mandatory C9 tag (C900 for none)")]
     InstallParameters,
+    /// Privileges of an INSTALL [for registry update] that are neither empty nor three bytes.
+    #[error("the privileges of a registry update are omitted or all three bytes, not {0}")]
+    RegistryUpdatePrivileges(usize),
+    /// Application parameters on an INSTALL [for registry update].
+    #[error("a registry update carries no C9 application parameters; a card rejects them even when empty (GlobalPlatformPro install_params(args, true))")]
+    RegistryUpdateC9,
+    /// Install parameters on a registry update that are not TLV.
+    #[error(
+        "the install parameters of a registry update must be TLV tags, and none of them may be C9"
+    )]
+    RegistryUpdateParameters,
     /// Neither a key id nor a key version was given to `delete_key_command`.
     #[error("DELETE KEY needs at least one of --key-id or --key-version")]
     NoKeyIdentity,
@@ -3271,6 +3282,52 @@ pub fn amend_install_params(base: &[u8], cl: &ContactlessParams) -> Result<Vec<u
     Ok(rebuilt.iter().flat_map(ParamTlv::encode).collect())
 }
 
+/// Builds, and does not send, INSTALL [for registry update]: `80 E6 40 00 Lc
+/// <data> 00`, with data = `LV(empty Security Domain AID) LV(empty module AID)
+/// LV(application AID) LV(privileges) LV(install parameters)` and the mandatory
+/// install token length `00` appended.
+///
+/// GlobalPlatformPro `GlobalPlatformCookbook.install_for_registry_update`
+/// (`lv(null, null, instanceAID.getBytes(), privs, params)`, with the token
+/// length `gp_dm` appends to every INSTALL) sends it as
+/// `gp_dm(INS_INSTALL, 0x40, 0x00, data)` with CLA `80` and INS `E6`: GP Card
+/// Spec v2.4 11.5.2.3.5 and Table 11-46 give P1 `40` and P2 `00`. The empty
+/// Security Domain AID means nothing is extradited, and the privileges are
+/// omitted (length `00`) when there are none, so pass an empty `privileges`
+/// for that. A registry update carries no `C9` application parameters, which a
+/// card rejects even when empty, so `install_parameters` must NOT hold the `C9`
+/// tag; pass an empty slice for none. `application_aid` is the instance whose
+/// registry entry is updated.
+pub fn install_for_registry_update(
+    application_aid: &[u8],
+    privileges: &[u8],
+    install_parameters: &[u8],
+) -> Result<Command, BuildError> {
+    aid_ok("application", application_aid, false)?;
+    if !privileges.is_empty() && privileges.len() != 3 {
+        return Err(BuildError::RegistryUpdatePrivileges(privileges.len()));
+    }
+    let tags = parse_tlvs(install_parameters).ok_or(BuildError::RegistryUpdateParameters)?;
+    if tags.iter().any(|(tag, _)| *tag == 0xC9) {
+        return Err(BuildError::RegistryUpdateC9);
+    }
+    let mut data = Vec::new();
+    lv(&mut data, "security domain AID", &[])?;
+    lv(&mut data, "module AID", &[])?;
+    lv(&mut data, "application AID", application_aid)?;
+    lv(&mut data, "privileges", privileges)?;
+    lv(&mut data, "install parameters", install_parameters)?;
+    data.push(0x00); // install token length: no token
+    if data.len() > 0xFF {
+        return Err(BuildError::InstallTooLong(data.len()));
+    }
+    Ok(Command::case4(
+        Header::new(0x80, 0xE6, 0x40, 0x00),
+        data,
+        Le::Short(0),
+    ))
+}
+
 /// What `gp delete` removes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteRequest {
@@ -3314,9 +3371,48 @@ pub struct RenameIsdRequest {
 /// administrative entry point: once renamed, the old AID no longer selects it.
 pub const RENAME_ISD_WARNING: &str = "renaming the issuer security domain changes the AID that selects it: the old ISD AID no longer selects this card's ISD, so a mistyped or unrecorded new AID can lock you out of administrative access. Check the new AID against your records before adding --yes";
 
+/// Which INSTALL `gp install` sends. The GlobalPlatformPro `GPToolNG` runs one
+/// per `--load` (with `--install`), `--install-only` and `--update`, in that
+/// order in its applet-loading block (GPToolNG.java 383 to 467).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InstallKind {
+    /// INSTALL [for load], the LOAD blocks, INSTALL [for install and make
+    /// selectable]: the default, from `--load CAP`.
+    #[default]
+    Load,
+    /// INSTALL [for install and make selectable] alone (`--install-only`): the
+    /// module is already on the card, so there is no load file.
+    InstallOnly,
+    /// INSTALL [for registry update] alone (`--update AID`): the registry entry
+    /// of an instance, with no install.
+    RegistryUpdate,
+}
+
+impl InstallKind {
+    /// The name shown in `data.target.kind` and in messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Load => "load",
+            Self::InstallOnly => "install-only",
+            Self::RegistryUpdate => "registry-update",
+        }
+    }
+}
+
+/// Said in the `--install-only` and `--update` output, dry run or not.
+fn install_warning(kind: &InstallKind) -> &str {
+    match kind {
+        InstallKind::Load => "",
+        InstallKind::InstallOnly => "INSTALL [for install and make selectable] adds an application instance to the card registry and, by making it selectable, changes what the card offers on the next selection; the instance stays until gp delete removes it",
+        InstallKind::RegistryUpdate => "INSTALL [for registry update] replaces the registry entry of an instance: the privileges and the install parameters sent here replace what the card holds, for good, and nothing is retried; the code of the applet is not replaced and the instance is not removed",
+    }
+}
+
 /// What `gp install` loads and installs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallRequest {
+    /// Which INSTALL to send ([`InstallKind`]).
+    pub kind: InstallKind,
     /// The load file (the CAP's components, [`crate::cap::Cap::load_file`]).
     pub load_file: Vec<u8>,
     /// The Executable Load File AID (the package AID).
@@ -3430,17 +3526,51 @@ fn delete_plan_steps(req: &DeleteRequest) -> Result<Vec<Planned>, BuildError> {
     }])
 }
 
-/// INSTALL [for load], the LOAD blocks, INSTALL [for install and make
-/// selectable]: the GP Card Spec v2.3.1 11.5 and 11.6 sequence, which is also
-/// pySim `do_install_cap` and GlobalPlatformPro `GPSession.loadCapFile` followed
-/// by `installAndMakeSelectable`. `sd_aid` is the security domain the load file
-/// goes into (the one that was authenticated).
+/// The plan of `gp install`: one APDU per step, in the order they are sent.
+/// `sd_aid` is the security domain the load file goes into (the one that was
+/// authenticated); `--install-only` and `--update` carry no Security Domain AID
+/// and ignore it.
 fn install_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned>, BuildError> {
     if req.privileges.first().is_some_and(|b| b & 0x18 != 0) {
         return Err(BuildError::PrivilegeRefused(
             "Card Lock and Card Terminate are not granted by gp install",
         ));
     }
+    let plan = match req.kind {
+        InstallKind::Load => load_plan_steps(req, sd_aid)?,
+        // --install-only: the module is on the card already, so there is no
+        // INSTALL [for load] and no LOAD, only the new instance.
+        InstallKind::InstallOnly => vec![Planned {
+            step: "install_for_install",
+            command: install_for_install(
+                &req.load_file_aid,
+                &req.module_aid,
+                &req.app_aid,
+                &req.privileges,
+                &req.params,
+                true,
+            )?,
+        }],
+        // --update: the registry entry of the instance only.
+        InstallKind::RegistryUpdate => vec![Planned {
+            step: "install_for_registry_update",
+            command: install_for_registry_update(&req.app_aid, &req.privileges, &req.params)?,
+        }],
+    };
+    // Wrapping adds an 8-byte C-MAC to the data; the Lc must still fit.
+    for p in &plan {
+        if p.command.data().len() + scp03::MAC_LEN > 0xFF {
+            return Err(BuildError::InstallTooLong(p.command.data().len()));
+        }
+    }
+    Ok(plan)
+}
+
+/// INSTALL [for load], the LOAD blocks, INSTALL [for install and make
+/// selectable]: the GP Card Spec v2.3.1 11.5 and 11.6 sequence, which is also
+/// pySim `do_install_cap` and GlobalPlatformPro `GPSession.loadCapFile` followed
+/// by `installAndMakeSelectable`.
+fn load_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned>, BuildError> {
     // With a DAP the Load File Data Block Hash is mandatory (11.5.2.3.1) and is
     // what the DAP signs; the block precedes the C4 block in the Load File (11.6.2.3).
     let (lfdbh, dap_blocks) = match &req.dap {
@@ -3473,12 +3603,6 @@ fn install_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned
             true,
         )?,
     });
-    // Wrapping adds an 8-byte C-MAC to the data; the Lc must still fit.
-    for p in &plan {
-        if p.command.data().len() + scp03::MAC_LEN > 0xFF {
-            return Err(BuildError::InstallTooLong(p.command.data().len()));
-        }
-    }
     Ok(plan)
 }
 
@@ -3684,18 +3808,24 @@ pub fn set_status_dry_run(req: &SetStatusRequest) -> Result<Value, BuildError> {
 /// built into commands.
 pub fn install_dry_run(req: &InstallRequest) -> Result<Value, BuildError> {
     let plan = install_plan_steps(req, ISD_AIDS[0])?;
-    let mut data = offline_dry_run(
-        "install",
-        install_target(req),
-        &plan,
-        "no keys were given, so the card was not contacted and the registry was not checked; the security domain is assumed to be the default ISD AID; add --keys-file or --keys-env to check the registry, and --yes to send",
-    );
-    data["target"]["security_domain"] = hex_of(ISD_AIDS[0]);
+    let note = match req.kind {
+        InstallKind::Load => "no keys were given, so the card was not contacted and the registry was not checked; the security domain is assumed to be the default ISD AID; add --keys-file or --keys-env to check the registry, and --yes to send",
+        InstallKind::InstallOnly => "no keys were given, so the card was not contacted and the registry was not checked; --install-only sends INSTALL [for install and make selectable] alone, so the package and the module must already be on the card; add --keys-file or --keys-env to check the registry, and --yes to send",
+        InstallKind::RegistryUpdate => "no keys were given, so the card was not contacted and the registry was not checked; --update sends INSTALL [for registry update] alone, so the instance must already be on the card and no load file is touched; add --keys-file or --keys-env to check the registry, and --yes to send",
+    };
+    let mut data = offline_dry_run("install", install_target(req), &plan, note);
+    if req.kind == InstallKind::Load {
+        data["target"]["security_domain"] = hex_of(ISD_AIDS[0]);
+    }
+    if req.kind != InstallKind::Load {
+        data["warning"] = json!(install_warning(&req.kind));
+    }
     Ok(data)
 }
 
 fn install_target(req: &InstallRequest) -> Value {
     let mut target = json!({
+        "kind": req.kind.name(),
         "load_file_aid": hex_of(&req.load_file_aid),
         "module_aid": hex_of(&req.module_aid),
         "app_aid": hex_of(&req.app_aid),
@@ -4464,6 +4594,15 @@ const DELETE_KEY_WARNING: &str = "DELETE KEY removes a key from the issuer secur
 /// refusal, then a re-read that must list the load file and a SELECTABLE
 /// application (`verify-failed`).
 ///
+/// With `--install-only` ([`InstallKind::InstallOnly`]) the plan is the single
+/// INSTALL [for install and make selectable] and the pre-read refuses a package
+/// that is not on the card (`package-not-present`) or an instance that already
+/// is (`app-already-installed`). With `--update`
+/// ([`InstallKind::RegistryUpdate`]) the plan is the single INSTALL [for registry
+/// update] and the pre-read refuses an instance that is not in the registry
+/// (`aid-not-present`). Both re-read the registry afterwards and report
+/// `verify-failed` when the card does not show the intended result.
+///
 /// # Errors
 ///
 /// Only transport and encoding failures; refusals are `data.error`.
@@ -4476,7 +4615,7 @@ pub fn install<S: CardSession + ?Sized>(
 ) -> Result<Report, session::Error> {
     let load_hex = hex::encode_upper(&req.load_file_aid);
     let app_hex = hex::encode_upper(&req.app_aid);
-    write(
+    let mut report = write(
         session,
         trace,
         auth,
@@ -4490,6 +4629,45 @@ pub fn install<S: CardSession + ?Sized>(
                     "registry-unreadable",
                     "the registry could not be read in full, so a clash cannot be ruled out; nothing was sent".into(),
                 ));
+            }
+            // --install-only and --update load nothing, so there is no load file
+            // to clash with: what the card must already hold is checked here.
+            match req.kind {
+                InstallKind::InstallOnly => {
+                    if registry_entry(registry, &load_hex).is_none() {
+                        return Err((
+                            "package-not-present",
+                            format!("the load file {load_hex} is not in the registry; --install-only installs a module the card already holds; nothing was sent"),
+                        ));
+                    }
+                    if registry_entry(registry, &app_hex).is_some() {
+                        return Err((
+                            "app-already-installed",
+                            format!("{app_hex} is already in the registry; delete it first with gp delete; nothing was sent"),
+                        ));
+                    }
+                    return Ok(json!({
+                        "load_file_present": true,
+                        "app_present": false,
+                        "dap_security_domains": dap_security_domains(registry),
+                    }));
+                }
+                InstallKind::RegistryUpdate => {
+                    return match registry_entry(registry, &app_hex) {
+                        None => Err((
+                            "aid-not-present",
+                            format!("{app_hex} is not in the card registry; a registry update changes an instance the card holds; nothing was sent"),
+                        )),
+                        Some((scope, e)) => Ok(json!({
+                            "present": true,
+                            "scope": scope,
+                            "lifecycle": e["lifecycle_name"],
+                            "privileges": e["privilege_names"],
+                            "privileges_hex": e["privileges"],
+                        })),
+                    };
+                }
+                InstallKind::Load => {}
             }
             if registry_entry(registry, &load_hex).is_some() {
                 return Err((
@@ -4535,13 +4713,30 @@ pub fn install<S: CardSession + ?Sized>(
                 "dap_security_domains": dap_security_domains(registry),
             }))
         },
-        |after| {
-            matches!(registry_entry(after, &load_hex), Some((s, _)) if s.starts_with("load_files"))
-                && registry_entry(after, &app_hex).is_some_and(|(s, e)| {
-                    s == "applications" && e["lifecycle_name"] == "SELECTABLE"
-                })
+        |after| match req.kind {
+            InstallKind::Load => {
+                matches!(registry_entry(after, &load_hex), Some((s, _)) if s.starts_with("load_files"))
+                    && registry_entry(after, &app_hex).is_some_and(|(s, e)| {
+                        s == "applications" && e["lifecycle_name"] == "SELECTABLE"
+                    })
+            }
+            InstallKind::InstallOnly => registry_entry(after, &app_hex)
+                .is_some_and(|(s, e)| s == "applications" && e["lifecycle_name"] == "SELECTABLE"),
+            InstallKind::RegistryUpdate => match registry_entry(after, &app_hex) {
+                // The instance must still be there, and the privileges in the
+                // registry must be the ones sent: an omitted (empty) privileges
+                // field leaves what the card holds alone.
+                None => false,
+                Some((_, e)) => {
+                    req.privileges.is_empty() || e["privileges"] == json!(hex_of(&req.privileges))
+                }
+            },
         },
-    )
+    )?;
+    if req.kind != InstallKind::Load {
+        report.data["warning"] = json!(install_warning(&req.kind));
+    }
+    Ok(report)
 }
 
 /// `gp personalize` without keys: the offline dry run, with the plan and the
@@ -7847,6 +8042,7 @@ mod tests {
 
     fn install_request() -> InstallRequest {
         InstallRequest {
+            kind: InstallKind::Load,
             load_file: load_file_250(),
             load_file_aid: hex::decode(PKG).unwrap(),
             module_aid: hex::decode(MODULE).unwrap(),
@@ -9390,6 +9586,434 @@ mod tests {
         let out = format!("{d}\n{}", render_text(&d)).to_lowercase();
         assert!(!out.contains(&DAP_KEY_HEX.to_lowercase()));
         assert!(out.contains(&DAP_LFDBH.to_lowercase()));
+    }
+
+    // --install-only and --update (issue #250)
+
+    /// INSTALL [for registry update] of APP with no privileges and no install
+    /// parameters: header `80 E6 40 00`, Lc 0E, then the empty Security Domain AID
+    /// `00`, the empty module AID `00`, `08 A000000077010002`, the empty
+    /// privileges `00`, the empty install parameters `00` and the install token
+    /// length `00`, then Le `00`. GlobalPlatformPro
+    /// `GlobalPlatformCookbook.install_for_registry_update` builds
+    /// `lv(null, null, instanceAID, privs, params)` and `gp_dm` appends the token
+    /// length; `gp_dm(INS_INSTALL, 0x40, 0x00, data)` with INS `E6` and CLA `80`
+    /// is GP Card Spec v2.4 11.5.2.3.5, Table 11-46.
+    const PLAIN_RU: &str = "80E640000E000008A00000007701000200000000";
+    /// The same with the three privilege bytes `BitField.encode(privileges, 3)`
+    /// sends for a non-empty set (GlobalPlatformPro,
+    /// `install_for_registry_update`): byte 0 bit 5 is Delegated Management.
+    const PLAIN_RU_PRIVS: &str = "80E6400011000008A00000007701000203200000000000";
+    /// The same command for APP1, whose AID is one byte shorter: Lc 10.
+    const PLAIN_RU_PRIVS_APP1: &str = "80E6400010000007A000000062000103200000000000";
+
+    fn install_only_request() -> InstallRequest {
+        InstallRequest {
+            kind: InstallKind::InstallOnly,
+            load_file: Vec::new(),
+            load_file_aid: hex::decode(PKG).unwrap(),
+            module_aid: hex::decode(MODULE).unwrap(),
+            app_aid: hex::decode(APP).unwrap(),
+            privileges: vec![0, 0, 0],
+            params: vec![0xC9, 0x00],
+            dap: None,
+            block_size: DEFAULT_LOAD_BLOCK,
+        }
+    }
+
+    fn update_request(privileges: &[u8], params: &[u8]) -> InstallRequest {
+        InstallRequest {
+            kind: InstallKind::RegistryUpdate,
+            load_file: Vec::new(),
+            load_file_aid: Vec::new(),
+            module_aid: Vec::new(),
+            app_aid: hex::decode(APP).unwrap(),
+            privileges: privileges.to_vec(),
+            params: params.to_vec(),
+            dap: None,
+            block_size: DEFAULT_LOAD_BLOCK,
+        }
+    }
+
+    /// A card that answers any command starting with a registered prefix: the
+    /// C-MAC of a command is only computed at run time, so a wrapped INSTALL with
+    /// a new P1 has no fixed hex to key a scripted table on. The plain APDUs are
+    /// checked byte for byte by the builder tests, so what matters here is which
+    /// command is sent, not the bytes on the wire.
+    struct PrefixCard {
+        reader: ReaderName,
+        table: Vec<(String, Vec<u8>)>,
+        sent: Vec<String>,
+    }
+
+    impl PrefixCard {
+        fn of(card: &Card) -> Self {
+            let mut table: Vec<(String, Vec<u8>)> = card
+                .table
+                .iter()
+                .map(|(c, r)| (c.clone(), r.clone()))
+                .collect();
+            table.sort_by_key(|(c, _)| std::cmp::Reverse(c.len()));
+            Self {
+                reader: ReaderName::new("scripted").unwrap(),
+                table,
+                sent: Vec::new(),
+            }
+        }
+
+        /// Answer anything starting with `prefix`, for a command whose full hex
+        /// is not known before the channel computes its C-MAC.
+        fn answer(&mut self, prefix: &str, response: &str) {
+            self.table
+                .push((prefix.to_string(), hex::decode(response).unwrap()));
+            self.table.sort_by_key(|(c, _)| std::cmp::Reverse(c.len()));
+        }
+
+        fn sent_ins(&self, ins: &str) -> usize {
+            self.sent.iter().filter(|c| &c[2..4] == ins).count()
+        }
+    }
+
+    impl CardSession for PrefixCard {
+        fn reader(&self) -> &ReaderName {
+            &self.reader
+        }
+        fn transmit(&mut self, command: &[u8]) -> Result<Vec<u8>, TransportError> {
+            let sent = hex::encode_upper(command);
+            self.sent.push(sent.clone());
+            for (prefix, response) in &self.table {
+                if sent.starts_with(prefix.as_str()) {
+                    return Ok(response.clone());
+                }
+            }
+            Ok(vec![0x6D, 0x00])
+        }
+        fn disconnect(&mut self) -> Result<(), TransportError> {
+            Ok(())
+        }
+    }
+
+    /// The registry `secure_card` reads before a write, with the read after the
+    /// write answered by prefix: a GET STATUS command carries a C-MAC over the
+    /// sequence number, so the one the write flow sends has no fixed hex.
+    /// `apps` is what the application scope holds afterwards.
+    fn card_after_write(apps: &str) -> PrefixCard {
+        let mut card = PrefixCard::of(&secure_card("9000"));
+        card.answer("84F28002", &format!("{}9000", isd_entry()));
+        card.answer("84F24002", &format!("{}9000", apps));
+        card.answer("84F24003", &format!("{}9000", entry(APP2, "83", "800000")));
+        card.answer("84F22002", "6A88");
+        let lfm = tlv(
+            "E3",
+            &(tlv("4F", "A0000000620003") + &tlv("9F70", "01") + &tlv("84", "A000000062000301")),
+        );
+        card.answer("84F21002", &format!("{}9000", lfm));
+        card
+    }
+
+    #[test]
+    fn registry_update_is_byte_exact() {
+        let app = hex::decode(APP).unwrap();
+        // No privileges and no parameters: both fields are the empty LV 00,
+        // because GlobalPlatformPro omits an empty privilege set and, for a
+        // registry update, sends no C9 application parameters at all.
+        assert_eq!(
+            install_for_registry_update(&app, &[], &[])
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode(PLAIN_RU).unwrap()
+        );
+        assert_eq!(
+            install_for_registry_update(&app, &[0x20, 0, 0], &[])
+                .unwrap()
+                .encode()
+                .unwrap(),
+            hex::decode(PLAIN_RU_PRIVS).unwrap()
+        );
+        // Any other tag is carried through untouched.
+        assert_eq!(
+            install_for_registry_update(&app, &[], &[0x83, 0x02, 0x01, 0x02])
+                .unwrap()
+                .data(),
+            &[
+                0x00, 0x00, 0x08, 0xA0, 0, 0, 0, 0x77, 0x01, 0, 0x02, 0x00, 0x04, 0x83, 0x02, 0x01,
+                0x02, 0x00
+            ][..]
+        );
+    }
+
+    #[test]
+    fn registry_update_refuses_what_the_card_would_reject() {
+        let app = hex::decode(APP).unwrap();
+        assert_eq!(
+            install_for_registry_update(&app, &[], &[0xC9, 0x00]),
+            Err(BuildError::RegistryUpdateC9)
+        );
+        // A bare tag is not TLV, so what it means is not knowable: refuse it.
+        assert_eq!(
+            install_for_registry_update(&app, &[], &[0xC9]),
+            Err(BuildError::RegistryUpdateParameters)
+        );
+        // Privileges are omitted or all three bytes, never one.
+        assert_eq!(
+            install_for_registry_update(&app, &[0x20], &[]),
+            Err(BuildError::RegistryUpdatePrivileges(1))
+        );
+        assert_eq!(
+            install_for_registry_update(&hex::decode("A000").unwrap(), &[], &[]),
+            Err(BuildError::Aid {
+                field: "application",
+                len: 2
+            })
+        );
+    }
+
+    #[test]
+    fn install_only_sends_install_for_install_alone() {
+        let plan = install_plan_steps(&install_only_request(), &[]).unwrap();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].step, "install_for_install");
+        assert_eq!(
+            plan[0].command.encode().unwrap(),
+            hex::decode(PLAIN_IFI).unwrap()
+        );
+    }
+
+    #[test]
+    fn the_default_install_is_byte_identical_with_the_new_flags_absent() {
+        let sd = hex::decode("A000000151000000").unwrap();
+        let plan = install_plan_steps(&install_request(), &sd).unwrap();
+        let steps: Vec<_> = plan.iter().map(|p| p.step).collect();
+        assert_eq!(
+            steps,
+            ["install_for_load", "load", "load", "install_for_install"]
+        );
+        assert_eq!(
+            plan[0].command.encode().unwrap(),
+            hex::decode(PLAIN_IFL).unwrap()
+        );
+        assert_eq!(
+            plan[3].command.encode().unwrap(),
+            hex::decode(PLAIN_IFI).unwrap()
+        );
+        let d = install_dry_run(&install_request()).unwrap();
+        assert_eq!(d["target"]["kind"], "load");
+        assert_eq!(d["plan"]["apdus"][3]["apdu"], PLAIN_IFI);
+        // Only the new forms carry a warning.
+        assert!(d.get("warning").is_none());
+    }
+
+    #[test]
+    fn the_offline_dry_runs_of_the_new_forms_show_one_apdu_and_a_warning() {
+        let d = install_dry_run(&install_only_request()).unwrap();
+        assert_eq!(d["card_touched"], false);
+        assert_eq!(d["target"]["kind"], "install-only");
+        assert_eq!(d["plan"]["apdus"].as_array().unwrap().len(), 1);
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], PLAIN_IFI);
+        let text = render_text(&d);
+        assert!(text.contains("WARNING"), "{text}");
+        assert!(text.contains("adds an application instance"), "{text}");
+
+        let d = install_dry_run(&update_request(&[], &[])).unwrap();
+        assert_eq!(d["target"]["kind"], "registry-update");
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], PLAIN_RU);
+        // No Security Domain AID is sent, so none is assumed.
+        assert!(d["target"].get("security_domain").is_none());
+        let text = render_text(&d);
+        assert!(text.contains("replaces the registry entry"), "{text}");
+
+        // Card Lock and Card Terminate are refused on every form.
+        for k in [
+            InstallKind::Load,
+            InstallKind::InstallOnly,
+            InstallKind::RegistryUpdate,
+        ] {
+            let mut req = install_request();
+            req.kind = k;
+            req.privileges = vec![0x18, 0, 0];
+            assert!(matches!(
+                install_plan_steps(&req, &[]),
+                Err(BuildError::PrivilegeRefused(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn a_registry_update_sends_one_install_for_registry_update_and_verifies() {
+        let keys = keys();
+        let mut req = update_request(&[0x20, 0, 0], &[]);
+        req.app_aid = hex::decode(APP1).unwrap();
+        assert_eq!(
+            install_plan_steps(&req, &[]).unwrap()[0]
+                .command
+                .encode()
+                .unwrap(),
+            hex::decode(PLAIN_RU_PRIVS_APP1).unwrap()
+        );
+        let apps = entry(APP1, "07", "200000") + &entry(APP2, "83", "800000");
+        let mut card = card_after_write(&apps);
+        card.answer("84E64000", "9000");
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        // P1 40 reached the card over SCP03, and no other INSTALL did.
+        assert!(
+            card.sent.iter().any(|c| c.starts_with("84E64000")),
+            "{:?}",
+            card.sent
+        );
+        assert!(
+            !card.sent.iter().any(|c| c.starts_with("84E60C")),
+            "{:?}",
+            card.sent
+        );
+        assert_eq!(card.sent_ins("E8"), 0);
+        assert_eq!(card.sent_ins("E6"), 1);
+        let steps: Vec<&str> = r.data["result"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["step"].as_str().unwrap())
+            .collect();
+        assert_eq!(steps, ["install_for_registry_update"]);
+        assert_eq!(r.data["result"]["verified"], true);
+        assert_eq!(r.data["pre_read"]["privileges_hex"], "180000");
+        assert!(r.data["warning"].as_str().unwrap().contains("for good"));
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn a_registry_update_that_the_registry_does_not_confirm_is_verify_failed() {
+        let keys = keys();
+        // The card answers 9000 but keeps the privileges it had: Card Reset was
+        // asked for, 180000 is what the registry shows.
+        let mut req = update_request(&[0x04, 0, 0], &[]);
+        req.app_aid = hex::decode(APP1).unwrap();
+        let apps = entry(APP1, "07", "180000") + &entry(APP2, "83", "800000");
+        let mut card = card_after_write(&apps);
+        card.answer("84E64000", "9000");
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+        assert_eq!(r.data["result"]["verified"], false);
+    }
+
+    #[test]
+    fn a_registry_update_that_is_refused_by_the_card_is_not_retried() {
+        let keys = keys();
+        let mut req = update_request(&[0x04, 0, 0], &[]);
+        req.app_aid = hex::decode(APP1).unwrap();
+        let mut card = card_after_write(&entry(APP1, "07", "040000"));
+        card.answer("84E64000", "6A80");
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "incorrect-command-data");
+        assert_eq!(r.data["error"]["step"], "install_for_registry_update");
+        assert_eq!(card.sent_ins("E6"), 1, "must not be retried");
+        assert_eq!(r.data["error"]["completed_steps"], 0);
+    }
+
+    #[test]
+    fn a_registry_update_refuses_an_instance_the_card_does_not_hold() {
+        let keys = keys();
+        let mut card = PrefixCard::of(&secure_card("9000"));
+        let r = install(
+            &mut card,
+            false,
+            &update_request(&[], &[]),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "aid-not-present");
+        assert_eq!(card.sent_ins("E6"), 0, "nothing may be sent");
+    }
+
+    #[test]
+    fn install_only_refuses_what_the_card_does_not_already_hold() {
+        let keys = keys();
+        // A0000000770100 is not on the fixture: there is no module to install.
+        let mut card = PrefixCard::of(&secure_card("9000"));
+        let r = install(
+            &mut card,
+            false,
+            &install_only_request(),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "package-not-present");
+        assert_eq!(card.sent_ins("E6"), 0, "nothing may be sent");
+        // A0000000620001 is already installed.
+        let mut req = install_only_request();
+        req.load_file_aid = hex::decode("A0000000620003").unwrap();
+        req.app_aid = hex::decode(APP1).unwrap();
+        let mut card = PrefixCard::of(&secure_card("9000"));
+        let r = install(&mut card, false, &req, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "app-already-installed");
+        assert_eq!(card.sent_ins("E6"), 0, "nothing may be sent");
+        // An unreadable registry rules nothing out and rules nothing in.
+        let mut unreadable = secure_card("9000");
+        set(&mut unreadable, GS_LF, "6A82");
+        let mut card = PrefixCard::of(&unreadable);
+        let r = install(
+            &mut card,
+            false,
+            &install_only_request(),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "registry-unreadable");
+        assert_eq!(card.sent_ins("E6"), 0, "nothing may be sent");
+    }
+
+    #[test]
+    fn install_only_sends_the_install_alone_and_verifies() {
+        let keys = keys();
+        let mut req = install_only_request();
+        req.load_file_aid = hex::decode("A0000000620003").unwrap();
+        req.module_aid = hex::decode("A000000062000301").unwrap();
+        req.app_aid = hex::decode("A0000000620004").unwrap();
+        let apps = entry(APP1, "07", "180000")
+            + &entry(APP2, "83", "800000")
+            + &entry("A0000000620004", "07", "000000");
+        let mut card = card_after_write(&apps);
+        card.answer("84E60C00", "9000");
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(card.sent_ins("E6"), 1, "exactly one INSTALL");
+        assert_eq!(card.sent_ins("E8"), 0, "no LOAD");
+        assert!(
+            card.sent.iter().any(|c| c.starts_with("84E60C00")),
+            "{:?}",
+            card.sent
+        );
+        let steps: Vec<&str> = r.data["result"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["step"].as_str().unwrap())
+            .collect();
+        assert_eq!(steps, ["install_for_install"]);
+        assert_eq!(r.data["result"]["verified"], true);
+        assert_eq!(r.data["pre_read"]["load_file_present"], true);
+        assert_eq!(r.data["target"]["load_file_bytes"], 0);
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn install_only_that_the_registry_does_not_confirm_is_verify_failed() {
+        let keys = keys();
+        let mut req = install_only_request();
+        req.load_file_aid = hex::decode("A0000000620003").unwrap();
+        req.module_aid = hex::decode("A000000062000301").unwrap();
+        req.app_aid = hex::decode("A0000000620004").unwrap();
+        // The instance is never listed afterwards.
+        let apps = entry(APP1, "07", "180000") + &entry(APP2, "83", "800000");
+        let mut card = card_after_write(&apps);
+        card.answer("84E60C00", "9000");
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "verify-failed");
+        assert_eq!(r.data["result"]["verified"], false);
     }
 
     // ---- MOVE between Security Domains (issue #245) ---------------------
