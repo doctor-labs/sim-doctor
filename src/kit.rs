@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use sim_doctor::baseline::{Baseline, Diff};
 use sim_doctor::transport::CardSession;
 use sim_doctor::walk::{Candidates, Limits, Tree};
-use sim_doctor::{access, ef, rules, sarif, scan, session, tar, walk};
+use sim_doctor::{access, csv, ef, rules, sarif, scan, session, tar, walk};
 
 use super::{
     checkpoint, contract, dispatch, emit_stdout, limits_from, open_scan_session, Cli, InstallArgs,
@@ -86,6 +86,7 @@ struct Run {
     tui: bool,
     baseline: Option<std::path::PathBuf>,
     sarif: Option<std::path::PathBuf>,
+    csv: Option<std::path::PathBuf>,
     /// `--face legacy`: the full report instead of the kit's face.
     legacy: bool,
     /// `--sffs`: follow standard identifiers only.
@@ -114,6 +115,7 @@ impl Run {
             tui: false,
             baseline: None,
             sarif: None,
+            csv: None,
             legacy: false,
             sffs: false,
         }
@@ -141,6 +143,7 @@ impl Run {
             tui: args.tui,
             baseline: args.baseline.clone(),
             sarif: args.sarif.clone(),
+            csv: args.csv.clone(),
             legacy: args.face.as_deref() == Some("legacy"),
             sffs: args.sffs,
         }
@@ -791,7 +794,21 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
     // names a file that is not there, is not a doctor/1 envelope or is over a bound has an
     // answer before a card exists.
     let code = match preflight(d, &o) {
-        Ok(pre) => finish(d, pre, d.try_scan(&ctx), &o),
+        Ok(pre) => {
+            let scanned = d.try_scan(&ctx);
+            // The CSV result log, a sink beside JSON and SARIF. Written only for
+            // a scan that finished, and a failure to write it is a message on
+            // stderr, never a lost report.
+            if let (Ok(env), Some(path)) = (&scanned, run.csv.as_deref()) {
+                if let Err(err) = csv::write(path, &env.findings) {
+                    eprintln!(
+                        "sim-doctor: could not write the CSV log {}: {err}",
+                        path.display()
+                    );
+                }
+            }
+            finish(d, pre, scanned, &o)
+        }
         Err(failure) => doctor_kit::output::report_failure(d, &failure),
     };
     exit_code(code)

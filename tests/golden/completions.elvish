@@ -70,6 +70,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --baseline 'Compare this run against a previous `scan --json` envelope (doctor/1)'
             cand --fail-on 'Exit 1 (3 under --baseline) when a finding is at or above this severity'
             cand --sarif 'Also write the findings to FILE as SARIF 2.1.0'
+            cand --csv 'The same results as a CSV log, in the layout SIMTester writes'
             cand --tar 'Which TARs to probe for MSL 0, and how many'
             cand --tar-filter 'SIMTester''s `-stre`: skip TAR probes whose response matches this regex'
             cand --face 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report'

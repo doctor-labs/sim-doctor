@@ -2081,6 +2081,28 @@ struct ScanArgs {
     #[arg(long, value_name = "FILE")]
     sarif: Option<std::path::PathBuf>,
 
+    /// The same results as a CSV log, in the layout SIMTester writes.
+    ///
+    /// The file opens with comment lines carrying this tool and version and the
+    /// header line `# id,Command data,Response data` (SIMTester's CSVWriter,
+    /// lines 56-68), then one row per finding: the rule that produced it, the
+    /// card location it is about, and what the card's answer turned into. The
+    /// three columns are SIMTester's, in SIMTester's order.
+    ///
+    /// A sink, not a report: nothing is computed, sorted or filtered, and the
+    /// severity and the coverage statement stay in --json and --sarif where the
+    /// doctor/1 contract puts them. Card text goes through `contract::sanitize`,
+    /// and a cell a spreadsheet would read as a formula is written with a
+    /// leading apostrophe, so opening the file cannot run anything.
+    ///
+    /// It carries no evidence, no keys and no PINs: three cells per row, and
+    /// only those three. Written after the report, so a failure to write it (a
+    /// message on stderr) never costs the report. Only a scan that finished
+    /// writes it: a refused or interrupted scan leaves any existing file
+    /// untouched, as `--sarif` does. stdout is unchanged.
+    #[arg(long, value_name = "FILE")]
+    csv: Option<std::path::PathBuf>,
+
     /// Which TARs to probe for MSL 0, and how many.
     ///
     /// Implemented. Defaults to `focused`, which is 592 TARs chosen from
