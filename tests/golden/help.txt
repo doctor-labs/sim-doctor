@@ -11,6 +11,7 @@ Commands:
   readers       List the PC/SC readers by name and index, for --reader or --reader-index
   scan          Select a card's master file, walk everything under it, and report
   profile       Print the card-profile database, or probe a card against it
+  cards         List known card profiles, show one, or write its fixture document
   ts48          Compare a card against the public GSMA TS.48 test profile
   batch         Program a batch of cards, one at a time, with a crash-safe state file
   install       Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project
@@ -143,6 +144,53 @@ Options:
       --reader <NAME>  Which PC/SC reader to use
       --json           Emit one JSON envelope instead of the report
   -h, --help           Print help
+
+$ sim-doctor cards -h [exit 0]
+List known card profiles, show one, or write its fixture document
+
+Usage: sim-doctor cards [OPTIONS] <COMMAND>
+
+Commands:
+  list     Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it
+  show     Print one card profile in full, with every note and every provenance record
+  fixture  Write one card profile's fixture document to stdout
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
+
+$ sim-doctor cards list -h [exit 0]
+Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it
+
+Usage: sim-doctor cards list [OPTIONS]
+
+Options:
+      --json  Emit one JSON envelope (type "cards") on stdout, and nothing else
+  -h, --help  Print help
+
+$ sim-doctor cards show -h [exit 0]
+Print one card profile in full, with every note and every provenance record
+
+Usage: sim-doctor cards show [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  The profile name, exactly as `cards list` prints it
+
+Options:
+      --json  Emit one JSON envelope (type "cards") on stdout, and nothing else
+  -h, --help  Print help
+
+$ sim-doctor cards fixture -h [exit 0]
+Write one card profile's fixture document to stdout
+
+Usage: sim-doctor cards fixture <NAME>
+
+Arguments:
+  <NAME>  The profile name, exactly as `cards list` prints it
+
+Options:
+  -h, --help  Print help (see more with '--help')
 
 $ sim-doctor ts48 -h [exit 0]
 Compare a card against the public GSMA TS.48 test profile

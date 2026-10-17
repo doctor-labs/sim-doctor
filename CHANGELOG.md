@@ -124,6 +124,7 @@ All notable changes to this project are documented here. The format follows
   committed only after the card's verification confirms it, and replaced atomically, so a run interrupted at
   card 7 of 20 resumes at card 7. Every record carries the expected and the observed ICCID, and a card whose
   ICCID is not the one the slot expects stops the run (`card-swapped`) instead of being written to.
+- `sim-doctor cards`: a card-profile database, and the `sim-doctor/card-fixture/1` format behind it. Ten purchasable JavaCard/GlobalPlatform cards from GlobalPlatformPro's `docs/TestedCards`, every stated field pinned to the line of that file that states it and absent where the file stays silent, plus the card-profile field schema as `pySim/profile.py` defines it. `cards list`, `cards show NAME` and `cards fixture NAME`, which writes the document a reader can check this binary against; no card, no reader, no APDU. A fixture of an unknown version, an unknown key, a malformed value or with no provenance is refused with its reason (#286).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).

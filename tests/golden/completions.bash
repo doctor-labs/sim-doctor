@@ -22,6 +22,9 @@ _sim__doctor() {
             sim__doctor,card)
                 cmd="sim__doctor__subcmd__card"
                 ;;
+            sim__doctor,cards)
+                cmd="sim__doctor__subcmd__cards"
+                ;;
             sim__doctor,cat)
                 cmd="sim__doctor__subcmd__cat"
                 ;;
@@ -96,6 +99,30 @@ _sim__doctor() {
                 ;;
             sim__doctor,why)
                 cmd="sim__doctor__subcmd__why"
+                ;;
+            sim__doctor__subcmd__cards,fixture)
+                cmd="sim__doctor__subcmd__cards__subcmd__fixture"
+                ;;
+            sim__doctor__subcmd__cards,help)
+                cmd="sim__doctor__subcmd__cards__subcmd__help"
+                ;;
+            sim__doctor__subcmd__cards,list)
+                cmd="sim__doctor__subcmd__cards__subcmd__list"
+                ;;
+            sim__doctor__subcmd__cards,show)
+                cmd="sim__doctor__subcmd__cards__subcmd__show"
+                ;;
+            sim__doctor__subcmd__cards__subcmd__help,fixture)
+                cmd="sim__doctor__subcmd__cards__subcmd__help__subcmd__fixture"
+                ;;
+            sim__doctor__subcmd__cards__subcmd__help,help)
+                cmd="sim__doctor__subcmd__cards__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__cards__subcmd__help,list)
+                cmd="sim__doctor__subcmd__cards__subcmd__help__subcmd__list"
+                ;;
+            sim__doctor__subcmd__cards__subcmd__help,show)
+                cmd="sim__doctor__subcmd__cards__subcmd__help__subcmd__show"
                 ;;
             sim__doctor__subcmd__cat,decode)
                 cmd="sim__doctor__subcmd__cat__subcmd__decode"
@@ -559,6 +586,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,card)
                 cmd="sim__doctor__subcmd__help__subcmd__card"
                 ;;
+            sim__doctor__subcmd__help,cards)
+                cmd="sim__doctor__subcmd__help__subcmd__cards"
+                ;;
             sim__doctor__subcmd__help,cat)
                 cmd="sim__doctor__subcmd__help__subcmd__cat"
                 ;;
@@ -633,6 +663,15 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help,why)
                 cmd="sim__doctor__subcmd__help__subcmd__why"
+                ;;
+            sim__doctor__subcmd__help__subcmd__cards,fixture)
+                cmd="sim__doctor__subcmd__help__subcmd__cards__subcmd__fixture"
+                ;;
+            sim__doctor__subcmd__help__subcmd__cards,list)
+                cmd="sim__doctor__subcmd__help__subcmd__cards__subcmd__list"
+                ;;
+            sim__doctor__subcmd__help__subcmd__cards,show)
+                cmd="sim__doctor__subcmd__help__subcmd__cards__subcmd__show"
                 ;;
             sim__doctor__subcmd__help__subcmd__cat,decode)
                 cmd="sim__doctor__subcmd__help__subcmd__cat__subcmd__decode"
@@ -989,7 +1028,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules readers scan profile ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
+            opts="-h -V --help --version modules readers scan profile cards ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1111,6 +1150,132 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards)
+            opts="-h --help list show fixture help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__fixture)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__help)
+            opts="list show fixture help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__help__subcmd__fixture)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__help__subcmd__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__help__subcmd__show)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__list)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__cards__subcmd__show)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;
@@ -4629,7 +4794,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules readers scan profile ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
+            opts="modules readers scan profile cards ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4659,6 +4824,62 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__help__subcmd__card)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__cards)
+            opts="list show fixture"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__cards__subcmd__fixture)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__cards__subcmd__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__cards__subcmd__show)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi

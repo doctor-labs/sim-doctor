@@ -115,6 +115,7 @@ pub mod baseline;
 pub mod batch;
 pub mod bpp;
 pub mod cap;
+pub mod cardfixture;
 pub mod cardprofile;
 pub mod cardsh;
 pub mod cat;
@@ -438,6 +439,12 @@ pub const MODULES: &[ModuleInfo] = &[
         name: scp11::NAME,
         owns: "The SCP11 a, b and c card commands (GET DATA, PERFORM SECURITY OPERATION, MUTUAL and INTERNAL AUTHENTICATE), the Control Reference Template, the ECKA and X9.63 key derivation, the receipt of Table 7-17 and the GP certificate chain, all as the off-card entity drives them.",
         depends_on: &[scp03t::NAME],
+    },
+
+    ModuleInfo {
+        name: cardfixture::NAME,
+        owns: "The card-profile table (ten bought JavaCard/GlobalPlatform cards, every field pinned to a line of GlobalPlatformPro's docs/TestedCards), the pySim card-profile field schema, and the sim-doctor/card-fixture/1 format: its generator, and a loader that refuses an unknown version or a document with no provenance.",
+        depends_on: &[],
     },
 ];
 
