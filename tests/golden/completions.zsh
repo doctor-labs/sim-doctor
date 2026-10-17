@@ -1771,6 +1771,10 @@ _arguments "${_arguments_options[@]}" : \
 (ota)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--kic=[Pin the KIC octet (one hex byte, like 21) for every probe instead of sweeping it from the keyset. Header octet, not key material]:HEX:_default' \
+'--kid=[Pin the KID octet (one hex byte, like 31) for every probe instead of sweeping it from the keyset. Header octet, not key material]:HEX:_default' \
+'--spi1=[Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it]:HEX:_default' \
+'--spi2=[Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it]:HEX:_default' \
 '--i-understand-this-can-brick-the-card[Required. Without it, \`fuzz\` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)]' \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \

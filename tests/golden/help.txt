@@ -1231,6 +1231,14 @@ Options:
           Probe a small, documented subset instead of the full space
       --poke
           Like `--quick`, but probes only the three TARs SIMTester's `-poke` probes: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds
+      --kic <HEX>
+          Pin the KIC octet (one hex byte, like 21) for every probe instead of sweeping it from the keyset. Header octet, not key material
+      --kid <HEX>
+          Pin the KID octet (one hex byte, like 31) for every probe instead of sweeping it from the keyset. Header octet, not key material
+      --spi1 <HEX>
+          Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it
+      --spi2 <HEX>
+          Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it
   -h, --help
           Print help
 
