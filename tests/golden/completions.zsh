@@ -422,6 +422,36 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(make-default)
+_arguments "${_arguments_options[@]}" : \
+'--aid=[The application AID, 5 to 16 bytes of hex]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
+(rename-isd)
+_arguments "${_arguments_options[@]}" : \
+'--new-aid=[The new ISD AID, 5 to 16 bytes of hex]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (install)
 _arguments "${_arguments_options[@]}" : \
 '--load=[The CAP file (a zip of javacard/*.cap components)]:CAP:_files' \
@@ -535,6 +565,14 @@ _arguments "${_arguments_options[@]}" : \
 esac
 ;;
 (delete)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(make-default)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(rename-isd)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1447,6 +1485,14 @@ esac
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(make-default)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(rename-isd)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (install)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -2112,6 +2158,8 @@ _sim-doctor__subcmd__gp_commands() {
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
+'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
+'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -2186,6 +2234,8 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
+'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
+'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -2241,10 +2291,20 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__install_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help install commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__make-default_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__make-default_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help make-default commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__put-key_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__put-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help put-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__rename-isd_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__rename-isd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help rename-isd commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__select_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__select_commands() {
@@ -2266,10 +2326,20 @@ _sim-doctor__subcmd__gp__subcmd__install_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp install commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__make-default_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__make-default_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp make-default commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__put-key_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__put-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp put-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__rename-isd_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__rename-isd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp rename-isd commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__select_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__select_commands() {
@@ -2478,6 +2548,8 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
+'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
+'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -2527,10 +2599,20 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__install_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp install commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__make-default_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__make-default_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp make-default commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__put-key_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__put-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp put-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__rename-isd_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__rename-isd_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp rename-isd commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__select_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__select_commands() {
