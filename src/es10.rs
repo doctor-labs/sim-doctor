@@ -408,7 +408,7 @@ fn send_blocks<S: CardSession + ?Sized>(
 // BER writer and reader (multi-octet tags)
 // ---------------------------------------------------------------------------
 
-fn push_tlv(out: &mut Vec<u8>, tag: u32, value: &[u8]) {
+pub(crate) fn push_tlv(out: &mut Vec<u8>, tag: u32, value: &[u8]) {
     let bytes = tag.to_be_bytes();
     let skip = bytes.iter().take(3).take_while(|b| **b == 0).count();
     out.extend_from_slice(&bytes[skip..]);
@@ -435,13 +435,13 @@ fn tlv(tag: u32, value: &[u8]) -> Vec<u8> {
 
 /// One TLV found in a response: its tag, its contents, and its whole encoding.
 #[derive(Clone, Copy)]
-struct Node<'a> {
-    tag: u32,
-    value: &'a [u8],
-    raw: &'a [u8],
+pub(crate) struct Node<'a> {
+    pub tag: u32,
+    pub value: &'a [u8],
+    pub raw: &'a [u8],
 }
 
-fn parse(mut input: &[u8]) -> Result<Vec<Node<'_>>, DecodeError> {
+pub(crate) fn parse(mut input: &[u8]) -> Result<Vec<Node<'_>>, DecodeError> {
     let mut nodes = Vec::new();
     while !input.is_empty() {
         let whole = input;

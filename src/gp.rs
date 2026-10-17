@@ -2266,6 +2266,112 @@ impl<S: CardSession + ?Sized> CardSession for OnChannel<'_, S> {
     }
 }
 
+/// The largest block `cert_read` asks for in one READ BINARY, 240 octets.
+///
+/// A whole `7F21` is larger than one APDU data field on a real card, so it is read in blocks;
+/// 240 leaves room inside the 255-octet short Le and inside the reader's buffer.
+pub const CERT_READ_BLOCK: u32 = 0xF0;
+
+/// How many blocks `cert_read` will read before it gives up.
+///
+/// 64, so at most 15360 octets. A card certificate that wants more is refused, not truncated.
+pub const CERT_READ_MAX_BLOCKS: usize = 64;
+
+/// `gp cert read`: SELECT the issuer security domain, READ BINARY the `7F21` card certificate in
+/// blocks, and decode it. Read-only: no writing command is sent and no key is needed.
+///
+/// The tag is the one GlobalPlatformPro calls the card certificate: `GPCertificate.java:21`,
+/// "GlobalPlatform certificate (tag '7F21') of SCP11 (Amendment F v1.4 Table 6-1)". It lives in
+/// the issuer security domain under the file identifier `7F21`, so reading it is SELECT by AID
+/// then READ BINARY (ISO/IEC 7816-4 clause 11.1.3) - the same two instructions `ef.rs` already
+/// builds, on the same channel and secure-channel machinery.
+///
+/// # Errors
+///
+/// Only transport failures. A card that answers `6A82`, `6982` or `6B00` is data: the refusal and
+/// the status word land in `data`.
+pub fn cert_read<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+) -> Result<Report, session::Error> {
+    let mut steps = Vec::new();
+    let mut data = json!({
+        "card_touched": true,
+        "file": "7F21",
+        "block": CERT_READ_BLOCK,
+        "selected": Value::Null,
+        "blocks": Vec::<Value>::new(),
+        "read": false,
+    });
+
+    let mut isd_found = false;
+    for aid in ISD_AIDS {
+        let ex = read_once(session, &mut steps, "select", select_by_aid(aid))?;
+        data["selected"] = json!({ "aid": hex::encode_upper(aid), "status": sw_hex(&ex) });
+        if ex.is_success() {
+            isd_found = true;
+            break;
+        }
+    }
+    if !isd_found {
+        data["error"] = json!("no issuer security domain answered 9000 to SELECT");
+        if trace {
+            data["trace"] = Value::Array(steps);
+        }
+        return Ok(Report { isd_found, data });
+    }
+
+    let le = Le::for_byte_count(CERT_READ_BLOCK).expect("CERT_READ_BLOCK fits a short Le");
+    let mut offset: u32 = 0;
+    let mut certificate: Vec<u8> = Vec::new();
+    let mut complete = false;
+
+    for _ in 0..CERT_READ_MAX_BLOCKS {
+        let header = Header::new(0x00, 0xB0, (offset >> 8) as u8, offset as u8);
+        let ex = session::send(session, &Command::case2(header, le), &read_policy())?;
+        push_steps(&mut steps, "read-binary", &ex);
+        let block = ex.data().to_vec();
+        if let Some(blocks) = data["blocks"].as_array_mut() {
+            blocks.push(json!({
+                "offset": offset,
+                "status": sw_hex(&ex),
+                "octets": block.len(),
+            }));
+        }
+        if !ex.is_success() {
+            data["error"] = json!(format!(
+                "READ BINARY at offset {offset} answered {}",
+                sw_hex(&ex).unwrap_or_else(|| "no status word".into())
+            ));
+            break;
+        }
+        certificate.extend_from_slice(&block);
+        offset += block.len() as u32;
+        if block.len() < CERT_READ_BLOCK as usize || ex.status().is_some_and(|s| s.sw1() == 0x6B) {
+            complete = true;
+            break;
+        }
+    }
+
+    if !complete {
+        data["error"] = json!(format!(
+            "the 7F21 file is longer than the {CERT_READ_MAX_BLOCKS} blocks this command reads"
+        ));
+    } else {
+        data["read"] = json!(true);
+        data["octets"] = json!(certificate.len());
+        data["certificate"] = json!(hex::encode_upper(&certificate));
+        data["parsed"] = match crate::gpcert::parse(&certificate) {
+            Ok(cert) => crate::gpcert::to_json(&cert),
+            Err(e) => json!({ "error": e.to_string() }),
+        };
+    }
+    if trace {
+        data["trace"] = Value::Array(steps);
+    }
+    Ok(Report { isd_found, data })
+}
+
 /// Rewrites the class byte of every `data.trace[].command` and
 /// `data.plan.apdus[].apdu` for logical channel `channel`, so the output shows
 /// what [`OnChannel`] put on the wire.

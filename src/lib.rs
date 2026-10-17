@@ -131,6 +131,7 @@ pub mod fix;
 pub mod fs;
 pub mod fuzz;
 pub mod gp;
+pub mod gpcert;
 pub mod keygen;
 pub mod mcp;
 pub mod notif;
@@ -193,6 +194,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: cert::NAME,
         owns: "Offline eSIM certificate and CI chain verification: X.509 fields, ECDSA P-256 signature checks up to a supplied root, validity and KeyUsage reports; brainpool and RSA are reported unsupported.",
         depends_on: &[der::NAME],
+    },
+    ModuleInfo {
+        name: gpcert::NAME,
+        owns: "GlobalPlatform card certificates (tag 7F21) of SCP11: the BER-TLV body written and read back, the field order and the mandatory set of Amendment F v1.4 Table 6-1, and offline ECDSA P-256 signing with a key from a file or an environment variable only. Behind `gp cert`.",
+        depends_on: &[cert::NAME, tlv::NAME],
     },
     ModuleInfo {
         name: apdu::NAME,

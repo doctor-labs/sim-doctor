@@ -271,6 +271,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp,aram)
                 cmd="sim__doctor__subcmd__gp__subcmd__aram"
                 ;;
+            sim__doctor__subcmd__gp,cert)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert"
+                ;;
             sim__doctor__subcmd__gp,channel)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel"
                 ;;
@@ -349,6 +352,30 @@ _sim__doctor() {
             sim__doctor__subcmd__gp__subcmd__aram__subcmd__help,lock)
                 cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__lock"
                 ;;
+            sim__doctor__subcmd__gp__subcmd__cert,construct)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__construct"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert,help)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert,read)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__read"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert,sign)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__sign"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,construct)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__construct"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,help)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,read)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__read"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,sign)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign"
+                ;;
             sim__doctor__subcmd__gp__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel__subcmd__close"
                 ;;
@@ -402,6 +429,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,aram)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help,cert)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cert"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,channel)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel"
@@ -462,6 +492,15 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help__subcmd__aram,lock)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__cert,construct)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__construct"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__cert,read)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__read"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__cert,sign)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__close"
@@ -628,6 +667,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help__subcmd__gp,aram)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram"
                 ;;
+            sim__doctor__subcmd__help__subcmd__gp,cert)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cert"
+                ;;
             sim__doctor__subcmd__help__subcmd__gp,channel)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel"
                 ;;
@@ -684,6 +726,15 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__gp__subcmd__aram,lock)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__cert,construct)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__construct"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__cert,read)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__read"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__cert,sign)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign"
                 ;;
             sim__doctor__subcmd__help__subcmd__gp__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__close"
@@ -2157,7 +2208,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp)
-            opts="-h --help info ara status select crs channel release-scp delete make-default rename-isd delete-key install put-key cplc-set personalize aram move help"
+            opts="-h --help cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install put-key cplc-set personalize aram move help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2484,6 +2535,236 @@ _sim__doctor() {
                     return 0
                     ;;
                 --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert)
+            opts="-h --help read construct sign help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__construct)
+            opts="-h --cert-serial --cert-ca --cert-subject --cert-usage --cert-effective --cert-expires --cert-image-number --cert-discretionary --cert-authorizations --cert-pubkey --cert-out --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --cert-serial)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-ca)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-subject)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-usage)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-effective)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-expires)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-image-number)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-discretionary)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-authorizations)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-pubkey)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-out)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help)
+            opts="read construct sign help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__construct)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__read)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__read)
+            opts="-h --reader --json --trace --channel --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__sign)
+            opts="-h --cert-serial --cert-ca --cert-subject --cert-usage --cert-effective --cert-expires --cert-image-number --cert-discretionary --cert-authorizations --cert-pubkey --cert-out --cert-key-file --cert-key-env --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --cert-serial)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-ca)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-subject)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-usage)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-effective)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-expires)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-image-number)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-discretionary)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-authorizations)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-pubkey)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-out)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-key-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-key-env)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2969,7 +3250,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help)
-            opts="info ara status select crs channel release-scp delete make-default rename-isd delete-key install put-key cplc-set personalize aram move help"
+            opts="cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install put-key cplc-set personalize aram move help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3053,6 +3334,62 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert)
+            opts="read construct sign"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__construct)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__read)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -4261,7 +4598,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp)
-            opts="info ara status select crs channel release-scp delete make-default rename-isd delete-key install put-key cplc-set personalize aram move"
+            opts="cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install put-key cplc-set personalize aram move"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4345,6 +4682,62 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert)
+            opts="read construct sign"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__construct)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__read)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

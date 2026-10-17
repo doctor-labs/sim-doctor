@@ -299,6 +299,7 @@ Read-only GlobalPlatform queries
 Usage: sim-doctor gp <COMMAND>
 
 Commands:
+  cert          `gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)
   info          Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA
   ara           Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA [all], decoded (read-only, no keys)
   status        GlobalPlatform registry inventory: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication
@@ -320,6 +321,74 @@ Commands:
 
 Options:
   -h, --help  Print help (see more with '--help')
+
+$ sim-doctor gp cert -h [exit 0]
+`gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)
+
+Usage: sim-doctor gp cert <COMMAND>
+
+Commands:
+  read       Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed
+  construct  Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run
+  sign       Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help (see more with '--help')
+
+$ sim-doctor gp cert read -h [exit 0]
+Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed
+
+Usage: sim-doctor gp cert read [OPTIONS]
+
+Options:
+      --reader <NAME>  The reader to use, matched against the driver's own name
+      --json           Emit one JSON envelope of kind "gp" on stdout
+      --trace          Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>    Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help           Print help
+
+$ sim-doctor gp cert construct -h [exit 0]
+Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run
+
+Usage: sim-doctor gp cert construct [OPTIONS] --cert-serial <HEX> --cert-ca <HEX> --cert-subject <HEX> --cert-usage <USAGE> --cert-effective <YYYYMMDD> --cert-expires <YYYYMMDD> --cert-out <PATH>
+
+Options:
+      --cert-serial <HEX>          Certificate Serial Number, tag 93, as hex
+      --cert-ca <HEX>              CA Identifier, tag 42, as hex: which issuer's key signs this
+      --cert-subject <HEX>         Subject Identifier, tag 5F20, as hex: the security domain this certificate names
+      --cert-usage <USAGE>         Key Usage, tag 95: `verification` (82 00) or `agreement` (00). GPC v2.3.1 11.1.9 defines no other value
+      --cert-effective <YYYYMMDD>  Effective Date, tag 5F25, as YYYYMMDD
+      --cert-expires <YYYYMMDD>    Expiration Date, tag 5F24, as YYYYMMDD. Mandatory in every profile of the format
+      --cert-image-number <HEX>    Security Domain Image Number, tag 45, as hex
+      --cert-discretionary <HEX>   Discretionary Data, tag 53, as hex: a field of unspecified format, passed through as given
+      --cert-authorizations <HEX>  Authorization rules, tag BF20, as hex, per Amendment F v1.4 Table B-1. Passed through as given: this tool does not interpret them
+      --cert-pubkey <HEX>          Subject public key, tag 7F49: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y). `gp cert sign` derives it from the signing key and does not need this; `gp cert construct` does, and has no key to derive it from
+      --cert-out <PATH>            Where to write the certificate: the whole 7F21 TLV. Nothing is written without it
+      --json                       Print the certificate as one JSON object instead of the table
+  -h, --help                       Print help
+
+$ sim-doctor gp cert sign -h [exit 0]
+Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed
+
+Usage: sim-doctor gp cert sign [OPTIONS] --cert-serial <HEX> --cert-ca <HEX> --cert-subject <HEX> --cert-usage <USAGE> --cert-effective <YYYYMMDD> --cert-expires <YYYYMMDD> --cert-out <PATH> <--cert-key-file <PATH>|--cert-key-env <VAR>>
+
+Options:
+      --cert-serial <HEX>          Certificate Serial Number, tag 93, as hex
+      --cert-ca <HEX>              CA Identifier, tag 42, as hex: which issuer's key signs this
+      --cert-subject <HEX>         Subject Identifier, tag 5F20, as hex: the security domain this certificate names
+      --cert-usage <USAGE>         Key Usage, tag 95: `verification` (82 00) or `agreement` (00). GPC v2.3.1 11.1.9 defines no other value
+      --cert-effective <YYYYMMDD>  Effective Date, tag 5F25, as YYYYMMDD
+      --cert-expires <YYYYMMDD>    Expiration Date, tag 5F24, as YYYYMMDD. Mandatory in every profile of the format
+      --cert-image-number <HEX>    Security Domain Image Number, tag 45, as hex
+      --cert-discretionary <HEX>   Discretionary Data, tag 53, as hex: a field of unspecified format, passed through as given
+      --cert-authorizations <HEX>  Authorization rules, tag BF20, as hex, per Amendment F v1.4 Table B-1. Passed through as given: this tool does not interpret them
+      --cert-pubkey <HEX>          Subject public key, tag 7F49: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y). `gp cert sign` derives it from the signing key and does not need this; `gp cert construct` does, and has no key to derive it from
+      --cert-out <PATH>            Where to write the certificate: the whole 7F21 TLV. Nothing is written without it
+      --cert-key-file <PATH>       File holding the P-256 signing key (chmod 600)
+      --cert-key-env <VAR>         Environment variable holding the P-256 signing key
+      --json                       Print the certificate as one JSON object instead of the table
+  -h, --help                       Print help
 
 $ sim-doctor gp info -h [exit 0]
 Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA
