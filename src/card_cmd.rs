@@ -40,7 +40,7 @@ pub struct CardShellArgs {
     script: Option<std::path::PathBuf>,
 
     /// Run the commands in the `command` column of this CSV file, one per row, and exit. This is a
-    /// command table, not pySim's provisioning CSV (no ICCID, IMSI or Ki columns). Each row is one
+    /// command table, not pySim's provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one
     /// command exactly as typed; without `--yes` a row that changes the card is a dry run.
     /// WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently
     /// disable a file or the card, and delete_data and delete_all permanently destroy data.
@@ -219,6 +219,22 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
         };
         Ok((session, reader.as_str().to_owned(), atr))
     });
+    if let Some(path) = args.read_csv.as_deref() {
+        match std::fs::read_to_string(path) {
+            Ok(text) => match cardsh::csvfile::provisioning(&text) {
+                Ok(Some(rows)) => return check_provisioning(path, &rows, args.yes),
+                Ok(None) => {}
+                Err(message) => {
+                    eprintln!("sim-doctor: {}: {message}", path.display());
+                    return contract::ExitCode::Error;
+                }
+            },
+            Err(err) => {
+                eprintln!("sim-doctor: {}: {err}", path.display());
+                return contract::ExitCode::Error;
+            }
+        }
+    }
     let mut shell = Shell::new(
         opener,
         Opts {
@@ -313,6 +329,32 @@ fn finish(shell: &Shell) -> contract::ExitCode {
     } else {
         contract::ExitCode::Findings
     }
+}
+
+/// `--read-csv` on the pySim provisioning layout: each row is checked and listed by record number and
+/// by the columns it fills. Nothing is sent to a card and no reader is opened. Card programming from
+/// these rows is not built, so `--yes` is refused rather than ignored. Values are never printed.
+fn check_provisioning(
+    path: &std::path::Path,
+    rows: &[cardsh::csvfile::Provision],
+    yes: bool,
+) -> contract::ExitCode {
+    if yes {
+        eprintln!(
+            "sim-doctor: {}: --yes does not program cards from a provisioning CSV; nothing was written",
+            path.display()
+        );
+        return contract::ExitCode::Error;
+    }
+    println!(
+        "{}: {} provisioning row(s) checked, no card was touched",
+        path.display(),
+        rows.len()
+    );
+    for row in rows {
+        println!("row {}: ok, fields: {}", row.record, row.filled.join(" "));
+    }
+    contract::ExitCode::Success
 }
 
 /// `--write-csv`: the file the command results are appended to, one row per command.

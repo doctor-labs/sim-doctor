@@ -83,6 +83,119 @@ fn quote(field: &str) -> String {
     }
 }
 
+/// A key value from a provisioning row. It has no Display, and Debug never shows the digits.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Key(String);
+
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Key(<redacted>)")
+    }
+}
+
+/// One row of the pySim provisioning layout: pySim-prog.py writes `name,iccid,mcc,mnc,imsi,smsp,ki,opc`
+/// (lines 509-511) and its reader requires the `iccid` and `imsi` headers (lines 530-535). `smsp` and
+/// the PIN/ADM columns are not verifiable from the issue or the repo, so they are not read.
+#[derive(Debug)]
+pub struct Provision {
+    /// The record number in the file; the header is record 1.
+    pub record: usize,
+    /// The columns this row fills, in the fixed order name, iccid, imsi, mcc, mnc, ki, opc.
+    pub filled: Vec<&'static str>,
+    /// The name column, free text; empty when absent.
+    pub name: String,
+    /// The ICCID: digits only.
+    pub iccid: String,
+    /// The IMSI: 15 digits.
+    pub imsi: String,
+    /// The MCC, 3 digits, when the column is filled.
+    pub mcc: Option<String>,
+    /// The MNC, 2 or 3 digits, when the column is filled.
+    pub mnc: Option<String>,
+    /// The Ki, 32 hex digits, when the column is filled.
+    pub ki: Option<Key>,
+    /// The OPc, 32 hex digits, when the column is filled.
+    pub opc: Option<Key>,
+}
+
+/// The pySim provisioning layout, or None when the file is not one: a file with a `command` column
+/// is a command table, and the layout needs both an `iccid` and an `imsi` header (names are compared
+/// lower-cased, as pySim does). Every row is checked; the first failure is returned with its record
+/// number. A message never includes a cell value, so a key or PIN cannot leak through an error.
+pub fn provisioning(text: &str) -> Result<Option<Vec<Provision>>, String> {
+    let mut records = parse(text)?.into_iter();
+    let header: Vec<String> = records
+        .next()
+        .ok_or("the CSV file is empty")?
+        .iter()
+        .map(|name| name.trim().to_ascii_lowercase())
+        .collect();
+    let has = |name: &str| header.iter().any(|h| h == name);
+    if has("command") || !has("iccid") || !has("imsi") {
+        return Ok(None);
+    }
+    let mut rows = Vec::new();
+    for (index, record) in records.enumerate() {
+        let number = index + 2;
+        let cell = |name: &str| -> String {
+            header
+                .iter()
+                .position(|h| h == name)
+                .and_then(|i| record.get(i))
+                .map(|value| value.trim().to_owned())
+                .unwrap_or_default()
+        };
+        let (iccid, imsi, mcc, mnc) = (cell("iccid"), cell("imsi"), cell("mcc"), cell("mnc"));
+        let (ki, opc) = (cell("ki"), cell("opc"));
+        let problem: Option<&str> = if !is_digits(&iccid) {
+            Some("iccid must be digits")
+        } else if imsi.len() != 15 || !is_digits(&imsi) {
+            Some("imsi must be 15 digits")
+        } else if !mcc.is_empty() && (mcc.len() != 3 || !is_digits(&mcc)) {
+            Some("mcc must be 3 digits")
+        } else if !mnc.is_empty() && (!(2..=3).contains(&mnc.len()) || !is_digits(&mnc)) {
+            Some("mnc must be 2 or 3 digits")
+        } else if !ki.is_empty() && !is_hex_key(&ki) {
+            Some("ki must be 32 hex digits")
+        } else if !opc.is_empty() && !is_hex_key(&opc) {
+            Some("opc must be 32 hex digits")
+        } else {
+            None
+        };
+        if let Some(problem) = problem {
+            return Err(format!("row {number}: {problem}"));
+        }
+        let filled = ["name", "iccid", "imsi", "mcc", "mnc", "ki", "opc"]
+            .into_iter()
+            .filter(|column| !cell(column).is_empty())
+            .collect();
+        rows.push(Provision {
+            record: number,
+            filled,
+            name: cell("name"),
+            iccid,
+            imsi,
+            mcc: optional(mcc),
+            mnc: optional(mnc),
+            ki: optional(ki).map(Key),
+            opc: optional(opc).map(Key),
+        });
+    }
+    Ok(Some(rows))
+}
+
+fn is_digits(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_hex_key(value: &str) -> bool {
+    value.len() == 32 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn optional(value: String) -> Option<String> {
+    (!value.is_empty()).then_some(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +241,26 @@ mod tests {
         assert!(commands("note,cmd\nx,status\n").is_err());
         assert!(commands("").is_err());
         assert!(parse("a,\"unclosed\n").is_err());
+    }
+
+    #[test]
+    fn provisioning_rows_are_checked_and_no_key_is_shown() {
+        let key = "0123456789ABCDEF0123456789ABCDEF";
+        let text = format!(
+            "name,iccid,imsi,ki,opc\n\"Smith, J\",8944500000000000001,123450123456789,{key},{key}\n"
+        );
+        let rows = provisioning(&text).unwrap().unwrap();
+        assert_eq!(rows[0].record, 2);
+        assert_eq!(rows[0].name, "Smith, J");
+        assert_eq!(rows[0].filled, ["name", "iccid", "imsi", "ki", "opc"]);
+        assert_eq!(format!("{:?}", rows[0].ki), "Some(Key(<redacted>))");
+        let short = &key[..30];
+        let text = format!("iccid,imsi,ki\n8944500000000000001,123450123456789,{short}\n");
+        assert_eq!(
+            provisioning(&text).unwrap_err(),
+            "row 2: ki must be 32 hex digits"
+        );
+        assert!(provisioning("command\nstatus\n").unwrap().is_none());
+        assert!(provisioning("iccid,command\n1,status\n").unwrap().is_none());
     }
 }
