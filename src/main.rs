@@ -1271,16 +1271,19 @@ enum GpAction {
     /// privileges rather than clearing them).
     ///
     /// Same safeguards as delete: a dry run unless --yes (offline without keys),
-    /// one authentication attempt, a registry pre-read that refuses what the card
-    /// already holds or does not hold, every command sent once and in order,
-    /// stopping at the first refusal, and a registry re-read to confirm. For a
-    /// Security Domain that verifies a DAP, --dap-key-file/--dap-key-env (one AES
-    /// key, hex, optionally KEY/KCV) sign the Load File Data Block Hash with
-    /// AES-CMAC and send the DAP block in front of the load file (GP Card Spec
-    /// v2.3.1 C.2, C.3, B.2.2); the Security Domain must be in the registry with
-    /// the DAP Verification privilege, else nothing is sent. The DAP key is never
-    /// printed. DES, RSA and ECC DAP keys and tokens are not supported. A DAP
-    /// block belongs to the load file and is refused without --load. Not
+    /// one authentication attempt, a registry pre-read that refuses a load file or
+    /// application AID that is already on the card, every command sent once and
+    /// in order, stopping at the first refusal, and a registry re-read to confirm.
+    /// For a Security Domain that verifies a DAP, --dap-key-file/--dap-key-env
+    /// (keys in hex, one per DAP block, optionally KEY/KCV) sign the Load File
+    /// Data Block Hash and send a DAP block in front of the load file (GP Card
+    /// Spec v2.3.1 C.2, C.3; Table 11-58 allows several DAP blocks, each naming
+    /// the Security Domain that verifies it with --dap-domain). --dap-alg picks
+    /// the signature: AES-CMAC (B.2.2, the default), the DES retail MAC
+    /// (B.1.2.2) or ECDSA over P-256 (B.4.3); there is no RSA scheme, this crate
+    /// cannot sign RSASSA-PKCS1-v1_5 or RSASSA-PSS. Every Security Domain named
+    /// must be in the registry with the DAP Verification privilege, else nothing
+    /// is sent. The DAP keys are never printed. Tokens are not supported. Not
     /// available over MCP.
     ///
     /// -F / --no-felix refuses the one field this tool would otherwise choose
@@ -2026,20 +2029,34 @@ struct GpNewKeyArgs {
     new_keys_env: Option<String>,
 }
 
-/// The DAP key of `gp install`. Never a value on the command line.
+/// The DAP keys of `gp install`. Never a value on the command line.
 #[derive(Args)]
 #[command(group(clap::ArgGroup::new("dap_key_source").args(["dap_key_file", "dap_key_env"])))]
 struct GpDapArgs {
-    /// File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600).
+    /// File holding the DAP keys (hex, one key per DAP block, optionally
+    /// KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58).
     #[arg(long, value_name = "PATH")]
     dap_key_file: Option<std::path::PathBuf>,
-    /// Environment variable holding the AES DAP key.
+    /// Environment variable holding the DAP keys.
     #[arg(long, value_name = "VAR")]
     dap_key_env: Option<String>,
-    /// The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default:
-    /// the issuer security domain being authenticated).
-    #[arg(long, value_name = "HEX", requires = "dap_key_source")]
-    dap_sd: Option<String>,
+    /// The Security Domain that verifies a DAP block, 5 to 16 bytes of hex.
+    /// Repeat it once per DAP block: a Load File may carry several (Table
+    /// 11-58). Without it every block is verified by the issuer security domain
+    /// being authenticated.
+    #[arg(
+        long,
+        value_name = "HEX",
+        alias = "dap-sd",
+        requires = "dap_key_source"
+    )]
+    dap_domain: Vec<String>,
+    /// The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC
+    /// (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3).
+    /// There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5
+    /// (B.3.1.1) or RSASSA-PSS (B.3.2.1).
+    #[arg(long, value_enum, default_value = "aes", requires = "dap_key_source")]
+    dap_alg: DapAlg,
     /// The Load File Data Block Hash the DAP signs.
     #[arg(
         long,
@@ -2105,6 +2122,16 @@ struct GpReceiptArgs {
     /// Emit one JSON envelope of kind "gp" on stdout.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum DapAlg {
+    /// AES-CMAC (B.2.2): a 16 byte signature.
+    Aes,
+    /// Single DES plus final triple DES MAC (B.1.2.2): an 8 byte signature.
+    Des,
+    /// ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes.
+    Ecc,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -5332,11 +5359,11 @@ fn run_gp_install(
     if kind == gp::InstallKind::RegistryUpdate && privileges.iter().all(|b| *b == 0) {
         privileges.clear();
     }
-    let dap = match load_dap(dap) {
-        Ok(dap) => dap,
+    let daps = match load_dap(dap) {
+        Ok(daps) => daps,
         Err((kind, message)) => return refuse(kind, message),
     };
-    if dap.is_some() && kind != gp::InstallKind::Load {
+    if !daps.is_empty() && kind != gp::InstallKind::Load {
         return refuse(
             "dap-without-load",
             format!(
@@ -5448,6 +5475,12 @@ fn run_gp_install(
             (Vec::new(), Vec::new(), Vec::new(), app_aid)
         }
     };
+    // One key is one DAP block, so the first is the DAP of `InstallRequest` and
+    // the rest are the further blocks that follow it (Table 11-58).
+    let (first_dap, extra_daps) = match daps.split_first() {
+        Some((first, rest)) => (Some(first.clone()), rest.to_vec()),
+        None => (None, Vec::new()),
+    };
     let req = gp::InstallRequest {
         kind,
         load_file,
@@ -5456,7 +5489,8 @@ fn run_gp_install(
         app_aid,
         privileges,
         params,
-        dap,
+        dap: first_dap,
+        extra_daps: extra_daps.to_vec(),
         block_size,
     };
     let keys = match load_gp_keys(&w.keys, w.json) {
@@ -5657,38 +5691,66 @@ fn run_erase_on_card(
     emit_erase(args.json, &human, data)
 }
 
-/// Reads and checks the DAP key and Security Domain of `gp install`, before a
-/// reader is opened. `Err` is `(kind, message)`; the message never holds the key.
-fn load_dap(args: &GpDapArgs) -> Result<Option<gp::DapRequest>, (&'static str, String)> {
+/// Reads and checks the DAP keys, their scheme and the Security Domains of
+/// `gp install`, before a reader is opened. `Err` is `(kind, message)`; the
+/// message never holds a key.
+///
+/// One key is one DAP block (GP Card Spec v2.3.1 Table 11-58: "A Load File may
+/// contain multiple DAP Blocks"), so the keys are read in the order they are
+/// written and `--dap-domain` pairs with them in that order. Without it every
+/// block is verified by the issuer security domain being authenticated, as
+/// before; given, it must be given once per key, because a block with no domain
+/// of its own would be verified by a domain the operator did not name.
+fn load_dap(args: &GpDapArgs) -> Result<Vec<gp::DapRequest>, (&'static str, String)> {
     let source = match (&args.dap_key_file, &args.dap_key_env) {
         (Some(path), _) => gp::KeySource::File(path),
         (None, Some(name)) => gp::KeySource::Env(name),
-        (None, None) => return Ok(None),
+        (None, None) => return Ok(Vec::new()),
     };
-    let key = gp::DapKey::load(source).map_err(|e| {
+    let scheme = match args.dap_alg {
+        DapAlg::Aes => gp::DapScheme::Aes,
+        DapAlg::Des => gp::DapScheme::Des,
+        DapAlg::Ecc => gp::DapScheme::Ecc,
+    };
+    let keys = gp::DapKeys::load(scheme, source).map_err(|e| {
         let kind = match e {
             gp::KeyError::Kcv { .. } => "key-kcv-mismatch",
             _ => "keys-unusable",
         };
         (kind, format!("DAP key: {e}"))
     })?;
-    let security_domain = match &args.dap_sd {
-        Some(text) => Some(parse_aid(text).ok_or((
-            "bad-aid",
-            "--dap-sd must be 5 to 16 bytes of hex".to_string(),
-        ))?),
-        None => None,
-    };
+    if !args.dap_domain.is_empty() && args.dap_domain.len() != keys.as_slice().len() {
+        return Err((
+            "dap-domain-count",
+            format!(
+                "--dap-domain was given {} time(s) for {} DAP key(s); give one domain per key, or none to use the authenticated issuer security domain for all",
+                args.dap_domain.len(),
+                keys.as_slice().len()
+            ),
+        ));
+    }
+    let domains = args
+        .dap_domain
+        .iter()
+        .map(|text| {
+            parse_aid(text).ok_or((
+                "bad-aid",
+                "--dap-domain must be 5 to 16 bytes of hex".to_string(),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let hash = match args.dap_hash {
         DapHash::Sha256 => gp::Lfdbh::Sha256,
         DapHash::Sha384 => gp::Lfdbh::Sha384,
         DapHash::Sha512 => gp::Lfdbh::Sha512,
     };
-    Ok(Some(gp::DapRequest {
-        key,
-        security_domain,
-        hash,
-    }))
+    Ok((0..keys.as_slice().len())
+        .map(|i| gp::DapRequest {
+            key: keys.as_slice()[i].clone(),
+            security_domain: domains.get(i).cloned(),
+            hash,
+        })
+        .collect())
 }
 
 /// `sim-doctor gp store-data`: a dry run unless `--yes`, offline without keys.

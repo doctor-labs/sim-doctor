@@ -4423,7 +4423,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__install)
-            opts="-F -P -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
+            opts="-F -P -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-domain --dap-alg --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4481,8 +4481,12 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --dap-sd)
+                --dap-domain)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --dap-alg)
+                    COMPREPLY=($(compgen -W "aes des ecc" -- "${cur}"))
                     return 0
                     ;;
                 --dap-hash)

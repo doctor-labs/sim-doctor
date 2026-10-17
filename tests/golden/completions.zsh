@@ -953,9 +953,12 @@ _arguments "${_arguments_options[@]}" : \
 '*--cl-notify=[--cl-notify AID\: add this AID to the CREL notify list (EF A1 A3 4F). Repeatable; the AIDs go into one list in the order given]:AID:_default' \
 '*--cl-notify-remove=[--cl-notify-remove AID\: remove this AID from the CREL notify list (EF A1 A4 4F). Repeatable. An AID given here and to --cl-notify is refused\: the card cannot be told to add and remove the same entry]:AID:_default' \
 '--cl-family=[--cl-family HEX\: the Application Family id, one byte of hex (EF A1 87)]:HEX:_default' \
-'--dap-key-file=[File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
-'--dap-key-env=[Environment variable holding the AES DAP key]:VAR:_default' \
-'--dap-sd=[The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default\: the issuer security domain being authenticated)]:HEX:_default' \
+'--dap-key-file=[File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)]:PATH:_files' \
+'--dap-key-env=[Environment variable holding the DAP keys]:VAR:_default' \
+'*--dap-domain=[The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block\: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated]:HEX:_default' \
+'--dap-alg=[The signature scheme of every key (GP Card Spec v2.3.1 C.3)\: AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme\: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)]:DAP_ALG:((aes\:"AES-CMAC (B.2.2)\: a 16 byte signature"
+des\:"Single DES plus final triple DES MAC (B.1.2.2)\: an 8 byte signature"
+ecc\:"ECDSA over P-256 with SHA-256 (B.4.3)\: plain \`r || s\`, 64 bytes"))' \
 '--dap-hash=[The Load File Data Block Hash the DAP signs]:DAP_HASH:(sha256 sha384 sha512)' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \

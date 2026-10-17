@@ -76,8 +76,12 @@
 //! **Does not own, and never sends.** SET STATUS, INSTALL
 //! [for extradition / registry update], DELETE [key], PUT KEY
 //! for anything but an SCP03 AES-128 key set (RSA/ECC/DES keys, a lone DAP
-//! verification key), any token, and DAP signatures other than the AES scheme
-//! (DES, RSA and ECC DAP keys are not implemented). [`info`], [`ara`], [`status`] and
+//! verification key), and any token. A DAP is signed with the AES scheme of
+//! #115, with the DES scheme (C.3 -> B.1.2.2, the retail MAC) or with ECDSA over
+//! P-256 (C.3 -> B.4.3, plain `r || s`), one key per DAP block and each block
+//! naming the Security Domain that verifies it (Table 11-58). An RSA DAP (C.3 ->
+//! B.3.1.1 or B.3.2.1) is not produced: this crate has no RSA implementation.
+//! [`info`], [`ara`], [`status`] and
 //! [`select`] send only SELECT, GET DATA and GET STATUS, plus, only when keys are
 //! supplied, one INITIALIZE UPDATE and at most one EXTERNAL AUTHENTICATE (and the
 //! GET RESPONSE that [`session::send`] adds for a `61 xx`). A `91 xx` is
@@ -919,8 +923,8 @@ pub enum KeyError {
     /// not a key set.
     #[error("key {0} is {1} bytes and key {2} is {3}: a key set is one AES key length")]
     MixedLength(usize, usize, usize, usize),
-    /// A DAP key that is not 16, 24 or 32 bytes of hex.
-    #[error("the DAP key is not 32, 48 or 64 hex digits (AES-128, -192 or -256), optionally followed by /KCV of 6 hex digits")]
+    /// A DAP key that is not hex of the length its scheme takes (Table C-1).
+    #[error("the DAP key is not hex of the length its scheme takes (AES 16, 24 or 32 bytes; DES 16 bytes; ECC 32 bytes), optionally followed by /KCV of 6 hex digits")]
     DapFormat,
     /// The stated KCV is not the KCV of the key.
     #[error(
@@ -1076,12 +1080,171 @@ fn read_key_text(source: KeySource<'_>) -> Result<String, KeyError> {
     Ok(text)
 }
 
-/// A symmetric AES DAP key (16, 24 or 32 bytes): the Security Domain's DAP
-/// verification key, used to sign the Load File Data Block Hash. Text form is
-/// one key, hex, optionally `KEY/KCV` (a wrong KCV is an error before the card
+/// The signature scheme of a DAP key: which Load File Data Block Signature
+/// (GP Card Spec v2.3.1 C.3) the key produces, with the key type of Table 11-16
+/// and the key length of Table C-1. The scheme is chosen off-card and never
+/// negotiated: a Security Domain processes signatures according to the key type
+/// and key length loaded for the operation (the sentence above Table C-1).
+///
+/// RSA (Table C-1: an RSA public key, 1024 bits for Scheme 1, longer for
+/// Scheme 2) is deliberately not here. C.3 -> B.3.1.1 (RSASSA-PKCS1-v1_5 with
+/// SHA-1) and B.3.2.1 (RSASSA-PSS with SHA-256, MGF1-SHA256, salt of the hash
+/// length, trailer BC) both need RSA arithmetic, which this crate does not have,
+/// and adding a crate is not allowed. A DAP that needs RSA is not produced here
+/// rather than signed with something else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DapScheme {
+    /// AES-CMAC, a 16 byte signature (C.3 -> B.2.2, NIST SP 800-38B). Key type
+    /// `88`, 16, 24 or 32 bytes.
+    Aes,
+    /// Single DES plus final triple DES MAC (the retail MAC), an 8 byte
+    /// signature: C.3 -> B.1.2.2 (ISO/IEC 9797-1 MAC algorithm 3, initial
+    /// transformation 1, output transformation 3, no truncation) over the Load
+    /// File Data Block Hash padded per B.1.3. Key type `80`, 16 bytes (Table
+    /// C-1: 128 bits, a 112 bit key value in 7 bits of each byte).
+    Des,
+    /// ECDSA over P-256 with SHA-256, a 64 byte plain `r || s` signature (C.3 ->
+    /// B.4.3, and Table B-3: a 256 bit key signs with SHA-256; the signature is
+    /// the concatenation of r and s, not DER). Key type `B1`, 32 bytes (Table
+    /// C-1: an ECC key of at least 256 bits).
+    Ecc,
+}
+
+impl DapScheme {
+    /// The name shown in output.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Aes => "aes",
+            Self::Des => "des",
+            Self::Ecc => "ecc",
+        }
+    }
+
+    /// The sentence `target.dap.scheme` carries: the algorithm C.3 requires of
+    /// a key of this scheme.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Aes => "AES-CMAC over the Load File Data Block Hash (C.3, B.2.2)",
+            Self::Des => "Retail MAC (single DES plus final triple DES MAC) over the Load File Data Block Hash padded per B.1.3 (C.3, B.1.2.2)",
+            Self::Ecc => "ECDSA over P-256 with SHA-256, plain r||s, over the Load File Data Block Hash (C.3, B.4.3, Table B-3)",
+        }
+    }
+
+    /// The key lengths in bytes Table C-1 gives for this scheme.
+    pub fn key_lengths(self) -> &'static [usize] {
+        match self {
+            Self::Aes => &[16, 24, 32],
+            Self::Des => &[16],
+            Self::Ecc => &[32],
+        }
+    }
+}
+
+/// The key tokens of a key file or key environment variable: one or more `KEY`
+/// or `KEY/KCV` tokens separated by whitespace or commas, `#` lines skipped.
+fn key_tokens(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .flat_map(|l| l.split(|c: char| c.is_whitespace() || c == ','))
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// One DAP key token: hex, optionally `KEY/KCV` for a key that has a key check
+/// value.
+fn parse_one_key(scheme: DapScheme, token: &str) -> Result<DapKey, KeyError> {
+    let (key_hex, kcv_hex) = match token.split_once('/') {
+        Some((k, c)) => (k, Some(c)),
+        None => (token, None),
+    };
+    let key = hex::decode(key_hex)
+        .ok()
+        .filter(|k| scheme.key_lengths().contains(&k.len()))
+        .ok_or(KeyError::DapFormat)?;
+    let kcv = match scheme {
+        DapScheme::Aes => Some(aes_kcv(&key).expect("16, 24 or 32 bytes")),
+        DapScheme::Des => Some(des_kcv(&key).expect("16 bytes")),
+        DapScheme::Ecc => None,
+    };
+    if let Some(kcv_hex) = kcv_hex {
+        let want = hex::decode(kcv_hex)
+            .ok()
+            .and_then(|v| <[u8; 3]>::try_from(v).ok())
+            .ok_or(KeyError::DapFormat)?;
+        let got = kcv.ok_or(KeyError::DapFormat)?;
+        if got != want {
+            return Err(KeyError::Kcv {
+                index: 1,
+                computed: hex::encode_upper(got),
+                stated: hex::encode_upper(want),
+            });
+        }
+    }
+    if scheme == DapScheme::Ecc {
+        // A P-256 scalar has to be a usable private key or nothing can sign.
+        let scalar: [u8; 32] = key.clone().try_into().map_err(|_| KeyError::DapFormat)?;
+        crate::sign::sign(&scalar, b"").map_err(|_| KeyError::DapFormat)?;
+    }
+    Ok(DapKey { bytes: key, scheme })
+}
+
+/// One or more DAP keys, one per DAP block. GP Card Spec v2.3.1 Table 11-58: "A
+/// Load File may contain multiple DAP Blocks; each DAP Block being introduced by
+/// tag 'E2' and preceding the Load File Data Block." One key is the single-DAP
+/// case of issue #115, byte for byte unchanged. `Debug` is redacted; the bytes
+/// appear in no output.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DapKeys(Vec<DapKey>);
+
+impl std::fmt::Debug for DapKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DapKeys { .. }")
+    }
+}
+
+impl DapKeys {
+    /// Parses every key of `scheme` in `text`: one whitespace or comma
+    /// separated token per DAP block, `#` lines skipped.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`], whose text never contains the input.
+    pub fn parse(scheme: DapScheme, text: &str) -> Result<Self, KeyError> {
+        let tokens = key_tokens(text);
+        if tokens.is_empty() {
+            return Err(KeyError::Count(0));
+        }
+        tokens
+            .iter()
+            .map(|t| parse_one_key(scheme, t))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self)
+    }
+
+    /// Reads and parses the keys from `source`.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`].
+    pub fn load(scheme: DapScheme, source: KeySource<'_>) -> Result<Self, KeyError> {
+        Self::parse(scheme, &read_key_text(source)?)
+    }
+
+    /// The keys in the order they were given: one DAP block each.
+    pub fn as_slice(&self) -> &[DapKey] {
+        &self.0
+    }
+}
+
+/// A DAP key: the Security Domain's DAP verification key, used to sign the Load
+/// File Data Block Hash. Text form is one key, hex, of a length Table C-1 gives
+/// for the scheme, optionally `KEY/KCV` (a wrong KCV is an error before the card
 /// is touched). `Debug` is redacted; the bytes appear in no output.
 #[derive(Clone, PartialEq, Eq)]
-pub struct DapKey(Vec<u8>);
+pub struct DapKey {
+    bytes: Vec<u8>,
+    scheme: DapScheme,
+}
 
 impl std::fmt::Debug for DapKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1090,44 +1253,29 @@ impl std::fmt::Debug for DapKey {
 }
 
 impl DapKey {
-    /// Parses one key from `text` (`#` lines skipped).
+    /// Parses one AES DAP key from `text` (`#` lines skipped): the scheme of
+    /// issue #115, unchanged.
     ///
     /// # Errors
     ///
     /// [`KeyError`], whose text never contains the input.
     pub fn parse(text: &str) -> Result<Self, KeyError> {
-        let tokens: Vec<&str> = text
-            .lines()
-            .filter(|l| !l.trim_start().starts_with('#'))
-            .flat_map(|l| l.split(|c: char| c.is_whitespace() || c == ','))
-            .filter(|t| !t.is_empty())
-            .collect();
+        Self::parse_scheme(DapScheme::Aes, text)
+    }
+
+    /// Parses one key of `scheme` from `text` (`#` lines skipped). The length
+    /// must be one Table C-1 gives for the scheme, and a stated KCV is checked
+    /// against that scheme's key check value.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`], whose text never contains the input.
+    pub fn parse_scheme(scheme: DapScheme, text: &str) -> Result<Self, KeyError> {
+        let tokens = key_tokens(text);
         let [token] = tokens.as_slice() else {
             return Err(KeyError::Count(tokens.len()));
         };
-        let (key_hex, kcv_hex) = match token.split_once('/') {
-            Some((k, c)) => (k, Some(c)),
-            None => (*token, None),
-        };
-        let key = hex::decode(key_hex)
-            .ok()
-            .filter(|k| matches!(k.len(), 16 | 24 | 32))
-            .ok_or(KeyError::DapFormat)?;
-        if let Some(kcv_hex) = kcv_hex {
-            let want = hex::decode(kcv_hex)
-                .ok()
-                .and_then(|v| <[u8; 3]>::try_from(v).ok())
-                .ok_or(KeyError::DapFormat)?;
-            let got = aes_kcv(&key).expect("16, 24 or 32 bytes");
-            if got != want {
-                return Err(KeyError::Kcv {
-                    index: 1,
-                    computed: hex::encode_upper(got),
-                    stated: hex::encode_upper(want),
-                });
-            }
-        }
-        Ok(Self(key))
+        parse_one_key(scheme, token)
     }
 
     /// Reads and parses the key from `source`.
@@ -1139,9 +1287,30 @@ impl DapKey {
         Self::parse(&read_key_text(source)?)
     }
 
-    /// The key check value (public, 24 bits).
+    /// The scheme this key signs the Load File Data Block Hash with.
+    pub fn scheme(&self) -> DapScheme {
+        self.scheme
+    }
+
+    /// The key check value (public, 24 bits) of a DES or AES key.
+    ///
+    /// # Panics
+    ///
+    /// For a scheme B.6 gives none; [`Self::kcv_opt`] is the form that says so.
     pub fn kcv(&self) -> [u8; 3] {
-        aes_kcv(&self.0).expect("16, 24 or 32 bytes")
+        self.kcv_opt()
+            .expect("B.6 defines a key check value for DES and AES keys only")
+    }
+
+    /// The key check value (public, 24 bits), or `None` for a key that has
+    /// none: B.6 computes one for DES and AES keys only, so an ECC key has
+    /// none and a key file must not state one.
+    pub fn kcv_opt(&self) -> Option<[u8; 3]> {
+        match self.scheme {
+            DapScheme::Aes => Some(aes_kcv(&self.bytes).expect("16, 24 or 32 bytes")),
+            DapScheme::Des => Some(des_kcv(&self.bytes).expect("16 bytes")),
+            DapScheme::Ecc => None,
+        }
     }
 }
 
@@ -2151,6 +2320,12 @@ pub enum BuildError {
     /// A load token with no load file data block hash.
     #[error("a load token needs the load file data block hash")]
     TokenWithoutHash,
+    /// DAP blocks that do not sign the one Load File Data Block Hash.
+    #[error("a DAP block signs the Load File Data Block Hash with {0}, not the algorithm INSTALL [for load] sends")]
+    DapHash(&'static str),
+    /// A DAP block with no first block to take the Load File Data Block Hash from.
+    #[error("a DAP block needs the Load File Data Block Hash of the first DAP block (INSTALL [for load])")]
+    DapWithoutHash,
     /// LOAD block size outside 1..=247 (255 minus the 8-byte C-MAC).
     #[error("LOAD block size {0} is outside 1..=247 (an SCP03 C-MAC takes 8 of the 255 command data bytes)")]
     Chunk(usize),
@@ -3921,6 +4096,13 @@ pub struct InstallRequest {
     /// the operator says otherwise; a smaller block suits a card or a secure
     /// channel that rejects the default Lc.
     pub block_size: usize,
+    /// Further DAP blocks, sent after `dap` and before the Load File Data Block:
+    /// Table 11-58, "A Load File may contain multiple DAP Blocks; each DAP Block
+    /// being introduced by tag 'E2' and preceding the Load File Data Block."
+    /// Every block signs the one Load File Data Block Hash INSTALL [for load]
+    /// sends, so each carries the same `hash`; each may name its own Security
+    /// Domain.
+    pub extra_daps: Vec<DapRequest>,
 }
 
 /// Which hash is the Load File Data Block Hash when a DAP block is sent (GP Card
@@ -3969,25 +4151,76 @@ pub struct DapRequest {
     pub hash: Lfdbh,
 }
 
-/// The Load File Data Block Signature of an AES DAP key: AES-CMAC of the Load
-/// File Data Block Hash, 16 bytes. GP Card Spec v2.3.1 C.3 ("If the signing key
+/// The Load File Data Block Signature of a DAP key (GP Card Spec v2.3.1 C.3), as
+/// many bytes as C.3's algorithm for the key's scheme produces: 16 for
+/// AES-CMAC, 8 for the retail MAC, 64 for ECDSA `r || s`.
+pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> Vec<u8> {
+    match key.scheme {
+        DapScheme::Aes => aes_cmac_signature(&key.bytes, lfdbh).to_vec(),
+        DapScheme::Des => des_retail_mac(&key.bytes, lfdbh),
+        DapScheme::Ecc => crate::sign::sign(
+            &key.bytes
+                .clone()
+                .try_into()
+                .expect("an ECC DAP key is 32 bytes"),
+            lfdbh,
+        )
+        .expect("a parsed ECC DAP key is a usable P-256 scalar")
+        .to_vec(),
+    }
+}
+
+/// AES-CMAC of the Load File Data Block Hash, 16 bytes: C.3 ("If the signing key
 /// is an AES key, the Load File Data Block Signature is generated according to
 /// section B.2.2") and B.2.2 (CMAC, NIST SP 800-38B, 16 byte result).
-pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> [u8; 16] {
+fn aes_cmac_signature(key: &[u8], lfdbh: &[u8]) -> [u8; 16] {
     use cmac::{Cmac, Mac};
     macro_rules! mac {
         ($cipher:ty) => {{
-            let mut m = <Cmac<$cipher> as KeyInit>::new_from_slice(&key.0)
-                .expect("DapKey holds 16, 24 or 32 bytes");
+            let mut m = <Cmac<$cipher> as KeyInit>::new_from_slice(key)
+                .expect("an AES DAP key is 16, 24 or 32 bytes");
             m.update(lfdbh);
             m.finalize().into_bytes().into()
         }};
     }
-    match key.0.len() {
+    match key.len() {
         16 => mac!(aes::Aes128),
         24 => mac!(aes::Aes192),
         _ => mac!(aes::Aes256),
     }
+}
+
+/// Single DES plus final triple DES MAC, the retail MAC of C.3 ("If the signing
+/// key is a DES key, the Load File Data Block Signature is generated according to
+/// section B.1.2.2. Prior to signing, padding of the data (LFDBH) is performed
+/// as defined in section B.1.3"): B.1.2.2 is ISO/IEC 9797-1 MAC algorithm 3 with
+/// initial transformation 1 and output transformation 3, without truncation, so
+/// the padded data is MACed with single DES and the 8 byte result is run once
+/// through triple DES. `key` is the 16 bytes of Table C-1 (128 bits, a 112 bit
+/// key value in 7 bits of each byte), which is K1 || K2; the final triple DES
+/// with K3 = K1 is the two-key triple DES.
+fn des_retail_mac(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut padded = data.to_vec();
+    padded.push(0x80);
+    while padded.len() % 8 != 0 {
+        padded.push(0);
+    }
+    let k1 = <des::Des as KeyInit>::new_from_slice(&key[..8]).expect("16 bytes");
+    let mut chain = [0u8; 8];
+    for chunk in padded.chunks_exact(8) {
+        let mut mixed = [0u8; 8];
+        for (i, byte) in chunk.iter().enumerate() {
+            mixed[i] = chain[i] ^ byte;
+        }
+        let mut block = mixed.into();
+        k1.encrypt_block(&mut block);
+        chain.copy_from_slice(&block);
+    }
+    let mut block = chain.into();
+    <des::TdesEde2 as KeyInit>::new_from_slice(key)
+        .expect("16 bytes")
+        .encrypt_block(&mut block);
+    <[u8; 8]>::from(block).to_vec()
 }
 
 /// What `gp personalize` writes: INSTALL [for personalization] for `aid`, then
@@ -4066,10 +4299,20 @@ fn load_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned>, 
     let (lfdbh, dap_blocks) = match &req.dap {
         Some(d) => {
             let hash = d.hash.digest(&req.load_file);
-            let signature = dap_signature(&d.key, &hash);
-            let block = dap_block(d.security_domain.as_deref().unwrap_or(sd_aid), &signature)?;
-            (hash, vec![block])
+            let mut blocks = Vec::new();
+            for b in std::iter::once(d).chain(req.extra_daps.iter()) {
+                if b.hash != d.hash {
+                    return Err(BuildError::DapHash(b.hash.name()));
+                }
+                let signature = dap_signature(&b.key, &hash);
+                blocks.push(dap_block(
+                    b.security_domain.as_deref().unwrap_or(sd_aid),
+                    &signature,
+                )?);
+            }
+            (hash, blocks)
         }
+        None if !req.extra_daps.is_empty() => return Err(BuildError::DapWithoutHash),
         None => (Vec::new(), Vec::new()),
     };
     let mut plan = vec![Planned {
@@ -4324,16 +4567,33 @@ fn install_target(req: &InstallRequest) -> Value {
         "load_file_bytes": req.load_file.len(),
     });
     if let Some(d) = &req.dap {
-        target["dap"] = json!({
-            "scheme": "AES-CMAC over the Load File Data Block Hash (C.3, B.2.2)",
-            "hash": d.hash.name(),
-            "load_file_data_block_hash": hex_of(&d.hash.digest(&req.load_file)),
-            "security_domain": d.security_domain.as_deref().map_or_else(
-                || json!("the authenticated security domain"), hex_of),
-            "key_kcv": hex::encode_upper(d.key.kcv()),
-        });
+        target["dap"] = dap_json(d, &req.load_file);
+    }
+    if !req.extra_daps.is_empty() {
+        target["dap_blocks"] = Value::Array(
+            req.dap
+                .iter()
+                .chain(req.extra_daps.iter())
+                .map(|d| dap_json(d, &req.load_file))
+                .collect(),
+        );
     }
     target
+}
+
+/// One DAP block as the report shows it: the signature scheme C.3 requires of
+/// the key, the Load File Data Block Hash it signs, the Security Domain that
+/// verifies it, and the key check value (B.6; an ECC key has none, so the field
+/// is `null`).
+fn dap_json(d: &DapRequest, load_file: &[u8]) -> Value {
+    json!({
+        "scheme": d.key.scheme().description(),
+        "hash": d.hash.name(),
+        "load_file_data_block_hash": hex_of(&d.hash.digest(load_file)),
+        "security_domain": d.security_domain.as_deref().map_or_else(
+            || json!("the authenticated security domain"), hex_of),
+        "key_kcv": d.key.kcv_opt().map(hex::encode_upper),
+    })
 }
 
 /// The entry for `aid_hex` in a [`read_registry`] result, with its scope name.
@@ -5173,7 +5433,7 @@ pub fn install<S: CardSession + ?Sized>(
             }
             // A DAP block from a Security Domain that cannot verify one would be
             // refused by the card only after INSTALL [for load] went through.
-            if let Some(d) = &req.dap {
+            for d in req.dap.iter().chain(req.extra_daps.iter()) {
                 let sd = match &d.security_domain {
                     Some(aid) => registry_entry(registry, &hex::encode_upper(aid)).map(|(_, e)| e),
                     None => registry
@@ -8594,6 +8854,7 @@ mod tests {
             params: vec![0xC9, 0x00],
             dap: None,
             block_size: DEFAULT_LOAD_BLOCK,
+            extra_daps: vec![],
         }
     }
 
@@ -9991,6 +10252,270 @@ mod tests {
         card
     }
 
+    // ---- extended DAP: DES, ECC, several DAP blocks, DAP domain selection (#251)
+
+    // The Load File Data Block Hash every DAP below signs is the pinned SHA-256
+    // of `load_file_250()` (DAP_LFDBH), the one LFDBH Table C-3 accepts for the
+    // DES scheme (SHA-256 or above) as well as for AES.
+    //
+    // The DES signature is the retail MAC of B.1.2.2 over the B.1.3 padded
+    // hash (40 bytes: the 32 byte hash, 0x80, seven 0x00). Both the signature
+    // and the key check value were computed outside this crate, from B.1.2.2 /
+    // B.1.3 / B.6, with OpenSSL's DES (the legacy provider) as the only DES
+    // implementation: `openssl enc -des-ecb -K 7071727374757677` for the single
+    // DES CBC step and `openssl enc -des-ede3 -K <K1||K2||K1>` for the final
+    // triple DES and the B.6 key check value.
+    const DES_DAP_KCV: &str = "E93347";
+    const DES_DAP_PADDED: &str =
+        "0F18A2E0DEE3487F7033FF88871236DF0AA4AE20FC2435320920284672E5DD568000000000000000";
+    const DES_DAP_SIG: &str = "B01543C058D78898";
+    const DES_DAP_BLOCK: &str = "E2144F08A000000151000000C308B01543C058D78898";
+    const DES_DAP_LOAD_0_PREFIX: &str =
+        "80E80000F0E2144F08A000000151000000C308B01543C058D78898C481FA030A1118";
+    const DES2_DAP_KEY: &str = "0405060708090A0B0C0D0E0F10111213";
+    const DES2_DAP_SIG: &str = "4962C155BCC4E4E5";
+    const DES2_DAP_BLOCK: &str = "E2134F07A0000000629999C3084962C155BCC4E4E5";
+    // The ECC signature is RFC 6979 deterministic ECDSA over P-256 with SHA-256
+    // (C.3 -> B.4.3, Table B-3) of the same Load File Data Block Hash, under
+    // the RFC 6979 A.2.5 test key `src/sign.rs` already pins. It was computed
+    // outside this crate from RFC 6979 alone, with a script that first
+    // reproduced the published A.2.5 vectors for "sample" and "test", and the
+    // public key is the `04 || UX || UY` of that appendix.
+    const ECC_DAP_KEY: &str = "C9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721";
+    const ECC_DAP_PUBKEY: &str = "0460FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB67903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299";
+    const ECC_DAP_SIG: &str = "397BCA2F49D1C822881522CE240A77B8B0995C0045FFD17FA58E40B5173953DFBE03742ADF26BA5F4D237659D62614BB0157D64524C5126DDC4A015BCBF9727B";
+    const ECC_DAP_BLOCK: &str = "E24C4F08A000000151000000C340397BCA2F49D1C822881522CE240A77B8B0995C0045FFD17FA58E40B5173953DFBE03742ADF26BA5F4D237659D62614BB0157D64524C5126DDC4A015BCBF9727B";
+    const ECC_DAP_LOAD_0_PREFIX: &str = "80E80000F0E24C4F08A000000151000000C340397BCA2F49D1C822881522CE240A77B8B0995C0045FFD17FA58E40B5173953DFBE03742ADF26BA5F4D237659D62614BB0157D64524C5126DDC4A015BCBF9727BC481FA030A1118";
+    // Two DAP blocks, then the Load File Data Block (Table 11-58: several 'E2'
+    // DAP Blocks, each preceding the 'C4' Load File Data Block).
+    const TWO_DAP_LOAD_0_PREFIX: &str = "80E80000F0E2144F08A000000151000000C308B01543C058D78898E2134F07A0000000629999C3084962C155BCC4E4E5C481FA030A1118";
+
+    fn dap_of(scheme: DapScheme, key: &str, sd: Option<&str>) -> DapRequest {
+        DapRequest {
+            key: DapKey::parse_scheme(scheme, key).unwrap(),
+            security_domain: sd.map(|s| hex::decode(s).unwrap()),
+            hash: Lfdbh::Sha256,
+        }
+    }
+
+    fn dap_install(scheme: DapScheme, key: &str, sd: Option<&str>) -> InstallRequest {
+        InstallRequest {
+            dap: Some(dap_of(scheme, key, sd)),
+            ..install_request()
+        }
+    }
+
+    #[test]
+    fn a_des_dap_key_signs_with_the_retail_mac_and_an_eight_byte_signature() {
+        let key =
+            DapKey::parse_scheme(DapScheme::Des, &format!("{DAP_KEY_HEX}/{DES_DAP_KCV}")).unwrap();
+        assert_eq!(key.scheme(), DapScheme::Des);
+        assert_eq!(key.scheme().name(), "des");
+        assert_eq!(hex::encode_upper(key.kcv()), DES_DAP_KCV);
+        let hash = Lfdbh::Sha256.digest(&load_file_250());
+        assert_eq!(hex::encode_upper(&hash), DAP_LFDBH);
+        let mut padded = hash.clone();
+        padded.push(0x80);
+        while padded.len() % 8 != 0 {
+            padded.push(0);
+        }
+        assert_eq!(hex::encode_upper(&padded), DES_DAP_PADDED);
+        let signature = dap_signature(&key, &hash);
+        assert_eq!(signature.len(), 8, "B.1.2.2 is without truncation");
+        assert_eq!(hex::encode_upper(&signature), DES_DAP_SIG);
+        let sd = hex::decode("A000000151000000").unwrap();
+        let block = dap_block(&sd, &signature).unwrap();
+        assert_eq!(hex::encode_upper(&block), DES_DAP_BLOCK);
+        let commands = load_commands(&load_file_250(), &[block], DEFAULT_LOAD_BLOCK).unwrap();
+        assert_eq!(commands.len(), 2);
+        let wire = hex::encode_upper(commands[0].encode().unwrap());
+        assert!(wire.starts_with(DES_DAP_LOAD_0_PREFIX), "{wire}");
+    }
+
+    #[test]
+    fn a_des_dap_key_is_sixteen_bytes_with_a_checked_key_check_value() {
+        // Table C-1: a DES key is 128 bits, a 112 bit key value in 7 bits of
+        // each byte, so 16 bytes and nothing else.
+        assert_eq!(DapScheme::Des.key_lengths(), &[16]);
+        assert!(DapKey::parse_scheme(DapScheme::Des, DAP_KEY_HEX).is_ok());
+        assert_eq!(
+            DapKey::parse_scheme(DapScheme::Des, &"11".repeat(24)).unwrap_err(),
+            KeyError::DapFormat
+        );
+        assert_eq!(
+            DapKey::parse_scheme(DapScheme::Des, &"11".repeat(15)).unwrap_err(),
+            KeyError::DapFormat
+        );
+        assert_eq!(
+            DapKey::parse_scheme(DapScheme::Des, &format!("{DAP_KEY_HEX}/000000")).unwrap_err(),
+            KeyError::Kcv {
+                index: 1,
+                computed: DES_DAP_KCV.into(),
+                stated: "000000".into(),
+            }
+        );
+        // the same 16 bytes are an AES-128 key, and the scheme says which
+        assert_eq!(DapKey::parse(DAP_KEY_HEX).unwrap().scheme(), DapScheme::Aes);
+    }
+
+    #[test]
+    fn an_ecc_dap_key_signs_a_plain_r_s_that_verifies_against_its_public_key() {
+        let key = DapKey::parse_scheme(DapScheme::Ecc, ECC_DAP_KEY).unwrap();
+        assert_eq!(key.scheme(), DapScheme::Ecc);
+        assert_eq!(
+            key.kcv_opt(),
+            None,
+            "B.6 computes a key check value for DES and AES keys only"
+        );
+        assert_eq!(
+            DapKey::parse_scheme(DapScheme::Ecc, &format!("{ECC_DAP_KEY}/{DES_DAP_KCV}"))
+                .unwrap_err(),
+            KeyError::DapFormat,
+            "an ECC key has no key check value to state"
+        );
+        assert_eq!(DapScheme::Ecc.key_lengths(), &[32]);
+        assert_eq!(
+            DapKey::parse_scheme(DapScheme::Ecc, &"00".repeat(32)).unwrap_err(),
+            KeyError::DapFormat,
+            "zero is not a P-256 private scalar"
+        );
+        let hash = Lfdbh::Sha256.digest(&load_file_250());
+        let signature = dap_signature(&key, &hash);
+        assert_eq!(signature.len(), 64, "r || s, twice the order length");
+        assert_eq!(hex::encode_upper(&signature), ECC_DAP_SIG);
+        assert_ne!(signature[0], 0x30, "plain r||s, never a DER SEQUENCE");
+        let r_s: [u8; 64] = signature.clone().try_into().unwrap();
+        assert!(crate::sign::verify(
+            &hex::decode(ECC_DAP_PUBKEY).unwrap(),
+            &hash,
+            &r_s
+        ));
+        let sd = hex::decode("A000000151000000").unwrap();
+        let block = dap_block(&sd, &signature).unwrap();
+        assert_eq!(hex::encode_upper(&block), ECC_DAP_BLOCK);
+        let commands = load_commands(&load_file_250(), &[block], DEFAULT_LOAD_BLOCK).unwrap();
+        assert_eq!(commands.len(), 2);
+        let wire = hex::encode_upper(commands[0].encode().unwrap());
+        assert!(wire.starts_with(ECC_DAP_LOAD_0_PREFIX), "{wire}");
+    }
+
+    #[test]
+    fn two_dap_blocks_each_precede_the_load_file_data_block_in_order() {
+        let sd1 = hex::decode("A000000151000000").unwrap();
+        let mut req = dap_install(DapScheme::Des, DAP_KEY_HEX, Some("A000000151000000"));
+        req.extra_daps = vec![dap_of(DapScheme::Des, DES2_DAP_KEY, Some("A0000000629999"))];
+        let plan = install_plan_steps(&req, &sd1).unwrap();
+        assert_eq!(plan[0].step, "install_for_load");
+        // INSTALL [for load] still carries the one hash both blocks sign
+        assert_eq!(
+            hex::encode_upper(plan[0].command.encode().unwrap()),
+            format!("80E602003407A000000077010008A00000015100000020{DAP_LFDBH}000000")
+        );
+        assert_eq!(plan.iter().filter(|p| p.step == "load").count(), 2);
+        let wire = hex::encode_upper(plan[1].command.encode().unwrap());
+        assert!(wire.starts_with(TWO_DAP_LOAD_0_PREFIX), "{wire}");
+        // both blocks are whole E2 TLVs, in the order they were given
+        let first = dap_block(
+            &sd1,
+            &dap_signature(
+                &req.dap.as_ref().unwrap().key,
+                &Lfdbh::Sha256.digest(&load_file_250()),
+            ),
+        )
+        .unwrap();
+        assert_eq!(hex::encode_upper(&first), DES_DAP_BLOCK);
+        assert_eq!(
+            hex::encode_upper(dap_signature(
+                &req.extra_daps[0].key,
+                &Lfdbh::Sha256.digest(&load_file_250())
+            )),
+            DES2_DAP_SIG
+        );
+        assert_eq!(
+            hex::encode_upper(
+                dap_block(
+                    &hex::decode("A0000000629999").unwrap(),
+                    &dap_signature(
+                        &req.extra_daps[0].key,
+                        &Lfdbh::Sha256.digest(&load_file_250())
+                    )
+                )
+                .unwrap()
+            ),
+            DES2_DAP_BLOCK
+        );
+        // blocks that do not agree on the Load File Data Block Hash are refused
+        let mut disagreeing = dap_install(DapScheme::Des, DAP_KEY_HEX, Some("A000000151000000"));
+        disagreeing.extra_daps = vec![dap_of(DapScheme::Des, DES2_DAP_KEY, None)];
+        disagreeing.extra_daps[0].hash = Lfdbh::Sha384;
+        assert!(matches!(
+            install_plan_steps(&disagreeing, &sd1),
+            Err(BuildError::DapHash("sha384"))
+        ));
+        // and a DAP block with no first block has no hash to sign
+        let mut headless = install_request();
+        headless.extra_daps = vec![dap_of(DapScheme::Des, DAP_KEY_HEX, None)];
+        assert!(matches!(
+            install_plan_steps(&headless, &sd1),
+            Err(BuildError::DapWithoutHash)
+        ));
+    }
+
+    #[test]
+    fn a_dap_domain_outside_the_registry_is_refused_before_anything_is_sent() {
+        let keys = keys();
+        // the first block names the issuer security domain, which this card's
+        // registry has with the DAP Verification privilege
+        let mut req = dap_install(DapScheme::Des, DAP_KEY_HEX, Some("A000000151000000"));
+        req.extra_daps = vec![dap_of(DapScheme::Des, DES2_DAP_KEY, Some("A0000000639999"))];
+        let mut card = card_for_dap_install();
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        assert_eq!(r.data["error"]["kind"], "dap-sd-not-present");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(sent_ins(&card, "E6"), 0, "nothing INSTALLed");
+        assert_eq!(sent_ins(&card, "E8"), 0, "no LOAD sent");
+        // every block is listed, in order, and a domain each block names is checked
+        let data = install_dry_run(&req).unwrap();
+        let blocks = data["target"]["dap_blocks"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["security_domain"], "A000000151000000");
+        assert_eq!(blocks[1]["security_domain"], "A0000000639999");
+        assert_eq!(blocks[0]["key_kcv"], DES_DAP_KCV);
+    }
+
+    #[test]
+    fn the_report_names_the_scheme_and_the_key_check_value_the_key_has() {
+        let aes = install_target(&dap_request(None));
+        assert_eq!(
+            aes["dap"]["scheme"], "AES-CMAC over the Load File Data Block Hash (C.3, B.2.2)",
+            "the AES report of #115 is unchanged"
+        );
+        assert_eq!(aes["dap"]["key_kcv"], DAP_KCV);
+        let des = install_target(&dap_install(DapScheme::Des, DAP_KEY_HEX, None));
+        assert_eq!(des["dap"]["key_kcv"], DES_DAP_KCV);
+        assert!(des["dap"]["scheme"].as_str().unwrap().contains("B.1.2.2"));
+        let ecc = install_target(&dap_install(DapScheme::Ecc, ECC_DAP_KEY, None));
+        assert_eq!(ecc["dap"]["key_kcv"], Value::Null);
+        assert!(ecc["dap"]["scheme"].as_str().unwrap().contains("B.4.3"));
+        assert_eq!(ecc["dap"]["load_file_data_block_hash"], DAP_LFDBH);
+        assert_eq!(
+            DapKeys::parse(
+                DapScheme::Des,
+                &format!("{DAP_KEY_HEX}/{DES_DAP_KCV}\n{DES2_DAP_KEY}")
+            )
+            .unwrap()
+            .as_slice()
+            .len(),
+            2,
+            "one key per line is one DAP block, and a stated KCV is checked"
+        );
+        assert_eq!(
+            format!("{:?}", DapKeys::parse(DapScheme::Des, DAP_KEY_HEX).unwrap()),
+            "DapKeys { .. }"
+        );
+        assert!(DapKeys::parse(DapScheme::Des, "").is_err());
+    }
+
     #[test]
     fn dap_signature_is_aes_cmac_of_the_load_file_data_block_hash() {
         let load = load_file_250();
@@ -10436,6 +10961,7 @@ mod tests {
             privileges: vec![0, 0, 0],
             params: vec![0xC9, 0x00],
             dap: None,
+            extra_daps: Vec::new(),
             block_size: DEFAULT_LOAD_BLOCK,
         }
     }
@@ -10450,6 +10976,7 @@ mod tests {
             privileges: privileges.to_vec(),
             params: params.to_vec(),
             dap: None,
+            extra_daps: Vec::new(),
             block_size: DEFAULT_LOAD_BLOCK,
         }
     }
