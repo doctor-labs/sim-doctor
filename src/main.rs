@@ -991,6 +991,16 @@ is untouched.";
 /// Everything `sim-doctor gp` takes.
 #[derive(Args)]
 struct GpArgs {
+    /// Use a named card profile instead of the built-in default (#238).
+    ///
+    /// A profile is a local configuration choice, read from nothing and sent
+    /// to nothing: it selects the GET STATUS P2 coding and whether the
+    /// load-files-and-modules scope is read (`gp status`), and it is reported
+    /// as data.profile on every gp pass. Known names are `default` (what the
+    /// tool does with no flag) and `old`. An unknown name is refused before a
+    /// reader is opened.
+    #[arg(short = 'P', long, value_name = "NAME", global = true)]
+    profile: Option<String>,
     #[command(subcommand)]
     action: GpAction,
 }
@@ -3361,254 +3371,288 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Why(args) => run_why(&args.target, args.json),
         Command::Fix(args) => run_fix(&args),
-        Command::Gp(args) => match args.action {
-            GpAction::Aram { action } => run_gp_aram(action),
-            GpAction::Cert(c) => run_gp_cert(c),
-            GpAction::Info {
-                reader,
-                json,
-                trace,
-                channel,
-            } => run_gp(
-                "gp info",
-                reader.as_deref(),
-                json,
-                trace,
-                channel.channel,
-                |s, t| gp::info(s, t),
-            ),
-            GpAction::Ara {
-                reader,
-                json,
-                trace,
-                channel,
-            } => run_gp(
-                "gp ara",
-                reader.as_deref(),
-                json,
-                trace,
-                channel.channel,
-                |s, t| gp::ara(s, t),
-            ),
-            GpAction::Status {
-                reader,
-                json,
-                list,
-                info,
-                trace,
-                channel,
-                keys,
-            } => {
-                let view = match (list, info) {
-                    (true, _) => Some("list"),
-                    (_, true) => Some("info"),
-                    _ => None,
-                };
-                run_gp_status(reader.as_deref(), json, trace, channel.channel, &keys, view)
-            }
-            GpAction::Select {
-                aid,
-                reader,
-                json,
-                trace,
-                channel,
-            } => match parse_aid(&aid) {
-                Some(aid) => run_gp(
-                    "gp select",
+        Command::Gp(args) => {
+            // Issue #238. Resolved before the match, so an unknown name costs
+            // no reader, no context and no key.
+            let profile = match args.profile.as_deref() {
+                None => gp::profile::DEFAULT,
+                Some(name) => match gp::profile::from_name(name) {
+                    Some(profile) => profile,
+                    None => {
+                        eprintln!(
+                            "sim-doctor: unknown gp profile {name}; known profiles: {}",
+                            gp::profile::names()
+                        );
+                        return contract::ExitCode::InvalidUsage;
+                    }
+                },
+            };
+            match args.action {
+                GpAction::Aram { action } => run_gp_aram(action),
+                GpAction::Cert(c) => run_gp_cert(c),
+                GpAction::Info {
+                    reader,
+                    json,
+                    trace,
+                    channel,
+                } => run_gp_with(
+                    "gp info",
                     reader.as_deref(),
                     json,
                     trace,
                     channel.channel,
-                    |s, t| gp::select(s, &aid, t),
+                    &profile,
+                    |s, t| gp::info(s, t),
                 ),
-                None => report_refusal(
-                    "gp",
-                    "--aid must be 5 to 16 bytes of hex",
-                    serde_json::json!({ "error": { "kind": "bad-aid" } }),
-                    json,
-                ),
-            },
-            GpAction::Channel { action } => match action {
-                GpChannelAction::Open {
+                GpAction::Ara {
                     reader,
                     json,
                     trace,
-                } => run_gp(
-                    "gp channel open",
-                    reader.as_deref(),
-                    json,
-                    trace,
-                    0,
-                    |s, t| gp::channel_open(s, t),
-                ),
-                GpChannelAction::Close {
                     channel,
-                    reader,
-                    json,
-                    trace,
-                } => run_gp(
-                    "gp channel close",
+                } => run_gp_with(
+                    "gp ara",
                     reader.as_deref(),
                     json,
                     trace,
-                    0,
-                    |s, t| gp::channel_close(s, channel, t),
+                    channel.channel,
+                    &profile,
+                    |s, t| gp::ara(s, t),
                 ),
-            },
-            GpAction::Crs { action } => match action {
-                CrsAction::List {
+                GpAction::Status {
+                    reader,
+                    json,
+                    list,
+                    info,
+                    trace,
+                    channel,
+                    keys,
+                } => {
+                    let view = match (list, info) {
+                        (true, _) => Some("list"),
+                        (_, true) => Some("info"),
+                        _ => None,
+                    };
+                    run_gp_status(
+                        reader.as_deref(),
+                        json,
+                        trace,
+                        channel.channel,
+                        &profile,
+                        &keys,
+                        view,
+                    )
+                }
+                GpAction::Select {
                     aid,
                     reader,
                     json,
                     trace,
                     channel,
-                } => run_gp_crs_list(
-                    aid.as_deref(),
-                    reader.as_deref(),
-                    json,
-                    trace,
-                    channel.channel,
-                ),
-                CrsAction::Info {
-                    reader,
-                    json,
-                    trace,
-                    channel,
-                } => run_gp_crs_info(reader.as_deref(), json, trace, channel.channel),
-                CrsAction::Activate { aid, write } => run_gp_crs_set(&aid, true, &write),
-                CrsAction::Deactivate { aid, write } => run_gp_crs_set(&aid, false, &write),
-            },
-            GpAction::ReleaseScp {
-                channel,
-                reader,
-                json,
-                trace,
-                yes,
-            } => {
-                if yes {
-                    // MANAGE CHANNEL is sent on the basic channel, never on the
-                    // channel being closed, so no OnChannel wrapper here.
-                    run_gp(
-                        "gp release-scp",
+                } => match parse_aid(&aid) {
+                    Some(aid) => run_gp_with(
+                        "gp select",
+                        reader.as_deref(),
+                        json,
+                        trace,
+                        channel.channel,
+                        &profile,
+                        |s, t| gp::select(s, &aid, t),
+                    ),
+                    None => report_refusal(
+                        "gp",
+                        "--aid must be 5 to 16 bytes of hex",
+                        serde_json::json!({ "error": { "kind": "bad-aid" } }),
+                        json,
+                    ),
+                },
+                GpAction::Channel { action } => match action {
+                    GpChannelAction::Open {
+                        reader,
+                        json,
+                        trace,
+                    } => run_gp_with(
+                        "gp channel open",
                         reader.as_deref(),
                         json,
                         trace,
                         0,
-                        |s, t| gp::release_scp(s, channel, t),
-                    )
-                } else {
-                    emit_gp("gp release-scp", gp::release_scp_dry_run(channel), json)
+                        &profile,
+                        |s, t| gp::channel_open(s, t),
+                    ),
+                    GpChannelAction::Close {
+                        channel,
+                        reader,
+                        json,
+                        trace,
+                    } => run_gp_with(
+                        "gp channel close",
+                        reader.as_deref(),
+                        json,
+                        trace,
+                        0,
+                        &profile,
+                        |s, t| gp::channel_close(s, channel, t),
+                    ),
+                },
+                GpAction::Crs { action } => match action {
+                    CrsAction::List {
+                        aid,
+                        reader,
+                        json,
+                        trace,
+                        channel,
+                    } => run_gp_crs_list(
+                        aid.as_deref(),
+                        reader.as_deref(),
+                        json,
+                        trace,
+                        channel.channel,
+                    ),
+                    CrsAction::Info {
+                        reader,
+                        json,
+                        trace,
+                        channel,
+                    } => run_gp_crs_info(reader.as_deref(), json, trace, channel.channel),
+                    CrsAction::Activate { aid, write } => run_gp_crs_set(&aid, true, &write),
+                    CrsAction::Deactivate { aid, write } => run_gp_crs_set(&aid, false, &write),
+                },
+                GpAction::ReleaseScp {
+                    channel,
+                    reader,
+                    json,
+                    trace,
+                    yes,
+                } => {
+                    if yes {
+                        // MANAGE CHANNEL is sent on the basic channel, never on the
+                        // channel being closed, so no OnChannel wrapper here.
+                        run_gp(
+                            "gp release-scp",
+                            reader.as_deref(),
+                            json,
+                            trace,
+                            0,
+                            |s, t| gp::release_scp(s, channel, t),
+                        )
+                    } else {
+                        emit_gp("gp release-scp", gp::release_scp_dry_run(channel), json)
+                    }
                 }
-            }
-            GpAction::Delete {
-                aid,
-                related,
-                write,
-            } => run_gp_delete(&aid, related, &write),
-            GpAction::MakeDefault { aid, write } => run_gp_make_default(&aid, &write),
-            GpAction::RenameIsd { new_aid, write } => run_gp_rename_isd(&new_aid, &write),
-            GpAction::DeleteKey {
-                key_id,
-                key_version,
-                related,
-                allow_lockout,
-                dk,
-            } => run_gp_delete_key(key_id, key_version, related, allow_lockout, &dk),
-            GpAction::Install {
-                load,
-                install_only,
-                update,
-                module,
-                app,
-                package,
-                params,
-                no_felix,
-                privileges,
-                make_default,
-                block_size,
-                extra,
-                write,
-            } => {
-                // Unparsable hex is left for run_gp_install to refuse.
-                let privileges = match (make_default, hex::decode(&privileges)) {
-                    (true, Ok(p)) => gp::with_default_selected(&p).map_or(privileges, hex::encode),
-                    _ => privileges,
-                };
-                run_gp_install(
-                    load.as_deref(),
+                GpAction::Delete {
+                    aid,
+                    related,
+                    write,
+                } => run_gp_delete(&aid, related, &write),
+                GpAction::MakeDefault { aid, write } => run_gp_make_default(&aid, &write),
+                GpAction::RenameIsd { new_aid, write } => run_gp_rename_isd(&new_aid, &write),
+                GpAction::DeleteKey {
+                    key_id,
+                    key_version,
+                    related,
+                    allow_lockout,
+                    dk,
+                } => run_gp_delete_key(key_id, key_version, related, allow_lockout, &dk),
+                GpAction::Install {
+                    load,
                     install_only,
-                    update.as_deref(),
+                    update,
                     module,
                     app,
                     package,
-                    GpInstallParams {
-                        given: params,
-                        no_felix,
-                    },
+                    params,
+                    no_felix,
+                    privileges,
+                    make_default,
+                    block_size,
+                    extra,
+                    write,
+                } => {
+                    // Unparsable hex is left for run_gp_install to refuse.
+                    let privileges = match (make_default, hex::decode(&privileges)) {
+                        (true, Ok(p)) => {
+                            gp::with_default_selected(&p).map_or(privileges, hex::encode)
+                        }
+                        _ => privileges,
+                    };
+                    run_gp_install(
+                        load.as_deref(),
+                        install_only,
+                        update.as_deref(),
+                        module,
+                        app,
+                        package,
+                        GpInstallParams {
+                            given: params,
+                            no_felix,
+                        },
+                        &privileges,
+                        usize::from(block_size),
+                        &extra,
+                        &write,
+                    )
+                }
+                GpAction::CreateSd {
+                    domain,
+                    privileges,
+                    allow_to,
+                    allow_from,
+                    scp,
+                    params,
+                    write,
+                } => run_gp_create_sd(
+                    &domain,
                     &privileges,
-                    usize::from(block_size),
-                    &extra,
+                    allow_to,
+                    allow_from,
+                    scp,
+                    &params,
                     &write,
-                )
+                ),
+                GpAction::Receipt { receipt } => run_gp_receipt(&receipt),
+                GpAction::PutKey {
+                    new_key_version,
+                    replace_key_version,
+                    key_id,
+                    new_keys,
+                    replace_current_keyset,
+                    write,
+                } => run_gp_put_key(
+                    new_key_version,
+                    replace_key_version,
+                    key_id,
+                    &new_keys,
+                    replace_current_keyset,
+                    &write,
+                ),
+                GpAction::CplcSet {
+                    kind,
+                    data,
+                    today,
+                    write,
+                } => run_gp_cplc_set(kind, &data, today, &write),
+                GpAction::Personalize { aid, data, write } => {
+                    run_gp_personalize(&aid, &data, &write)
+                }
+                GpAction::Move {
+                    aid,
+                    from,
+                    to,
+                    write,
+                } => run_gp_move(&aid, &from, &to, &write),
+                GpAction::StoreData {
+                    payload,
+                    structure,
+                    encryption,
+                    response,
+                    block_size,
+                    write,
+                } => run_gp_store_data(
+                    &payload, structure, encryption, response, block_size, &write,
+                ),
+                GpAction::SecureApdu { apdu, write } => run_gp_secure_apdu(&apdu, &write),
             }
-            GpAction::CreateSd {
-                domain,
-                privileges,
-                allow_to,
-                allow_from,
-                scp,
-                params,
-                write,
-            } => run_gp_create_sd(
-                &domain,
-                &privileges,
-                allow_to,
-                allow_from,
-                scp,
-                &params,
-                &write,
-            ),
-            GpAction::Receipt { receipt } => run_gp_receipt(&receipt),
-            GpAction::PutKey {
-                new_key_version,
-                replace_key_version,
-                key_id,
-                new_keys,
-                replace_current_keyset,
-                write,
-            } => run_gp_put_key(
-                new_key_version,
-                replace_key_version,
-                key_id,
-                &new_keys,
-                replace_current_keyset,
-                &write,
-            ),
-            GpAction::CplcSet {
-                kind,
-                data,
-                today,
-                write,
-            } => run_gp_cplc_set(kind, &data, today, &write),
-            GpAction::Personalize { aid, data, write } => run_gp_personalize(&aid, &data, &write),
-            GpAction::Move {
-                aid,
-                from,
-                to,
-                write,
-            } => run_gp_move(&aid, &from, &to, &write),
-            GpAction::StoreData {
-                payload,
-                structure,
-                encryption,
-                response,
-                block_size,
-                write,
-            } => run_gp_store_data(
-                &payload, structure, encryption, response, block_size, &write,
-            ),
-            GpAction::SecureApdu { apdu, write } => run_gp_secure_apdu(&apdu, &write),
-        },
+        }
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
             EuiccAction::Profiles(f) => run_euicc(euicc::Query::Profiles, &f),
@@ -4241,6 +4285,27 @@ fn run_gp(
     channel: u8,
     pass: impl FnOnce(&mut dyn CardSession, bool) -> Result<gp::Report, session::Error>,
 ) -> contract::ExitCode {
+    run_gp_with(
+        what,
+        reader,
+        json,
+        trace,
+        channel,
+        &gp::profile::DEFAULT,
+        pass,
+    )
+}
+
+/// `run_gp` under a named card profile (#238), reported as `data.profile`.
+fn run_gp_with(
+    what: &str,
+    reader: Option<&str>,
+    json: bool,
+    trace: bool,
+    channel: u8,
+    profile: &gp::profile::CardProfile,
+    pass: impl FnOnce(&mut dyn CardSession, bool) -> Result<gp::Report, session::Error>,
+) -> contract::ExitCode {
     const KIND: &str = "gp";
     guard_exchange(KIND, json);
     let refuse =
@@ -4260,6 +4325,8 @@ fn run_gp(
     };
     let mut data = report.data;
     data["reader"] = serde_json::json!(reader.as_str());
+    // The profile that was in force, beside the answer it produced (#238).
+    data["profile"] = gp::profile::to_json(profile);
     if channel != 0 {
         data["logical_channel"] = serde_json::json!(channel);
         gp::retarget_channel(&mut data, channel);
@@ -4512,6 +4579,7 @@ fn run_gp_status(
     json: bool,
     trace: bool,
     channel: u8,
+    profile: &gp::profile::CardProfile,
     args: &GpKeyArgs,
     view: Option<&'static str>,
 ) -> contract::ExitCode {
@@ -4526,16 +4594,28 @@ fn run_gp_status(
     let keys = match load_gp_keys(args, json) {
         Ok(Some(keys)) => keys,
         Ok(None) => {
-            return run_gp("gp status", reader, json, trace, channel, |s, t| {
-                gp::status(s, t).map(mark)
-            })
+            return run_gp_with(
+                "gp status",
+                reader,
+                json,
+                trace,
+                channel,
+                profile,
+                |s, t| gp::status(s, t, profile).map(mark),
+            )
         }
         Err(code) => return code,
     };
     let auth = gp_auth(&keys, args, channel);
-    run_gp("gp status", reader, json, trace, channel, |s, t| {
-        gp::status_authenticated(s, t, &auth).map(mark)
-    })
+    run_gp_with(
+        "gp status",
+        reader,
+        json,
+        trace,
+        channel,
+        profile,
+        |s, t| gp::status_authenticated(s, t, profile, &auth).map(mark),
+    )
 }
 
 /// `sim-doctor gp delete`: a dry run unless `--yes`, offline without keys.

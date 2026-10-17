@@ -2591,12 +2591,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp)
-            opts="-h --help cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu help"
+            opts="-P -h --profile --help cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2605,7 +2613,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__ara)
-            opts="-h --reader --json --trace --channel --help"
+            opts="-P -h --reader --json --trace --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2619,6 +2627,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2627,12 +2643,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram)
-            opts="-h --help add delete-all lock config help"
+            opts="-P -h --profile --help add delete-all lock config help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2641,7 +2665,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__add)
-            opts="-h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2695,6 +2719,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2703,7 +2735,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__config)
-            opts="-h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --help"
+            opts="-P -h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2749,6 +2781,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2757,7 +2797,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all)
-            opts="-h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2792,6 +2832,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2887,7 +2935,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__lock)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2921,6 +2969,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2929,12 +2985,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert)
-            opts="-h --help read construct sign help"
+            opts="-P -h --profile --help read construct sign help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -2943,7 +3007,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__construct)
-            opts="-h --cert-serial --cert-ca --cert-subject --cert-usage --cert-effective --cert-expires --cert-image-number --cert-discretionary --cert-authorizations --cert-pubkey --cert-out --json --help"
+            opts="-P -h --cert-serial --cert-ca --cert-subject --cert-usage --cert-effective --cert-expires --cert-image-number --cert-discretionary --cert-authorizations --cert-pubkey --cert-out --json --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2990,6 +3054,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --cert-out)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3071,7 +3143,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__read)
-            opts="-h --reader --json --trace --channel --help"
+            opts="-P -h --reader --json --trace --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3085,6 +3157,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3093,7 +3173,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__sign)
-            opts="-h --cert-serial --cert-ca --cert-subject --cert-usage --cert-effective --cert-expires --cert-image-number --cert-discretionary --cert-authorizations --cert-pubkey --cert-out --cert-key-file --cert-key-env --json --help"
+            opts="-P -h --cert-serial --cert-ca --cert-subject --cert-usage --cert-effective --cert-expires --cert-image-number --cert-discretionary --cert-authorizations --cert-pubkey --cert-out --cert-key-file --cert-key-env --json --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3151,6 +3231,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3159,12 +3247,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__channel)
-            opts="-h --help open close help"
+            opts="-P -h --profile --help open close help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3173,7 +3269,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__channel__subcmd__close)
-            opts="-h --channel --reader --json --trace --help"
+            opts="-P -h --channel --reader --json --trace --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3184,6 +3280,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3251,13 +3355,21 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__channel__subcmd__open)
-            opts="-h --reader --json --trace --help"
+            opts="-P -h --reader --json --trace --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
                 --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3269,7 +3381,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cplc__subcmd__set)
-            opts="-h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3311,6 +3423,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3319,7 +3439,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__create__subcmd__sd)
-            opts="-h --domain --privileges --allow-to --allow-from --scp --params --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --domain --privileges --allow-to --allow-from --scp --params --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3369,6 +3489,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3377,12 +3505,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs)
-            opts="-h --help list info activate deactivate help"
+            opts="-P -h --profile --help list info activate deactivate help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3391,7 +3527,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__activate)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3422,6 +3558,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3433,7 +3577,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__deactivate)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3464,6 +3608,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -3559,7 +3711,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__info)
-            opts="-h --reader --json --trace --channel --help"
+            opts="-P -h --reader --json --trace --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3573,6 +3725,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3581,7 +3741,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__list)
-            opts="-h --aid --reader --json --trace --channel --help"
+            opts="-P -h --aid --reader --json --trace --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3599,6 +3759,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3607,7 +3775,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__delete)
-            opts="-h --aid --related --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --aid --related --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3645,6 +3813,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3653,7 +3829,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__delete__subcmd__key)
-            opts="-h --key-id --key-version --related --allow-lockout --reader --json --trace --channel --keys-file --keys-env --yes --help"
+            opts="-P -h --key-id --key-version --related --allow-lockout --reader --json --trace --channel --keys-file --keys-env --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3680,6 +3856,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4209,7 +4393,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__info)
-            opts="-h --reader --json --trace --channel --help"
+            opts="-P -h --reader --json --trace --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4223,6 +4407,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4231,7 +4423,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__install)
-            opts="-F -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-F -P -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4325,6 +4517,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4333,7 +4533,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__make__subcmd__default)
-            opts="-h --aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4371,6 +4571,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4379,7 +4587,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__move)
-            opts="-h --aid --from --to --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --aid --from --to --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4425,6 +4633,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4433,7 +4649,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__personalize)
-            opts="-h --aid --data --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --aid --data --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4475,6 +4691,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4483,7 +4707,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__put__subcmd__key)
-            opts="-h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4537,6 +4761,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4545,7 +4777,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__receipt)
-            opts="-h --receipt --response --confirmation-data --kind --elf-aid --sd-aid --app-aid --from-aid --to-aid --privileges --registry-params --receipt-key-file --receipt-key-env --json --help"
+            opts="-P -h --receipt --response --confirmation-data --kind --elf-aid --sd-aid --app-aid --from-aid --to-aid --privileges --registry-params --receipt-key-file --receipt-key-env --json --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4603,6 +4835,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4611,7 +4851,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__release__subcmd__scp)
-            opts="-h --channel --reader --json --trace --yes --help"
+            opts="-P -h --channel --reader --json --trace --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4625,6 +4865,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4633,7 +4881,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__rename__subcmd__isd)
-            opts="-h --new-aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --new-aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4671,6 +4919,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4679,7 +4935,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__secure__subcmd__apdu)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4713,6 +4969,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4721,7 +4985,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__select)
-            opts="-h --aid --reader --json --trace --channel --help"
+            opts="-P -h --aid --reader --json --trace --channel --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4739,6 +5003,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4747,7 +5019,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__status)
-            opts="-h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --mode --key-kdf --help"
+            opts="-P -h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --mode --key-kdf --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4781,6 +5053,14 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4789,7 +5069,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__store__subcmd__data)
-            opts="-h --data --dgi-tag --dgi-value --emv-perso --emv-pre-perso --structure --encryption --response --block-size --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-P -h --data --dgi-tag --dgi-value --emv-perso --emv-pre-perso --structure --encryption --response --block-size --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4852,6 +5132,14 @@ _sim__doctor() {
                     return 0
                     ;;
                 --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

@@ -460,6 +460,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (gp)
 _arguments "${_arguments_options[@]}" : \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ":: :_sim-doctor__subcmd__gp_commands" \
@@ -474,6 +476,8 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (cert)
 _arguments "${_arguments_options[@]}" : \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ":: :_sim-doctor__subcmd__gp__subcmd__cert_commands" \
@@ -490,10 +494,12 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (construct)
@@ -509,9 +515,11 @@ _arguments "${_arguments_options[@]}" : \
 '--cert-authorizations=[Authorization rules, tag BF20, as hex, per Amendment F v1.4 Table B-1. Passed through as given\: this tool does not interpret them]:HEX:_default' \
 '--cert-pubkey=[Subject public key, tag 7F49\: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y). \`gp cert sign\` derives it from the signing key and does not need this; \`gp cert construct\` does, and has no key to derive it from]:HEX:_default' \
 '--cert-out=[Where to write the certificate\: the whole 7F21 TLV. Nothing is written without it]:PATH:_files' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Print the certificate as one JSON object instead of the table]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (sign)
@@ -529,9 +537,11 @@ _arguments "${_arguments_options[@]}" : \
 '--cert-out=[Where to write the certificate\: the whole 7F21 TLV. Nothing is written without it]:PATH:_files' \
 '--cert-key-file=[File holding the P-256 signing key (chmod 600)]:PATH:_files' \
 '--cert-key-env=[Environment variable holding the P-256 signing key]:VAR:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Print the certificate as one JSON object instead of the table]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (help)
@@ -574,6 +584,8 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -584,6 +596,8 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -603,6 +617,8 @@ rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '(--list --info)--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '(--info)--list[Print the registry as a table\: scope, AID, lifecycle, privileges]' \
 '--info[Print each registry entry in detail, with its raw lifecycle and privilege bytes]' \
@@ -616,6 +632,8 @@ _arguments "${_arguments_options[@]}" : \
 '--aid=[The application AID, 5 to 16 bytes of hex]:HEX:_default' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -624,6 +642,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (crs)
 _arguments "${_arguments_options[@]}" : \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ":: :_sim-doctor__subcmd__gp__subcmd__crs_commands" \
@@ -641,20 +661,24 @@ _arguments "${_arguments_options[@]}" : \
 '--aid=[Narrow the listing to applications whose AID starts with these bytes]:HEX:_default' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (info)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (activate)
@@ -670,6 +694,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -691,6 +717,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -741,8 +769,10 @@ esac
 ;;
 (channel)
 _arguments "${_arguments_options[@]}" : \
-'-h[Print help]' \
-'--help[Print help]' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 ":: :_sim-doctor__subcmd__gp__subcmd__channel_commands" \
 "*::: :->channel" \
 && ret=0
@@ -756,20 +786,24 @@ _arguments "${_arguments_options[@]}" : \
             (open)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (close)
 _arguments "${_arguments_options[@]}" : \
 '--channel=[The channel to close, 1 to 19]:N:_default' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (help)
@@ -808,6 +842,8 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '--channel=[The logical channel whose secure channel is released, 1 to 19]:N:_default' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the MANAGE CHANNEL close. Without it nothing is sent]' \
@@ -829,6 +865,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--related[Also delete related objects (P2 80)\: for a load file, its applications]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -851,6 +889,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -872,6 +912,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -887,6 +929,8 @@ _arguments "${_arguments_options[@]}" : \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--related[Also delete related objects (P2 80)]' \
 '--allow-lockout[Send a delete that would remove the key set this session authenticated with, or every key on the card, as a WARNING instead of refusing it. Still needs --yes; without it nothing is sent]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -924,6 +968,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '(--load --update)--install-only[Send INSTALL \[for install and make selectable\] only\: the module is already on the card. Refuses --load; needs --package]' \
 '-F[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
 '--no-felix[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
@@ -956,6 +1002,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--allow-to[allow-to (tag 82)\: any class may be extradited into the new domain]' \
 '--allow-from[allow-from (tag 87)\: the new domain may be extradited out of it]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -983,6 +1031,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--replace-current-keyset[Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -1006,6 +1056,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--today[Write today'\''s date (UTC) into the date bytes, overriding those in --data]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -1029,6 +1081,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -1038,6 +1092,8 @@ all\:"33\: all four protections"))' \
 ;;
 (aram)
 _arguments "${_arguments_options[@]}" : \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ":: :_sim-doctor__subcmd__gp__subcmd__aram_commands" \
@@ -1068,6 +1124,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '(--aid)--aid-empty[No specific application\: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)]' \
 '(--apdu-always --apdu-filter)--apdu-never[Never allow the application'\''s APDUs (APDU-AR-DO D0 01 00)]' \
 '(--apdu-never --apdu-filter)--apdu-always[Always allow the application'\''s APDUs (APDU-AR-DO D0 01 01)]' \
@@ -1094,6 +1152,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -1114,6 +1174,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -1137,6 +1199,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -1199,6 +1263,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
@@ -1221,6 +1287,8 @@ _arguments "${_arguments_options[@]}" : \
 '--registry-params=[Registry Update Parameters being written, hex (registry update)]:HEX:_default' \
 '--receipt-key-file=[File holding the receipt generation key (keep it chmod 600)]:PATH:_files' \
 '--receipt-key-env=[Environment variable holding the receipt generation key]:VAR:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1247,6 +1315,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--response[P1 b1\: let the card answer each block]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -1268,6 +1338,8 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
