@@ -69,6 +69,7 @@ Options:
       --max-children <N>     Identifiers probed per directory
       --max-nodes <N>        Files the card selected across the whole walk (default 16384)
       --max-directories <N>  Directories whose children are enumerated
+  -b, --scan-file-break      Break after finding all files the card claims to have (DF count matches) [alias: --sfb]
       --sffs                 Follow standard identifiers only (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011). When set, the walk probes only the file identifiers defined in the ETSI and 3GPP specifications, plus the files pySim can decode with standard names. This is stricter than the default (SimFamilies), which probes the broader GSM 11.11 family ranges (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx). Corresponds to SIMTester's `-sffs` flag
       --score                Add one quality score for this card, for CI gating
       --severity <LEVEL>     Drop findings below this severity
@@ -110,6 +111,7 @@ Options:
       --max-children <N>     Identifiers probed per directory
       --max-nodes <N>        Files the card selected across the whole walk (default 16384)
       --max-directories <N>  Directories whose children are enumerated
+  -b, --scan-file-break      Break after finding all files the card claims to have (DF count matches) [alias: --sfb]
   -h, --help                 Print help (see more with '--help')
 
 $ sim-doctor install -h [exit 0]
@@ -998,6 +1000,7 @@ Options:
       --max-children <N>     Identifiers probed per directory
       --max-nodes <N>        Files the card selected across the whole walk (default 16384)
       --max-directories <N>  Directories whose children are enumerated
+  -b, --scan-file-break      Break after finding all files the card claims to have (DF count matches) [alias: --sfb]
       --tar <SELECTION>      Which TARs to probe for MSL 0 before the session opens (default: none; see `scan --help`) [default: off]
   -c <COMMANDS>              Run these `;`-separated commands and exit
       --json                 Print every reply as one JSON record (for agents)
@@ -1016,6 +1019,7 @@ Options:
       --max-children <N>     Identifiers probed per directory
       --max-nodes <N>        Files the card selected across the whole walk (default 16384)
       --max-directories <N>  Directories whose children are enumerated
+  -b, --scan-file-break      Break after finding all files the card claims to have (DF count matches) [alias: --sfb]
       --tar <SELECTION>      Which TARs to probe for MSL 0 before the session opens (default: none; see `scan --help`) [default: off]
   -h, --help                 Print help (see more with '--help')
 
