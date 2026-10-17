@@ -776,6 +776,38 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Make an installed application Default Selected over an SCP03 channel:
+    /// INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform
+    /// Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT.
+    ///
+    /// A dry run unless --yes (offline without keys), with the same safeguards as
+    /// delete: one authentication attempt, a registry pre-read that refuses an AID
+    /// that is absent, is the issuer security domain or is not an application.
+    /// --yes needs keys. Keys come from a file or environment variable, never the
+    /// command line. Not available over MCP.
+    MakeDefault {
+        /// The application AID, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+    /// Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN
+    /// AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT.
+    ///
+    /// WARNING: this can lock you out. The old ISD AID no longer selects the ISD,
+    /// so a mistyped or unrecorded new AID leaves administrative access reachable
+    /// only by the new AID. A dry run unless --yes (offline without keys), which
+    /// prints the warning and the exact APDU; the pre-read refuses an AID already
+    /// in the registry. --yes needs keys, read from a file or environment variable,
+    /// never the command line. Not available over MCP.
+    RenameIsd {
+        /// The new ISD AID, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        new_aid: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
     /// Load a CAP file and install an applet over an SCP03 channel: INSTALL [for
     /// load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card
     /// Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT.
@@ -1979,6 +2011,8 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 related,
                 write,
             } => run_gp_delete(&aid, related, &write),
+            GpAction::MakeDefault { aid, write } => run_gp_make_default(&aid, &write),
+            GpAction::RenameIsd { new_aid, write } => run_gp_rename_isd(&new_aid, &write),
             GpAction::Install {
                 load,
                 module,
@@ -2805,6 +2839,80 @@ fn run_gp_cplc_set(
         w.trace,
         w.channel.channel,
         |s, t| gp::cplc_set(s, t, &req, &auth, w.yes),
+    )
+}
+
+fn run_gp_make_default(aid: &str, w: &GpWriteFlags) -> contract::ExitCode {
+    let Some(aid) = parse_aid(aid) else {
+        return report_refusal(
+            "gp",
+            "--aid must be 5 to 16 bytes of hex",
+            serde_json::json!({ "error": { "kind": "bad-aid" } }),
+            w.json,
+        );
+    };
+    let req = gp::MakeDefaultRequest { aid };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::make_default_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp make-default", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp make-default",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::make_default(s, t, &req, &auth, w.yes),
+    )
+}
+
+fn run_gp_rename_isd(new_aid: &str, w: &GpWriteFlags) -> contract::ExitCode {
+    let Some(new_aid) = parse_aid(new_aid) else {
+        return report_refusal(
+            "gp",
+            "--new-aid must be 5 to 16 bytes of hex",
+            serde_json::json!({ "error": { "kind": "bad-aid" } }),
+            w.json,
+        );
+    };
+    let req = gp::RenameIsdRequest { new_aid };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::rename_isd_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp rename-isd", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp rename-isd",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::rename_isd(s, t, &req, &auth, w.yes),
     )
 }
 
