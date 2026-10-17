@@ -9652,6 +9652,7 @@ mod crs_tests {
             key_version: 0x30,
             host_challenge: HOST_CHALLENGE,
             logical_channel: 0,
+            level: scp03::SecurityLevel::C_MAC,
         }
     }
 
