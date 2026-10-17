@@ -3615,6 +3615,60 @@ pub fn resume_uicc_command(cla: u8, token: &[u8]) -> Result<apdu::Command, Strin
     ))
 }
 
+/// BIP channel ENVELOPE (INS C2) builders (issue #203, TS 102 223).
+///
+/// These build the data field of an ENVELOPE APDU (`cla C2 00 00 Lc data`)
+/// that a terminal sends to the card to drive a BIP (Bearer Independent
+/// Protocol) channel session. The class is `card.cla() | 0x80` (80 on a UICC,
+/// A0 on a SIM), INS C2 is [`crate::tar::INS_ENVELOPE`].
+///
+/// - `bip_data_available` wraps the Data Available event (D6) so the card
+///   FETCHes RECEIVE DATA.
+/// - `bip_terminal_response` builds a TERMINAL RESPONSE (INS 0x14) body
+///   answering a BIP proactive command.
+///
+/// Build the ENVELOPE APDU body for a BIP Data Available event on `chan`.
+///
+/// The event is an ENVELOPE EVENT DOWNLOAD (tag D6) per TS 102 223 7.5.10.2:
+/// Event list (data_available), Device identities (terminal→UICC), Channel
+/// status (established), Channel data length (bytes available).
+pub fn bip_data_available_envelope(chan: u8, bytes_available: u8) -> Result<Vec<u8>, String> {
+    if !(1..=7).contains(&chan) {
+        return Err(format!(
+            "bip_data_available: channel {chan} is not 1..=7 (TS 102 223 8.56: 1 to 7)"
+        ));
+    }
+    Ok(crate::cat::bip_data_available_envelope(
+        chan,
+        bytes_available,
+    ))
+}
+
+/// Build the data field of a TERMINAL RESPONSE (INS 0x14) answering a BIP
+/// proactive command.
+///
+/// `type_of_command` is a BIP command type (OPEN CHANNEL 0x40, CLOSE CHANNEL
+/// 0x41, RECEIVE DATA 0x42, SEND DATA 0x43, GET CHANNEL STATUS 0x44). The body
+/// carries Command details, Device identities (terminal→UICC), Result, and
+/// any extra IEs (channel status, bearer description, buffer size, channel
+/// data length, etc.).
+pub fn bip_terminal_response(
+    command_number: u8,
+    type_of_command: u8,
+    qualifier: u8,
+    result: u8,
+    extra: &[Vec<u8>],
+) -> Vec<u8> {
+    crate::cat::bip_terminal_response(command_number, type_of_command, qualifier, result, extra)
+}
+
+/// Build the data field of a TERMINAL RESPONSE answering PROVIDE LOCAL
+/// INFORMATION (0x26) with location information. `location` is the raw
+/// Location information IE value (e.g. PLMN+LAG+cell, TS 31.111 8.19.1).
+pub fn bip_local_info_response(command_number: u8, location: &[u8]) -> Vec<u8> {
+    crate::cat::bip_local_info_response(command_number, location)
+}
+
 /// pySim's `sw_match`: `pattern` is 4 hex digits in which `x` stands for any digit.
 pub fn sw_match(sw: &str, pattern: &str) -> bool {
     let (sw, pattern) = (sw.to_ascii_lowercase(), pattern.to_ascii_lowercase());
@@ -4050,6 +4104,40 @@ pub fn grammar() -> clap::Command {
                 .arg(yes_arg()),
         )
         .subcommand(
+            C::new("bip_data_available")
+                .about("BIP Data Available: ENVELOPE EVENT DOWNLOAD (tag D6, INS C2) reporting bytes available on BIP channel N, so the card FETCHes RECEIVE DATA. WARNING: it runs SIM Toolkit code on the card and can change its state; a dry run unless --yes")
+                .arg(
+                    Arg::new("channel")
+                        .required(true)
+                        .value_parser(clap::value_parser!(u8).range(1..=7))
+                        .value_name("CHANNEL"),
+                )
+                .arg(
+                    Arg::new("bytes")
+                        .required(true)
+                        .value_parser(clap::value_parser!(u8))
+                        .value_name("BYTES"),
+                )
+                .arg(yes_arg()),
+        )
+        .subcommand(
+            C::new("bip_local_info")
+                .about("PROVIDE LOCAL INFORMATION response: TERMINAL RESPONSE (INS 14) answering a PROVIDE LOCAL INFORMATION proactive command with location info. WARNING: it runs SIM Toolkit code on the card; a dry run unless --yes")
+                .arg(
+                    Arg::new("command_number")
+                        .required(true)
+                        .value_parser(clap::value_parser!(u8))
+                        .value_name("N"),
+                )
+                .arg(
+                    Arg::new("location")
+                        .num_args(1..)
+                        .value_name("HEX")
+                        .help("location info bytes in hex (e.g. PLMN+LAG+cell); empty answers with no IE"),
+                )
+                .arg(yes_arg()),
+        )
+        .subcommand(
             C::new("set_data")
                 .about("SET DATA (TS 102 221 11.3.2): write a BER-TLV object of `tag` to the selected BER-TLV EF. The data replaces any existing object for that tag. **WARNING:** this permanently overwrites card data; a dry run unless --yes")
                 .arg(Arg::new("tag").required(true).value_name("TAG").help("BER-TLV tag, one octet of hex (e.g. 2F or 0x2F)"))
@@ -4430,6 +4518,8 @@ impl Shell {
             "query_card_key" => self.cmd_query_card_key(args),
             "envelope" => self.cmd_envelope(args, false),
             "envelope_sms" => self.cmd_envelope(args, true),
+            "bip_data_available" => self.cmd_bip_data_available(args),
+            "bip_local_info" => self.cmd_bip_local_info(args),
             other => Err(CmdErr::new(format!("`{other}` is not implemented"))),
         }
     }
@@ -4449,6 +4539,71 @@ impl Shell {
                 .flatten()
                 .copied()
                 .unwrap_or(false)
+    }
+
+    /// BIP Data Available: build the D6 event-download ENVELOPE and send it.
+    fn cmd_bip_data_available(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let chan = *args.get_one::<u8>("channel").expect("required");
+        let bytes = *args.get_one::<u8>("bytes").expect("required");
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let data = bip_data_available_envelope(chan, bytes).map_err(CmdErr::new)?;
+        let wire = envelope_command(card.cla() | 0x80, &data)
+            .map(|c| c.encode().unwrap_or_default())
+            .map_err(CmdErr::new)?;
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {} (WARNING: ENVELOPE runs SIM Toolkit code on the card and can change its state; add --yes to send)", hex_upper(&wire)),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let command = envelope_command(card.cla() | 0x80, &data).map_err(CmdErr::new)?;
+        let ex = card.send(&command)?;
+        let sw = ex.status().map(|s| s.to_string());
+        Ok(Reply::ok(
+            format!("sw {}", sw_text(ex.status())),
+            json!({ "sent": true, "apdu": hex_upper(&wire), "sw": sw }),
+        ))
+    }
+
+    /// BIP / PROVIDE LOCAL INFORMATION: build the TERMINAL RESPONSE (INS 0x14)
+    /// answering PROVIDE LOCAL INFORMATION (0x26) with location info.
+    fn cmd_bip_local_info(&mut self, args: &clap::ArgMatches) -> CmdResult {
+        let number = *args.get_one::<u8>("command_number").expect("required");
+        let location = args
+            .get_many::<String>("location")
+            .map(|it| {
+                let joined: String = it.map(String::as_str).collect();
+                parse_hex(&joined)
+            })
+            .transpose()
+            .map_err(CmdErr::new)?
+            .unwrap_or_default();
+        let send = self.may_change_card(args);
+        let card = self.equipped()?;
+        let body = crate::cat::bip_local_info_response(number, &location);
+        let wire = Command::case3(
+            apdu::Header::from_bytes(crate::cat::TERMINAL_RESPONSE_HEADER),
+            body,
+        )
+        .encode()
+        .map_err(|e| CmdErr::new(e.to_string()))?;
+        if !send {
+            return Ok(Reply::ok(
+                format!("dry run: would send {} (WARNING: TERMINAL RESPONSE runs SIM Toolkit code on the card; add --yes to send)", hex_upper(&wire)),
+                json!({ "sent": false, "apdu": hex_upper(&wire) }),
+            ));
+        }
+        let command = Command::case3(
+            apdu::Header::from_bytes(crate::cat::TERMINAL_RESPONSE_HEADER),
+            crate::cat::bip_local_info_response(number, &location),
+        );
+        let ex = card.send(&command)?;
+        let sw = ex.status().map(|s| s.to_string());
+        Ok(Reply::ok(
+            format!("sw {}", sw_text(ex.status())),
+            json!({ "sent": true, "apdu": hex_upper(&wire), "sw": sw }),
+        ))
     }
 
     fn cmd_apdu(&mut self, args: &clap::ArgMatches) -> CmdResult {
@@ -7364,6 +7519,102 @@ mod tests {
             assert!(!r.ok, "record {n}: {}", r.text);
             assert_eq!(log.borrow().len(), before, "record {n} sent an APDU");
         }
+    }
+
+    #[test]
+    fn bip_channel_builders_produce_correct_bytes() {
+        // bip_data_available_envelope: D6 Event Download with EventList, DeviceIdentities,
+        // ChannelStatus, ChannelDataLength. Channel 1, 42 bytes available.
+        // Inner data = 99 01 09 | 82 02 82 81 | B8 02 81 00 | B7 01 2A = 14 bytes
+        let env = bip_data_available_envelope(1, 42).unwrap();
+        assert_eq!(
+            env,
+            vec![
+                0xD6, 0x0E, // D6 Event Download, length 14
+                0x99, 0x01, 0x09, // EventList: data_available (0x09)
+                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
+                0xB8, 0x02, 0x81, 0x00, // ChannelStatus: channel 1, established
+                0xB7, 0x01, 0x2A, // ChannelDataLength: 42 bytes
+            ]
+        );
+        // channel 0 is rejected (channels are 1..=7)
+        assert!(bip_data_available_envelope(0, 1).is_err());
+        assert!(bip_data_available_envelope(8, 1).is_err());
+
+        // bip_terminal_response: TERMINAL RESPONSE body for OPEN CHANNEL.
+        // Command details (81 03 01 40 03) + Device identities (82 02 82 81)
+        // + Result (83 02 00 00) + ChannelStatus (B8 02 81 00)
+        let tr = bip_terminal_response(1, 0x40, 0x03, 0x00, &[vec![0xB8, 0x02, 0x81, 0x00]]);
+        assert_eq!(
+            tr,
+            vec![
+                0x81, 0x03, 0x01, 0x40,
+                0x03, // Command details: cmd 1, OPEN CHANNEL, qualifier 3
+                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
+                0x83, 0x02, 0x00, 0x00, // Result: performed successfully
+                0xB8, 0x02, 0x81, 0x00, // ChannelStatus: channel 1, established
+            ]
+        );
+
+        // bip_local_info_response: TERMINAL RESPONSE answering PROVIDE LOCAL INFO (0x26)
+        // with location information (tag 93).
+        // 81 03 01 26 00 | 82 02 82 81 | 83 02 00 00 | 93 07 <location>
+        let loc = vec![0x62, 0xF2, 0x10, 0x00, 0x01, 0x00, 0x01];
+        let li = bip_local_info_response(2, &loc);
+        assert_eq!(
+            li,
+            vec![
+                0x81, 0x03, 0x02, 0x26,
+                0x00, // Command details: cmd 2, PROVIDE LOCAL INFO, qualifier 0
+                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
+                0x83, 0x02, 0x00, 0x00, // Result: performed successfully
+                0x93, 0x07, // LocationInformation tag + length 7
+                0x62, 0xF2, 0x10, 0x00, 0x01, 0x00, 0x01, // location bytes
+            ]
+        );
+
+        // with empty location, no 93 IE is emitted
+        let li_empty = bip_local_info_response(1, &[]);
+        assert_eq!(
+            li_empty,
+            vec![0x81, 0x03, 0x01, 0x26, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x02, 0x00, 0x00,]
+        );
+
+        // BIP commands all use ENVELOPE or TERMINAL RESPONSE, not read-only INS
+        assert!(!is_read_only(0xC2)); // ENVELOPE
+        assert!(!is_read_only(0x14)); // TERMINAL RESPONSE is not in READ_ONLY_INS by design;
+                                      // actually 0x14 is not in READ_ONLY_INS, but let's check it's gated anyway:
+                                      // the BIP commands are gated by --yes regardless
+    }
+
+    #[test]
+    fn bip_channel_decode_helpers() {
+        // channel_status: 0x81 0x00 => channel 1, established
+        let (chan, est) = crate::cat::decode_channel_status(&[0x81, 0x00]).unwrap();
+        assert_eq!(chan, 1);
+        assert!(est);
+
+        // 0x01 0x00 => channel 1, not established
+        let (chan, est) = crate::cat::decode_channel_status(&[0x01, 0x00]).unwrap();
+        assert_eq!(chan, 1);
+        assert!(!est);
+
+        // channel 3 established: 0x83 0x00
+        let (chan, est) = crate::cat::decode_channel_status(&[0x83, 0x00]).unwrap();
+        assert_eq!(chan, 3);
+        assert!(est);
+
+        // device identity 0x82 -> channel 2: dest = 0x22
+        let n = crate::cat::decode_channel_from_device_id(&[0x81, 0x22]).unwrap();
+        assert_eq!(n, 2);
+
+        // device identity not a channel
+        assert!(crate::cat::decode_channel_from_device_id(&[0x81, 0x82]).is_none());
+
+        // event name
+        assert_eq!(crate::cat::decode_event_name(0x09), Some("data available"));
+        assert_eq!(crate::cat::decode_event_name(0x0A), Some("channel status"));
+        assert_eq!(crate::cat::decode_event_name(0xFF), None);
     }
 }
 
