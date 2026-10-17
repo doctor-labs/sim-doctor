@@ -8079,6 +8079,7 @@ mod tests {
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
                 card_key: None,
+                card_keys: None,
             },
         );
         sh.equip(None, Profile::Uicc).unwrap();
@@ -8112,6 +8113,7 @@ mod tests {
                 dialect: TagSet::ts_102_221(),
                 secrets: None,
                 card_key: None,
+                card_keys: None,
             },
         );
         sh.equip(None, Profile::Uicc).unwrap();
