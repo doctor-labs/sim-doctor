@@ -58,6 +58,8 @@ _arguments "${_arguments_options[@]}" : \
 '--csv=[The same results as a CSV log, in the layout SIMTester writes]:FILE:_files' \
 '--tar=[Which TARs to probe for MSL 0, and how many]:SELECTION:_default' \
 '--tar-filter=[SIMTester'\''s \`-stre\`\: skip TAR probes whose response matches this regex]:REGEX:_default' \
+'--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
+gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
 '(--json --tui)--face=[The human report\: a doctor-kit face (rich, plain or compact), or the full legacy report]:FACE:(rich plain compact legacy)' \
 '(--json --tui)--theme=[The face'\''s colours\: mono, clinical or contrast (default\: the tool'\''s own)]:THEME:_default' \
 '(--json --tui)--color=[Colour the face\: auto (a terminal and no NO_COLOR), always or never]:COLOR:(auto always never)' \
@@ -1933,13 +1935,15 @@ _arguments "${_arguments_options[@]}" : \
 '--kid=[Pin the KID octet (one hex byte, like 31) for every probe instead of sweeping it from the keyset. Header octet, not key material]:HEX:_default' \
 '--spi1=[Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it]:HEX:_default' \
 '--spi2=[Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it]:HEX:_default' \
+'--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
+gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
 '--i-understand-this-can-brick-the-card[Required. Without it, \`fuzz\` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)]' \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '--quick[Probe a small, documented subset instead of the full space]' \
 '(--quick)--poke[Like \`--quick\`, but probes only the three TARs SIMTester'\''s \`-poke\` probes\: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (mutate)

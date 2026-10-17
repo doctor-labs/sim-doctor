@@ -54,7 +54,7 @@ NOTES
   (none)
 
 TAR SELECTION: focused at CLA etsi (80)
-  NOTE: the ENVELOPE was sent at CLA 80 (etsi), the only class swSIM dispatches ENVELOPE at; a 2G card routes ENVELOPE at CLA A0 (gsm) and that is not selectable yet, so a scan that found no accepted TAR on a 2G card has not shown the card refuses TARs, only that nothing arrived where this tool sent it
+  NOTE: the ENVELOPE and every CAT follow-up went out at CLA 80 (etsi), which --class etsi selects; swSIM dispatches ENVELOPE only at CLA 80 and a 2G card routes it at CLA A0, so a card that routes CAT at the other class has not been shown this tool anything about its TAR accept-list, only that nothing arrived where this tool sent it - re-run with --class gsm to probe that class as well
 
 TAR PROBES: 656 (cap 4096, 676 exchange(s))
   000000  accepted  status 6D00

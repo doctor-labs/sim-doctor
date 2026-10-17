@@ -82,6 +82,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--csv', '--csv', [CompletionResultType]::ParameterName, 'The same results as a CSV log, in the layout SIMTester writes')
             [CompletionResult]::new('--tar', '--tar', [CompletionResultType]::ParameterName, 'Which TARs to probe for MSL 0, and how many')
             [CompletionResult]::new('--tar-filter', '--tar-filter', [CompletionResultType]::ParameterName, 'SIMTester''s `-stre`: skip TAR probes whose response matches this regex')
+            [CompletionResult]::new('--class', '--class', [CompletionResultType]::ParameterName, 'The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).')
             [CompletionResult]::new('--face', '--face', [CompletionResultType]::ParameterName, 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report')
             [CompletionResult]::new('--theme', '--theme', [CompletionResultType]::ParameterName, 'The face''s colours: mono, clinical or contrast (default: the tool''s own)')
             [CompletionResult]::new('--color', '--color', [CompletionResultType]::ParameterName, 'Colour the face: auto (a terminal and no NO_COLOR), always or never')
@@ -1396,13 +1397,14 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--kid', '--kid', [CompletionResultType]::ParameterName, 'Pin the KID octet (one hex byte, like 31) for every probe instead of sweeping it from the keyset. Header octet, not key material')
             [CompletionResult]::new('--spi1', '--spi1', [CompletionResultType]::ParameterName, 'Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it')
             [CompletionResult]::new('--spi2', '--spi2', [CompletionResultType]::ParameterName, 'Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it')
+            [CompletionResult]::new('--class', '--class', [CompletionResultType]::ParameterName, 'The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).')
             [CompletionResult]::new('--i-understand-this-can-brick-the-card', '--i-understand-this-can-brick-the-card', [CompletionResultType]::ParameterName, 'Required. Without it, `fuzz` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)')
             [CompletionResult]::new('--allow-real-hardware', '--allow-real-hardware', [CompletionResultType]::ParameterName, 'Required in addition to the opt-in above when the reader''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, `fuzz` refuses to run against anything that is not recognisably the software card')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
             [CompletionResult]::new('--quick', '--quick', [CompletionResultType]::ParameterName, 'Probe a small, documented subset instead of the full space')
             [CompletionResult]::new('--poke', '--poke', [CompletionResultType]::ParameterName, 'Like `--quick`, but probes only the three TARs SIMTester''s `-poke` probes: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds')
-            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
-            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
         'sim-doctor;fuzz;mutate' {

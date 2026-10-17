@@ -87,6 +87,7 @@ Options:
       --csv <FILE>             The same results as a CSV log, in the layout SIMTester writes
       --tar <SELECTION>        Which TARs to probe for MSL 0, and how many [default: off]
       --tar-filter <REGEX>     SIMTester's `-stre`: skip TAR probes whose response matches this regex
+      --class <CLASS>          The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0). [possible values: etsi, gsm]
       --terminal-profile       Send a TERMINAL PROFILE to the card before the TAR audit
       --sms-deliver-report     Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT
       --reserved-file-ids      Scan reserved file identifiers 7FF0-7FFF inside an application [alias: --sfrv]
@@ -1391,8 +1392,10 @@ Options:
           Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it
       --spi2 <HEX>
           Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it
+      --class <CLASS>
+          The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0). [possible values: etsi, gsm]
   -h, --help
-          Print help
+          Print help (see more with '--help')
 
 $ sim-doctor fuzz mutate -h [exit 0]
 Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)

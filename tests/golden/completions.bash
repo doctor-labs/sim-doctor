@@ -2553,7 +2553,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__fuzz__subcmd__ota)
-            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --kic --kid --spi1 --spi2 --help"
+            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --kic --kid --spi1 --spi2 --class --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2577,6 +2577,10 @@ _sim__doctor() {
                     ;;
                 --spi2)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --class)
+                    COMPREPLY=($(compgen -W "etsi gsm" -- "${cur}"))
                     return 0
                     ;;
                 *)
@@ -7077,7 +7081,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-b -h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --csv --tar --tar-filter --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --tar-uncapped --face --theme --color --headless --help"
+            opts="-b -h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --csv --tar --tar-filter --class --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --tar-uncapped --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7137,6 +7141,10 @@ _sim__doctor() {
                     ;;
                 --tar-filter)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --class)
+                    COMPREPLY=($(compgen -W "etsi gsm" -- "${cur}"))
                     return 0
                     ;;
                 --face)
