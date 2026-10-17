@@ -52,6 +52,8 @@ pub struct TestCard {
     pub puk: std::collections::BTreeMap<u8, (Vec<u8>, u8, u8)>,
     /// The highest sequence number the card has accepted (SQNms).
     pub sqn_ms: u64,
+    /// Whether the card is locked (SET STATUS ISD/locked has been applied).
+    pub locked: bool,
 }
 
 #[derive(Clone)]
@@ -213,6 +215,7 @@ impl TestCard {
                 .into_iter()
                 .map(|(k, c)| (k, (pad(c), 10, 10)))
                 .collect(),
+            locked: false,
         }
     }
 
@@ -415,6 +418,11 @@ impl CardSession for TestCard {
         if c.len() < 4 {
             return Ok(vec![0x67, 0x00]);
         }
+        // SET STATUS (INS F0) passes even when the card is locked: it is the
+        // only command allowed during a lock.
+        if self.locked && c[1] != 0xF0 {
+            return Ok(vec![0x6A, 0x81]); // conditions not satisfied
+        }
         let ch = usize::from(if c[0] & 0x40 == 0 {
             c[0] & 0x03
         } else {
@@ -616,6 +624,10 @@ impl CardSession for TestCard {
             // TERMINAL RESPONSE (INS 0x14): answers a proactive command.
             // The test card answers 90 00.
             0x14 => vec![0x90, 0x00],
+            // SET STATUS (GP Card Spec v2.3.1 11.5.2.3.3, INS F0): P1 = scope,
+            // P2 = lifecycle state. The card is locked when scope is ISD and the
+            // state is `locked` (0x83). The AID data, if present, names a file.
+            0xF0 => self.set_status(c[2], c[3], data),
             _ => vec![0x6D, 0x00],
         })
     }
@@ -747,6 +759,24 @@ impl TestCard {
             identity.extend_from_slice(&[0x90, 0x00]);
             identity
         }
+    }
+
+    /// SET STATUS (GP Card Spec v2.3.1 11.5.2.3.3): `p1` = scope, `p2` = state.
+    /// Only the ISD lock is simulated: ISD scope (`80`) with CARD_LOCKED (`7F`)
+    /// sets the card's `locked` flag so later commands answer `6A 81`; ISD scope
+    /// with INITIALIZED (`07`) or SECURED (`0F`) clears it. Every other scope and
+    /// state answers `90 00` without changing anything; the AID is ignored.
+    fn set_status(&mut self, p1: u8, p2: u8, data: &[u8]) -> Vec<u8> {
+        if p1 == 0x80 && p2 == 0x7F {
+            self.locked = true;
+            return vec![0x90, 0x00];
+        }
+        if p1 == 0x80 && matches!(p2, 0x07 | 0x0F) && self.locked {
+            self.locked = false;
+            return vec![0x90, 0x00];
+        }
+        let _ = data;
+        vec![0x90, 0x00]
     }
 }
 
