@@ -3952,13 +3952,21 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__install)
-            opts="-F -h --load --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
+            opts="-F -h --load --install-only --update --package --module --app --params --no-felix --privileges --make-default --bs --cl-activated --cl-notify --cl-notify-remove --cl-family --cl-display-optional --cl-contact --cl-contactless --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
                 --load)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --update)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --package)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
