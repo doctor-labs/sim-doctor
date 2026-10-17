@@ -692,21 +692,25 @@ Delete an application or an executable load file over an SCP03 channel (DELETE, 
 Usage: sim-doctor gp delete [OPTIONS] --aid <HEX>
 
 Options:
-      --aid <HEX>           The AID to delete, 5 to 16 bytes of hex
-  -P, --profile <NAME>      Use a named card profile instead of the built-in default (#238)
-      --related             Also delete related objects (P2 80): for a load file, its applications
-      --reader <NAME>       The reader to use, matched against the driver's own name
-      --json                Emit one JSON envelope of kind "gp" on stdout
-      --trace               Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>    File holding the keys (keep it chmod 600)
-      --keys-env <VAR>      Environment variable holding the keys
-      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
-      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
-      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help                Print help (see more with '--help')
+      --aid <HEX>             The AID to delete, 5 to 16 bytes of hex
+  -P, --profile <NAME>        Use a named card profile instead of the built-in default (#238)
+      --related               Also delete related objects (P2 80): for a load file, its applications
+      --dm-key-file <PATH>    File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)
+      --dm-key-env <VAR>      Environment variable holding the AES token calculation key
+      --dm-token-file <PATH>  File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)
+      --dm-token-env <VAR>    Environment variable holding the Delegated Management token
+      --reader <NAME>         The reader to use, matched against the driver's own name
+      --json                  Emit one JSON envelope of kind "gp" on stdout
+      --trace                 Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>      File holding the keys (keep it chmod 600)
+      --keys-env <VAR>        Environment variable holding the keys
+      --key-version <HEX>     Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>           SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>    Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                   Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
+      --channel <N>           Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                   Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                  Print help (see more with '--help')
 
 $ sim-doctor gp make-default -h [exit 0]
 Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT
@@ -800,6 +804,10 @@ Options:
       --dap-domain <HEX>        The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated
       --dap-alg <DAP_ALG>       The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1) [default: aes] [possible values: aes, des, ecc]
       --dap-hash <DAP_HASH>     The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha256, sha384, sha512]
+      --dm-key-file <PATH>      File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)
+      --dm-key-env <VAR>        Environment variable holding the AES token calculation key
+      --dm-token-file <PATH>    File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)
+      --dm-token-env <VAR>      Environment variable holding the Delegated Management token
       --reader <NAME>           The reader to use, matched against the driver's own name
       --json                    Emit one JSON envelope of kind "gp" on stdout
       --trace                   Add every APDU exchange (command and response hex) as data.trace

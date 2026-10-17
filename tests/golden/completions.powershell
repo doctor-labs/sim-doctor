@@ -661,6 +661,10 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;gp;delete' {
             [CompletionResult]::new('--aid', '--aid', [CompletionResultType]::ParameterName, 'The AID to delete, 5 to 16 bytes of hex')
+            [CompletionResult]::new('--dm-key-file', '--dm-key-file', [CompletionResultType]::ParameterName, 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)')
+            [CompletionResult]::new('--dm-key-env', '--dm-key-env', [CompletionResultType]::ParameterName, 'Environment variable holding the AES token calculation key')
+            [CompletionResult]::new('--dm-token-file', '--dm-token-file', [CompletionResultType]::ParameterName, 'File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)')
+            [CompletionResult]::new('--dm-token-env', '--dm-token-env', [CompletionResultType]::ParameterName, 'Environment variable holding the Delegated Management token')
             [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
             [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
             [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')
@@ -752,6 +756,10 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--dap-domain', '--dap-domain', [CompletionResultType]::ParameterName, 'The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated')
             [CompletionResult]::new('--dap-alg', '--dap-alg', [CompletionResultType]::ParameterName, 'The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)')
             [CompletionResult]::new('--dap-hash', '--dap-hash', [CompletionResultType]::ParameterName, 'The Load File Data Block Hash the DAP signs')
+            [CompletionResult]::new('--dm-key-file', '--dm-key-file', [CompletionResultType]::ParameterName, 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)')
+            [CompletionResult]::new('--dm-key-env', '--dm-key-env', [CompletionResultType]::ParameterName, 'Environment variable holding the AES token calculation key')
+            [CompletionResult]::new('--dm-token-file', '--dm-token-file', [CompletionResultType]::ParameterName, 'File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)')
+            [CompletionResult]::new('--dm-token-env', '--dm-token-env', [CompletionResultType]::ParameterName, 'Environment variable holding the Delegated Management token')
             [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
             [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
             [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')

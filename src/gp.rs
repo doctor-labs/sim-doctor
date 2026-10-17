@@ -547,10 +547,11 @@ fn read_policy() -> Policy {
 
 fn push_steps(steps: &mut Vec<Value>, label: &str, ex: &session::Exchange) {
     for s in ex.steps() {
-        // PUT KEY carries the new keys encrypted under the DEK: wire bytes, but
-        // key material all the same, so the trace keeps the header only.
-        let command = match (label, s.command()) {
-            (PUT_KEY_STEP, c) if c.len() > 5 => Value::String(format!(
+        // PUT KEY carries the new keys encrypted under the DEK and a delegated
+        // management step carries an issuer token: wire bytes, but secret all
+        // the same, so the trace keeps the header only.
+        let command = match (withheld_data(label), s.command()) {
+            (Some(_), c) if c.len() > 5 => Value::String(format!(
                 "{}<{} data bytes withheld>",
                 hex::encode_upper(&c[..5]),
                 c.len() - 5
@@ -923,6 +924,9 @@ pub enum KeyError {
     /// not a key set.
     #[error("key {0} is {1} bytes and key {2} is {3}: a key set is one AES key length")]
     MixedLength(usize, usize, usize, usize),
+    /// A Delegated Management token that is not 2 to 510 hex digits.
+    #[error("the Delegated Management token is not 2 to 510 hex digits (1 to 255 bytes)")]
+    DmTokenFormat,
     /// A DAP key that is not hex of the length its scheme takes (Table C-1).
     #[error("the DAP key is not hex of the length its scheme takes (AES 16, 24 or 32 bytes; DES 16 bytes; ECC 32 bytes), optionally followed by /KCV of 6 hex digits")]
     DapFormat,
@@ -2554,6 +2558,59 @@ pub fn install_for_load(
     load_parameters: &[u8],
     load_token: &[u8],
 ) -> Result<Command, BuildError> {
+    install_for_load_command(
+        load_file_aid,
+        security_domain_aid,
+        load_file_hash,
+        load_parameters,
+        load_token,
+    )
+}
+
+/// [`install_for_load`] presenting a Delegated Management token. The token
+/// signs `P1=02 || P2=00 || Lc || <the four LVs before it>`, so it authorises
+/// loading this Load File into this Security Domain and nothing else (GP Card
+/// Spec v2.3.1 11.5, Table 11-42, and C.4 Figure C-3; GlobalPlatformPro
+/// `GPSession.loadCapFile` then `DMTokenizer.tokenize`). A token still needs
+/// the Load File Data Block Hash, as [`install_for_load`] requires, so this
+/// refuses rather than signing an INSTALL the card would reject.
+pub fn install_for_load_dm(
+    load_file_aid: &[u8],
+    security_domain_aid: &[u8],
+    load_file_hash: &[u8],
+    load_parameters: &[u8],
+    dm: Option<&DmRequest>,
+) -> Result<Command, BuildError> {
+    let mut tokenless = Vec::new();
+    lv(&mut tokenless, "load file AID", load_file_aid)?;
+    lv(&mut tokenless, "security domain AID", security_domain_aid)?;
+    lv(&mut tokenless, "load file data block hash", load_file_hash)?;
+    lv(&mut tokenless, "load parameters", load_parameters)?;
+    match dm_token_for(0x02, 0x00, &tokenless, dm) {
+        Some(token) => install_for_load_command(
+            load_file_aid,
+            security_domain_aid,
+            load_file_hash,
+            load_parameters,
+            &token,
+        ),
+        None => install_for_load_command(
+            load_file_aid,
+            security_domain_aid,
+            load_file_hash,
+            load_parameters,
+            &[],
+        ),
+    }
+}
+
+fn install_for_load_command(
+    load_file_aid: &[u8],
+    security_domain_aid: &[u8],
+    load_file_hash: &[u8],
+    load_parameters: &[u8],
+    load_token: &[u8],
+) -> Result<Command, BuildError> {
     aid_ok("load file", load_file_aid, false)?;
     aid_ok("security domain", security_domain_aid, true)?;
     if !load_token.is_empty() && load_file_hash.is_empty() {
@@ -3463,13 +3520,34 @@ pub fn release_scp<S: CardSession + ?Sized>(
 /// Card Spec v2.3.1 section 11.2.2 (Tables 11-20 to 11-23); the data field and P2
 /// are pySim `do_delete_card_content` (`4F` TLV, `0x80` for related objects) and
 /// GlobalPlatformPro `GPSession.deleteAID` (`4F <len> <aid>`, P2 `80` for
-/// dependencies). No token (`B6`, `9E`): delegated management is not supported.
+/// dependencies). No token unless [`delete_command_dm`] is given one.
 pub fn delete_command(aid: &[u8], related: bool) -> Result<Command, BuildError> {
+    delete_command_dm(aid, related, None)
+}
+
+/// [`delete_command`] presenting a Delegated Management token. The token signs
+/// `P1=00 || P2 || Lc || 4F <len> <AID>`, so it is bound to this delete of this
+/// one AID and cannot be replayed against another application. It travels in a
+/// `9E` TLV after the `4F` (GP Card Spec v2.3.1 11.2.2, Tables 11-20 to 11-23;
+/// GlobalPlatformPro `GPSession.deleteAID` then `DMTokenizer.tokenize`).
+pub fn delete_command_dm(
+    aid: &[u8],
+    related: bool,
+    dm: Option<&DmRequest>,
+) -> Result<Command, BuildError> {
     aid_ok("DELETE target", aid, false)?;
+    let p2 = if related { 0x80 } else { 0x00 };
     let mut data = vec![0x4F];
     lv(&mut data, "DELETE target", aid)?;
+    let data = match dm_token_for(0x00, p2, &data, dm) {
+        Some(token) => dm_append(DM_INS_DELETE, &data, &token),
+        None => data,
+    };
+    if data.len() > 0xFF {
+        return Err(BuildError::InstallTooLong(data.len()));
+    }
     Ok(Command::case4(
-        Header::new(0x80, 0xE4, 0x00, if related { 0x80 } else { 0x00 }),
+        Header::new(0x80, 0xE4, 0x00, p2),
         data,
         Le::Short(0),
     ))
@@ -3584,6 +3662,79 @@ pub fn install_for_install(
     install_parameters: &[u8],
     make_selectable: bool,
 ) -> Result<Command, BuildError> {
+    install_for_install_command(
+        &InstallForInstall {
+            load_file_aid,
+            module_aid,
+            application_aid,
+            privileges,
+            install_parameters,
+            make_selectable,
+        },
+        None,
+    )
+}
+
+/// The fields of INSTALL [for install], as [`install_for_install`] takes them.
+#[derive(Debug, Clone, Copy)]
+pub struct InstallForInstall<'a> {
+    /// The load file AID.
+    pub load_file_aid: &'a [u8],
+    /// The executable module AID.
+    pub module_aid: &'a [u8],
+    /// The application instance AID.
+    pub application_aid: &'a [u8],
+    /// 1 or 3 bytes of privileges.
+    pub privileges: &'a [u8],
+    /// The whole Install Parameters field, holding tag C9.
+    pub install_parameters: &'a [u8],
+    /// P1 0C when set, 04 when not.
+    pub make_selectable: bool,
+}
+
+/// [`install_for_install`] presenting a Delegated Management token. The token
+/// signs `P1=<0C or 04> || P2=00 || Lc || <the five LVs before it>`, so it
+/// authorises installing this module as this application with these privileges
+/// (GP Card Spec v2.3.1 11.6, Tables 11-41 and 11-43, and C.4 Figure C-4; the
+/// target AID and the privilege field are inside the signed data). With no
+/// token the field stays `00`, the "no token" length GP Card Spec v2.3.1
+/// Tables 11-42 to 11-46 require of every INSTALL data field.
+pub fn install_for_install_dm(
+    f: &InstallForInstall,
+    dm: Option<&DmRequest>,
+) -> Result<Command, BuildError> {
+    let InstallForInstall {
+        load_file_aid,
+        module_aid,
+        application_aid,
+        privileges,
+        install_parameters,
+        make_selectable,
+    } = *f;
+    let p1 = if make_selectable { 0x0C } else { 0x04 };
+    let mut tokenless = Vec::new();
+    lv(&mut tokenless, "load file AID", load_file_aid)?;
+    lv(&mut tokenless, "module AID", module_aid)?;
+    lv(&mut tokenless, "application AID", application_aid)?;
+    lv(&mut tokenless, "privileges", privileges)?;
+    tokenless.extend(ber_len(install_parameters.len()));
+    tokenless.extend_from_slice(install_parameters);
+    let token = dm_token_for(p1, 0x00, &tokenless, dm);
+    install_for_install_command(f, token.as_deref())
+}
+
+fn install_for_install_command(
+    f: &InstallForInstall,
+    install_token: Option<&[u8]>,
+) -> Result<Command, BuildError> {
+    let InstallForInstall {
+        load_file_aid,
+        module_aid,
+        application_aid,
+        privileges,
+        install_parameters,
+        make_selectable,
+    } = *f;
     aid_ok("load file", load_file_aid, true)?;
     aid_ok("module", module_aid, true)?;
     aid_ok("application", application_aid, false)?;
@@ -3600,7 +3751,12 @@ pub fn install_for_install(
     lv(&mut data, "privileges", privileges)?;
     data.extend(ber_len(install_parameters.len()));
     data.extend_from_slice(install_parameters);
-    data.push(0x00); // no install token
+    // No token is still a length field: GP Card Spec v2.3.1 Tables 11-42 to
+    // 11-46 give every INSTALL data field a mandatory token length.
+    match install_token {
+        Some(token) => data.extend_from_slice(&dm_append(0xE6, &[], token)),
+        None => data.push(0x00),
+    }
     if data.len() > 0xFF {
         return Err(BuildError::InstallTooLong(data.len()));
     }
@@ -4107,6 +4263,8 @@ pub struct DeleteRequest {
     pub aid: Vec<u8>,
     /// Also delete the related objects (DELETE P2 `80`).
     pub related: bool,
+    /// Present a Delegated Management token on the DELETE, if set (4.3.1.3).
+    pub dm: Option<DmRequest>,
 }
 
 /// What `gp delete-key` removes. At least one of `key_id` or `key_version`
@@ -4210,6 +4368,9 @@ pub struct InstallRequest {
     /// sends, so each carries the same `hash`; each may name its own Security
     /// Domain.
     pub extra_daps: Vec<DapRequest>,
+    /// Present a Delegated Management token on the tokenized INSTALL
+    /// commands, if set (4.3.1.3).
+    pub dm: Option<DmRequest>,
 }
 
 /// Which hash is the Load File Data Block Hash when a DAP block is sent (GP Card
@@ -4263,7 +4424,7 @@ pub struct DapRequest {
 /// AES-CMAC, 8 for the retail MAC, 64 for ECDSA `r || s`.
 pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> Vec<u8> {
     match key.scheme {
-        DapScheme::Aes => aes_cmac_signature(&key.bytes, lfdbh).to_vec(),
+        DapScheme::Aes => aes_cmac(&key.bytes, lfdbh).to_vec(),
         DapScheme::Des => des_retail_mac(&key.bytes, lfdbh),
         DapScheme::Ecc => crate::sign::sign(
             &key.bytes
@@ -4280,13 +4441,16 @@ pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> Vec<u8> {
 /// AES-CMAC of the Load File Data Block Hash, 16 bytes: C.3 ("If the signing key
 /// is an AES key, the Load File Data Block Signature is generated according to
 /// section B.2.2") and B.2.2 (CMAC, NIST SP 800-38B, 16 byte result).
-fn aes_cmac_signature(key: &[u8], lfdbh: &[u8]) -> [u8; 16] {
+/// AES-CMAC (NIST SP 800-38B) of `msg` under a 16, 24 or 32 byte AES key,
+/// 16 bytes out. GP Card Spec v2.3.1 B.2.2: a signature or token made with an
+/// AES key "is generated according to section B.2.2", CMAC over the input.
+fn aes_cmac(key: &[u8], msg: &[u8]) -> [u8; 16] {
     use cmac::{Cmac, Mac};
     macro_rules! mac {
         ($cipher:ty) => {{
             let mut m = <Cmac<$cipher> as KeyInit>::new_from_slice(key)
-                .expect("an AES DAP key is 16, 24 or 32 bytes");
-            m.update(lfdbh);
+                .expect("DapKey and DmKey hold 16, 24 or 32 bytes");
+            m.update(msg);
             m.finalize().into_bytes().into()
         }};
     }
@@ -4343,6 +4507,182 @@ pub struct PersonalizeRequest {
 /// Said in every personalize output, dry run or not.
 pub const PERSONALIZE_WARNING: &str = "personalization writes data the application reads on the card: a wrong value can break it, and this tool cannot read the stored value back. Check the data against your records before adding --yes";
 
+// ---------------------------------------------------------------------------
+// Delegated Management tokens (`--dm-key`, `--dm-token`), issue #246
+// ---------------------------------------------------------------------------
+//
+// A Delegated Management token is NOT something the card issues. GP Card Spec
+// v2.3.1 4.3.1.3: "Delegated Management Tokens are signatures of one or more
+// Delegated Management functions (loading, installing, extraditing and
+// deleting) generated by the Card Issuer and used to provide the Card Issuer
+// the control over these Card Content changes. Tokens shall be verified by the
+// appropriate Security Domain." No GET DATA or STORE DATA asks an ISD for a
+// token and no response carries one back: the relying party generates the
+// signature off-card and presents it, the Security Domain verifies it. C.4:
+// "Tokens are signatures used as proof that an Application Provider has been
+// authorized to perform a Card Content Management operation."
+//
+// What follows, and is what this module is built around:
+//   * the signed data is the command itself, so a token binds to one command
+//     and to the target AID inside it and cannot be moved to another
+//     application (`dm_dtbs`);
+//   * a token is a live credential the moment the card accepts it. Withdrawing
+//     it is the issuer's job: a new key set, or removing the Security Domain's
+//     Token Verification privilege. Nothing here revokes one.
+
+/// DELETE (INS `E4`): the one Card Content Management command that carries its
+/// token in a `9E` TLV instead of as a trailing length-value.
+const DM_INS_DELETE: u8 = 0xE4;
+/// The DELETE data tag that carries the token. GP Card Spec v2.3.1 11.2.2
+/// (Tables 11-20 to 11-23); GlobalPlatformPro `DMTokenizer.tokenize`: "DELETE
+/// carries the token in a 9E TLV; other commands append it as a bare
+/// length-value".
+const DM_DELETE_TAG: u8 = 0x9E;
+
+/// An AES Delegated Management key (`--dm-key`): the Card Issuer's token
+/// calculation key for one Security Domain, per 4.3.1.3 and C.4. Text form is
+/// one AES key (128, 192 or 256 bit) in hex, optionally `KEY/KCV`, read from a
+/// file or an environment variable and never from argv. `Debug` is redacted
+/// and the key appears in no report, plan, log or trace. The RSA and ECC token
+/// keys of C.4 B.3 and B.4 are not supported: this crate signs nothing
+/// asymmetric.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DmKey(Vec<u8>);
+
+impl std::fmt::Debug for DmKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DmKey { .. }")
+    }
+}
+
+impl DmKey {
+    /// Parses one AES key from `text` (`#` lines skipped).
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`], whose text never contains the input.
+    pub fn parse(text: &str) -> Result<Self, KeyError> {
+        DapKey::parse(text).map(|k| Self(k.bytes))
+    }
+
+    /// Reads and parses the key from `source`.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`].
+    pub fn load(source: KeySource<'_>) -> Result<Self, KeyError> {
+        Self::parse(&read_key_text(source)?)
+    }
+}
+
+/// A Delegated Management token the relying party already holds
+/// (`--dm-token`): bytes presented unchanged, on exactly one command. GP Card
+/// Spec v2.3.1 C.4 allows several signing keys (DES, AES, RSA, ECC), so a token
+/// this crate cannot generate can still be presented; its length and shape are
+/// whatever the issuer signed and nothing here can check them. It is a live
+/// credential: read from a file or an environment variable, never from argv,
+/// `Debug` redacted, absent from every output, plan and trace.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DmToken(Vec<u8>);
+
+impl std::fmt::Debug for DmToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DmToken { .. }")
+    }
+}
+
+impl DmToken {
+    /// Parses one token from `text`: 2 to 510 hex digits.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError::DmTokenFormat`]; the message never contains the input.
+    pub fn parse(text: &str) -> Result<Self, KeyError> {
+        let bytes = hex::decode(text.trim()).map_err(|_| KeyError::DmTokenFormat)?;
+        if bytes.is_empty() || bytes.len() > 0xFF {
+            return Err(KeyError::DmTokenFormat);
+        }
+        Ok(Self(bytes))
+    }
+
+    /// Reads and parses the token from `source`.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`].
+    pub fn load(source: KeySource<'_>) -> Result<Self, KeyError> {
+        Self::parse(&read_key_text(source)?)
+    }
+}
+
+/// What the relying party presents for one Delegated Management command:
+/// `--dm-key` computes the token, `--dm-token` supplies it. At most one of the
+/// two; `Default` is "no token".
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DmRequest {
+    /// `--dm-key`: AES-CMAC the token over the DTBS.
+    pub key: Option<DmKey>,
+    /// `--dm-token`: present these bytes unchanged.
+    pub token: Option<DmToken>,
+}
+
+/// The data a Delegated Management token is calculated over: `P1 || P2 ||
+/// Lc || data`, where `data` is the command's data field *without* the token.
+/// GlobalPlatformPro `DMTokenizer.dtbs` builds exactly this; GP Card Spec
+/// v2.3.1 C.4 Figure C-3 shows the same, "P1,P2" then "Length of remaining
+/// data" then the concatenated data fields. C.4 also fixes that length when
+/// the data plus token exceeds 255: "coded on 3 bytes with values from
+/// '00 01 00' to '00 FF FF'".
+pub fn dm_dtbs(p1: u8, p2: u8, data: &[u8]) -> Vec<u8> {
+    let mut dtbs = vec![p1, p2];
+    if data.len() > 0xFF {
+        dtbs.push(0x00);
+        dtbs.extend_from_slice(&[(data.len() >> 8) as u8, data.len() as u8]);
+    } else {
+        dtbs.push(data.len() as u8);
+    }
+    dtbs.extend_from_slice(data);
+    dtbs
+}
+
+/// The Delegated Management token of an AES `--dm-key`: AES-CMAC-128 over the
+/// DTBS, 16 bytes. GP Card Spec v2.3.1 C.4 ("If the signing key is an AES key,
+/// the Token is generated according to section B.2.2") and B.2.2 (CMAC, NIST
+/// SP 800-38B); Secure Channel Protocol '03' Public Release v1.1.1 section 8.2
+/// "Tokens for AES": "CMAC ... shall be used in the Token Calculation operation
+/// specified in [GPCS] section C.4. The length of the token shall be 16
+/// bytes."
+pub fn dm_token(key: &DmKey, dtbs: &[u8]) -> [u8; 16] {
+    aes_cmac(&key.0, dtbs)
+}
+
+/// The token to present for one Card Content Management command, or `None` when
+/// neither `--dm-key` nor `--dm-token` was given. `data` must be that command's
+/// data field *without* the token, because it is what the token signs.
+pub fn dm_token_for(p1: u8, p2: u8, data: &[u8], req: Option<&DmRequest>) -> Option<Vec<u8>> {
+    let req = req?;
+    if let Some(token) = &req.token {
+        return Some(token.0.clone());
+    }
+    req.key
+        .as_ref()
+        .map(|key| dm_token(key, &dm_dtbs(p1, p2, data)).to_vec())
+}
+
+/// Puts a token where the command expects it: a trailing length-value after
+/// INSTALL, the `9E` TLV on DELETE. GlobalPlatformPro `DMTokenizer.tokenize`,
+/// whose `AESTokenizer.getToken` is the same AES-CMAC over the same DTBS, so a
+/// token built here is byte for byte the token GlobalPlatformPro would send.
+pub fn dm_append(ins: u8, data: &[u8], token: &[u8]) -> Vec<u8> {
+    let mut out = data.to_vec();
+    if ins == DM_INS_DELETE {
+        out.push(DM_DELETE_TAG);
+    }
+    out.extend_from_slice(&ber_len(token.len()));
+    out.extend_from_slice(token);
+    out
+}
+
 /// One APDU of a write, as built (before secure messaging).
 struct Planned {
     step: &'static str,
@@ -4351,8 +4691,12 @@ struct Planned {
 
 fn delete_plan_steps(req: &DeleteRequest) -> Result<Vec<Planned>, BuildError> {
     Ok(vec![Planned {
-        step: "delete",
-        command: delete_command(&req.aid, req.related)?,
+        step: if dm_present(req.dm.as_ref()) {
+            DELETE_DM_STEP
+        } else {
+            "delete"
+        },
+        command: delete_command_dm(&req.aid, req.related, req.dm.as_ref())?,
     }])
 }
 
@@ -4431,9 +4775,14 @@ fn load_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned>, 
         None if !req.extra_daps.is_empty() => return Err(BuildError::DapWithoutHash),
         None => (Vec::new(), Vec::new()),
     };
+    let tokenized = dm_present(req.dm.as_ref());
     let mut plan = vec![Planned {
-        step: "install_for_load",
-        command: install_for_load(&req.load_file_aid, sd_aid, &lfdbh, &[], &[])?,
+        step: if tokenized {
+            INSTALL_FOR_LOAD_DM_STEP
+        } else {
+            "install_for_load"
+        },
+        command: install_for_load_dm(&req.load_file_aid, sd_aid, &lfdbh, &[], req.dm.as_ref())?,
     }];
     for command in load_commands(&req.load_file, &dap_blocks, req.block_size)? {
         plan.push(Planned {
@@ -4442,14 +4791,21 @@ fn load_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned>, 
         });
     }
     plan.push(Planned {
-        step: "install_for_install",
-        command: install_for_install(
-            &req.load_file_aid,
-            &req.module_aid,
-            &req.app_aid,
-            &req.privileges,
-            &req.params,
-            true,
+        step: if tokenized {
+            INSTALL_FOR_INSTALL_DM_STEP
+        } else {
+            "install_for_install"
+        },
+        command: install_for_install_dm(
+            &InstallForInstall {
+                load_file_aid: &req.load_file_aid,
+                module_aid: &req.module_aid,
+                application_aid: &req.app_aid,
+                privileges: &req.privileges,
+                install_parameters: &req.params,
+                make_selectable: true,
+            },
+            req.dm.as_ref(),
         )?,
     });
     Ok(plan)
@@ -4473,13 +4829,12 @@ fn plan_json(plan: &[Planned]) -> Value {
         plan.iter()
             .map(|p| {
                 let wire = p.command.encode().expect("a built command encodes");
-                if p.step == PUT_KEY_STEP {
-                    // The data is the new keys encrypted under the DEK: withheld.
+                if let Some(reason) = withheld_data(p.step) {
                     return json!({
                         "step": p.step,
                         "apdu": null,
                         "header": hex::encode_upper(&wire[..4]),
-                        "data": format!("{} bytes withheld: the new key version and the new keys encrypted under the DEK", wire.len() - 6),
+                        "data": format!("{} bytes withheld: {reason}", wire.len() - 6),
                     });
                 }
                 json!({ "step": p.step, "apdu": hex_of(&wire) })
@@ -5693,6 +6048,34 @@ pub fn personalize<S: CardSession + ?Sized>(
 /// The step label of PUT KEY in plans, traces and results. [`push_steps`] and
 /// [`plan_json`] withhold the data of a step with this label.
 const PUT_KEY_STEP: &str = "put_key";
+
+/// The step labels the delegated-management commands get when a token is
+/// really presented. A label of their own because [`plan_json`] and
+/// [`push_steps`] withhold the data of a step whose label says the bytes are a
+/// credential, exactly as they do for [`PUT_KEY_STEP`].
+const DELETE_DM_STEP: &str = "delete-dm-token";
+const INSTALL_FOR_LOAD_DM_STEP: &str = "install_for_load-dm-token";
+const INSTALL_FOR_INSTALL_DM_STEP: &str = "install_for_install-dm-token";
+
+/// Why the data of `label` is not rendered, or `None` when it is ordinary
+/// payload. The new key set encrypted under the DEK and a Delegated Management
+/// token are both secrets riding inside an otherwise ordinary command, so the
+/// plan and the trace show the header and a byte count instead of the bytes.
+fn withheld_data(label: &str) -> Option<&'static str> {
+    match label {
+        PUT_KEY_STEP => Some("the new key version and the new keys encrypted under the DEK"),
+        DELETE_DM_STEP | INSTALL_FOR_LOAD_DM_STEP | INSTALL_FOR_INSTALL_DM_STEP => {
+            Some("a Delegated Management token, which is a live credential")
+        }
+        _ => None,
+    }
+}
+
+/// Whether a token will really be presented: [`DmRequest::default`] is no
+/// token, and so is a request with neither a key nor a token.
+fn dm_present(dm: Option<&DmRequest>) -> bool {
+    dm.is_some_and(|d| d.key.is_some() || d.token.is_some())
+}
 
 /// Said in every PUT KEY output, dry run or not.
 pub const PUT_KEY_WARNING: &str = "replacing the card's own SCP03 keys with values you do not hold, or have mistyped, permanently locks administrative access to this security domain: there is no recovery and no retry. Check the key check values shown against your records before adding --yes";
@@ -8971,6 +9354,7 @@ mod tests {
             dap: None,
             block_size: DEFAULT_LOAD_BLOCK,
             extra_daps: vec![],
+            dm: None,
         }
     }
 
@@ -8978,6 +9362,7 @@ mod tests {
         DeleteRequest {
             aid: hex::decode(aid).unwrap(),
             related: false,
+            dm: None,
         }
     }
 
@@ -9767,9 +10152,77 @@ mod tests {
         assert!(delete_dry_run(&delete_request("A000000062")).is_ok());
         assert!(delete_dry_run(&DeleteRequest {
             aid: vec![1],
-            related: false
+            related: false,
+            dm: None
         })
         .is_err());
+    }
+
+    /// The bytes of a token must not reach the plan or the trace either. The
+    /// tokenized steps get a label of their own, so `withheld_data` withholds
+    /// their data the way PUT KEY withholds the new key set: the plan shows the
+    /// header and a byte count and the rendered text says what is missing and
+    /// why. Asserted over the rendered text, because the rendered text is what
+    /// lands in a terminal, a log and a bug report.
+    #[test]
+    fn the_token_is_withheld_from_the_plan() {
+        let dm = DmRequest {
+            key: Some(DmKey::parse("404142434445464748494A4B4C4D4E4F").unwrap()),
+            token: None,
+        };
+        let mut req = delete_request("A000000062");
+        req.dm = Some(dm.clone());
+        let data = delete_dry_run(&req).expect("a dry run");
+        let step = &data["plan"]["apdus"][0];
+        assert_eq!(step["step"], DELETE_DM_STEP);
+        assert_eq!(step["apdu"], Value::Null);
+        let text = format!("{data}");
+        assert!(
+            step["data"].as_str().unwrap().contains("withheld"),
+            "{text}"
+        );
+        // The token really is the bytes that were withheld, not an empty field.
+        let with = delete_command_dm(&req.aid, req.related, Some(&dm)).expect("delete");
+        let without = delete_command_dm(&req.aid, req.related, None).expect("delete");
+        let token = hex::encode_upper(&with.data()[without.data().len()..]);
+        assert!(with.data().len() > without.data().len());
+        assert!(!text.contains(&token), "{token} reached the plan: {text}");
+
+        // The same holds for install, and the load file blocks still show.
+        let mut req = dap_request(None);
+        req.dm = Some(dm);
+        let data = install_dry_run(&req).expect("a dry run");
+        let apdus = data["plan"]["apdus"].as_array().unwrap();
+        assert_eq!(apdus[0]["step"], INSTALL_FOR_LOAD_DM_STEP);
+        assert_eq!(apdus[0]["apdu"], Value::Null);
+        assert_eq!(apdus.last().unwrap()["step"], INSTALL_FOR_INSTALL_DM_STEP);
+        assert_eq!(apdus.last().unwrap()["apdu"], Value::Null);
+        assert!(apdus[1]["apdu"].as_str().unwrap().starts_with("80E8"));
+    }
+
+    /// No token, no withholding and no change: the plans keep the step labels
+    /// and the exact APDUs they had before `--dm-key` existed.
+    #[test]
+    fn without_a_token_nothing_is_withheld() {
+        let data = delete_dry_run(&delete_request("A000000062")).expect("a dry run");
+        let step = &data["plan"]["apdus"][0];
+        assert_eq!(step["step"], "delete");
+        assert_eq!(
+            step["apdu"],
+            hex_of(
+                &delete_command(&hex::decode("A000000062").unwrap(), false)
+                    .expect("a delete")
+                    .encode()
+                    .expect("it encodes")
+            )
+        );
+        let data = install_dry_run(&install_request()).expect("a dry run");
+        let apdus = data["plan"]["apdus"].as_array().unwrap();
+        assert_eq!(apdus[0]["step"], "install_for_load");
+        assert_eq!(apdus.last().unwrap()["step"], "install_for_install");
+        assert!(apdus[0]["apdu"].is_string());
+        assert_eq!(withheld_data("delete"), None);
+        assert_eq!(withheld_data("load"), None);
     }
 
     #[test]
@@ -11078,6 +11531,7 @@ mod tests {
             params: vec![0xC9, 0x00],
             dap: None,
             extra_daps: Vec::new(),
+            dm: None,
             block_size: DEFAULT_LOAD_BLOCK,
         }
     }
@@ -11093,6 +11547,7 @@ mod tests {
             params: params.to_vec(),
             dap: None,
             extra_daps: Vec::new(),
+            dm: None,
             block_size: DEFAULT_LOAD_BLOCK,
         }
     }
@@ -16623,5 +17078,256 @@ mod receipt_tests {
             max_block_data(8, Some(254)),
             Err(BuildError::CipherBlock(254))
         ));
+    }
+}
+
+#[cfg(test)]
+mod dm_tests {
+    use super::*;
+
+    /// The AES key GlobalPlatformPro's `TestDMTokenizer` uses, so the byte
+    /// shapes asserted below are the ones its `testAESTokenizeInstall` and
+    /// `testAESTokenizeDelete` assert against that same key.
+    const AES_KEY: &str = "404142434445464748494A4B4C4D4E4F";
+
+    fn key() -> DmKey {
+        DmKey::parse(AES_KEY).expect("a 16 byte AES key")
+    }
+
+    /// `P1 || P2 || Lc || data`, short form: the one byte Lc GlobalPlatformPro
+    /// `DMTokenizer.dtbs` writes through `GPUtils.encodeLcLength` when neither
+    /// length exceeds 255.
+    #[test]
+    fn dtbs_is_p1_p2_lc_data() {
+        assert_eq!(dm_dtbs(0x02, 0x00, &[0x00]), vec![0x02, 0x00, 0x01, 0x00]);
+        assert_eq!(
+            dm_dtbs(0x00, 0x80, &[0x4F, 0x02, 0xAA, 0xBB]),
+            vec![0x00, 0x80, 0x04, 0x4F, 0x02, 0xAA, 0xBB]
+        );
+    }
+
+    /// Over 255 bytes C.4 codes the length on three bytes, '00 01 00' to
+    /// '00 FF FF' (GPC 2.2 D SCP03 v1.1.1 / GPCS C.4).
+    #[test]
+    fn dtbs_length_is_three_bytes_over_255() {
+        let data = vec![0x5A; 256];
+        let dtbs = dm_dtbs(0x02, 0x00, &data);
+        assert_eq!(&dtbs[..5], &[0x02, 0x00, 0x00, 0x01, 0x00]);
+        assert_eq!(dtbs.len(), 5 + 256);
+    }
+
+    /// 16 bytes: GPCS C.4 B.2.2 with GPC 2.2 D SCP03 v1.1.1 section 8.2, "The
+    /// length of the token shall be 16 bytes."
+    #[test]
+    fn token_is_sixteen_bytes_and_deterministic() {
+        let dtbs = dm_dtbs(0x02, 0x00, &[0x00]);
+        assert_eq!(dm_token(&key(), &dtbs).len(), 16);
+        assert_eq!(dm_token(&key(), &dtbs), dm_token(&key(), &dtbs));
+        // A different key must not give the same token.
+        let other = DmKey::parse(&"11".repeat(16)).unwrap();
+        assert_ne!(dm_token(&key(), &dtbs), dm_token(&other, &dtbs));
+    }
+
+    /// GlobalPlatformPro `TestDMTokenizer.testAESTokenizeDelete`: data `00`,
+    /// then tag 9E, then the length, then a 16 byte CMAC: 19 bytes.
+    #[test]
+    fn delete_carries_the_token_in_a_9e_tlv() {
+        let dtbs = dm_dtbs(0x02, 0x00, &[0x00]);
+        let token = dm_token(&key(), &dtbs);
+        let data = dm_append(DM_INS_DELETE, &[0x00], &token);
+        assert_eq!(data.len(), 19);
+        assert_eq!(data[1], 0x9E);
+        assert_eq!(data[2], 16);
+        assert_eq!(&data[3..], &token);
+    }
+
+    /// GlobalPlatformPro `TestDMTokenizer.testAESTokenizeInstall`: data `00`,
+    /// then a bare length-value: 18 bytes, no 9E tag.
+    #[test]
+    fn install_appends_a_bare_length_value() {
+        let dtbs = dm_dtbs(0x02, 0x00, &[0x00]);
+        let token = dm_token(&key(), &dtbs);
+        let data = dm_append(0xE6, &[0x00], &token);
+        assert_eq!(data.len(), 18);
+        assert_eq!(data[1], 16);
+        assert_ne!(data[1], 0x9E);
+        assert_eq!(&data[2..], &token);
+    }
+
+    /// A token is calculated over the command, so the same token cannot be
+    /// presented for another application: the application AID is inside the
+    /// signed data. This is the failure mode DM is most easily misused for.
+    #[test]
+    fn a_token_for_one_application_is_not_another_applications() {
+        let a = [0xA0, 0x00, 0x00, 0x00, 0x01, 0x01];
+        let b = [0xA0, 0x00, 0x00, 0x00, 0x01, 0x02];
+        let t_a = install_for_install_dm(
+            &InstallForInstall {
+                load_file_aid: &[0xA0, 0x00, 0x00, 0x00, 0x01, 0xFF],
+                module_aid: &a,
+                application_aid: &a,
+                privileges: &[0x00, 0x00, 0x00],
+                install_parameters: &[0xC9, 0x00],
+                make_selectable: true,
+            },
+            Some(&DmRequest {
+                key: Some(key()),
+                token: None,
+            }),
+        )
+        .expect("an install token");
+        let t_b = install_for_install_dm(
+            &InstallForInstall {
+                load_file_aid: &[0xA0, 0x00, 0x00, 0x00, 0x01, 0xFF],
+                module_aid: &b,
+                application_aid: &b,
+                privileges: &[0x00, 0x00, 0x00],
+                install_parameters: &[0xC9, 0x00],
+                make_selectable: true,
+            },
+            Some(&DmRequest {
+                key: Some(key()),
+                token: None,
+            }),
+        )
+        .expect("an install token");
+        assert_ne!(
+            t_a.encode().expect("encodes"),
+            t_b.encode().expect("encodes")
+        );
+    }
+
+    /// Privileges are inside the signed data too, so a token that was good for
+    /// a harmless applet is not good for one asking for Card Terminate.
+    #[test]
+    fn a_token_does_not_carry_across_privilege_fields() {
+        let dm = DmRequest {
+            key: Some(key()),
+            token: None,
+        };
+        let ids = |privileges: &[u8]| {
+            install_for_install_dm(
+                &InstallForInstall {
+                    load_file_aid: &[0xA0, 0x00, 0x00, 0x00, 0x01, 0xFF],
+                    module_aid: &[0xA0, 0x00, 0x00, 0x00, 0x01, 0x01],
+                    application_aid: &[0xA0, 0x00, 0x00, 0x00, 0x01, 0x01],
+                    privileges,
+                    install_parameters: &[0xC9, 0x00],
+                    make_selectable: true,
+                },
+                Some(&dm),
+            )
+            .expect("an install token")
+        };
+        assert_ne!(
+            ids(&[0x00, 0x00, 0x00]).encode().expect("encodes"),
+            ids(&[0x00, 0x40, 0x00]).encode().expect("encodes")
+        );
+    }
+
+    /// A DELETE of a different AID signs different data, so the token differs:
+    /// a token for deleting A cannot delete B.
+    #[test]
+    fn a_delete_token_names_its_own_target() {
+        let dm = DmRequest {
+            key: Some(key()),
+            token: None,
+        };
+        let a = [0xA0, 0x00, 0x00, 0x00, 0x01, 0x01];
+        let b = [0xA0, 0x00, 0x00, 0x00, 0x01, 0x02];
+        let ta = delete_command_dm(&a, false, Some(&dm)).expect("a delete");
+        let tb = delete_command_dm(&b, false, Some(&dm)).expect("a delete");
+        assert_ne!(ta.encode().expect("encodes"), tb.encode().expect("encodes"));
+        // Related objects change P2, which is signed, so the token differs too.
+        let tr = delete_command_dm(&a, true, Some(&dm)).expect("a delete");
+        assert_ne!(ta.encode().expect("encodes"), tr.encode().expect("encodes"));
+    }
+
+    /// Without either flag nothing is appended and the commands are byte for
+    /// byte what they were before this option existed.
+    #[test]
+    fn no_dm_credential_changes_nothing() {
+        assert_eq!(
+            delete_command_dm(&[0xA0, 0x00, 0x00, 0x00, 0x01, 0x01], false, None)
+                .unwrap()
+                .encode()
+                .unwrap(),
+            delete_command(&[0xA0, 0x00, 0x00, 0x00, 0x01, 0x01], false)
+                .unwrap()
+                .encode()
+                .unwrap()
+        );
+        assert_eq!(dm_token_for(0x02, 0x00, &[0x00], None), None);
+        assert_eq!(
+            dm_token_for(0x02, 0x00, &[0x00], Some(&DmRequest::default())),
+            None
+        );
+    }
+
+    /// `--dm-token` presents the issuer's bytes unchanged, whatever they are.
+    #[test]
+    fn a_supplied_token_is_presented_verbatim() {
+        let raw = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let only = DmRequest {
+            key: None,
+            token: Some(DmToken::parse(&hex::encode(&raw)).unwrap()),
+        };
+        assert_eq!(
+            dm_token_for(0x00, 0x00, &[0x4F, 0x01, 0xA0], Some(&only)),
+            Some(raw)
+        );
+        // A supplied token wins over a key, and no CMAC is computed over the
+        // DTBS for it.
+        let both = DmRequest {
+            key: Some(key()),
+            token: only.token.clone(),
+        };
+        assert_eq!(
+            dm_token_for(0x00, 0x00, &[0x00], Some(&both)),
+            dm_token_for(0x00, 0x00, &[0x00], Some(&only))
+        );
+    }
+
+    /// Neither the key nor the token may reach an output, a plan or a trace.
+    /// `Debug` is the cheapest thing that proves it.
+    #[test]
+    fn key_and_token_are_redacted_in_debug() {
+        assert_eq!(format!("{:?}", key()), "DmKey { .. }");
+        let t = DmToken::parse(&hex::encode([0xABu8; 16])).unwrap();
+        assert_eq!(format!("{t:?}"), "DmToken { .. }");
+        let dm = DmRequest {
+            key: Some(key()),
+            token: Some(t),
+        };
+        let rendered = format!("{dm:?}");
+        assert!(!rendered.contains(AES_KEY), "{rendered}");
+        assert!(!rendered.contains(&"AB".repeat(16)), "{rendered}");
+    }
+
+    /// Error text must not quote the secret it is complaining about.
+    #[test]
+    fn parse_errors_never_quote_the_input() {
+        assert_eq!(DmKey::parse("zz").unwrap_err(), KeyError::DapFormat);
+        assert_eq!(DmToken::parse("").unwrap_err(), KeyError::DmTokenFormat);
+        assert_eq!(DmToken::parse("zz").unwrap_err(), KeyError::DmTokenFormat);
+        assert!(!DmToken::parse("zz").unwrap_err().to_string().contains("zz"));
+        // A wrong KCV is caught before the card is touched.
+        assert!(matches!(
+            DmKey::parse(&format!("{AES_KEY}/000000")).unwrap_err(),
+            KeyError::Kcv { .. }
+        ));
+    }
+
+    /// The token must not silently push a command over the short Lc limit.
+    #[test]
+    fn an_over_long_delete_is_refused_rather_than_truncated() {
+        let dm = DmRequest {
+            key: Some(key()),
+            token: None,
+        };
+        let long = vec![0xA0u8; 16];
+        // 2 + 16 + 1 + 1 + 16 = 36, fine.
+        let ok = delete_command_dm(&long, false, Some(&dm)).expect("a delete");
+        assert!(ok.data().len() <= 0xFF);
     }
 }
