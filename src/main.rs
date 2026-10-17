@@ -786,6 +786,16 @@ enum GpAction {
         #[command(flatten)]
         channel: GpChannelArg,
     },
+    /// Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the
+    /// applications held for contactless, read the service version and event
+    /// counter, and activate or deactivate one application for contactless.
+    ///
+    /// The reads need no keys. activate and deactivate CHANGES CARD STATE: a
+    /// dry run unless --yes, which needs --keys-file or --keys-env.
+    Crs {
+        #[command(subcommand)]
+        action: CrsAction,
+    },
     /// Open or close a supplementary logical channel (MANAGE CHANNEL). A channel
     /// stays open on the card until it is closed or the card loses power, and
     /// the other gp commands can then run on it with --channel N.
@@ -981,6 +991,72 @@ enum GpAction {
         /// session authenticated with. Without it such a request is refused.
         #[arg(long)]
         replace_current_keyset: bool,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+}
+
+#[derive(Subcommand)]
+enum CrsAction {
+    /// List the applications the Contactless Registry Service holds for
+    /// contactless, with their lifecycle, contactless state and registry data.
+    /// Read-only, no keys.
+    List {
+        /// Narrow the listing to applications whose AID starts with these bytes.
+        #[arg(long, value_name = "HEX")]
+        aid: Option<String>,
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        #[command(flatten)]
+        channel: GpChannelArg,
+    },
+    /// Read the Contactless Registry Service version and event counter
+    /// (GET DATA [A5]). Read-only, no keys.
+    Info {
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        #[command(flatten)]
+        channel: GpChannelArg,
+    },
+    /// Activate one application for contactless (CRS SET STATUS with P2 01).
+    /// CHANGES CARD STATE.
+    ///
+    /// WARNING: activating an application for contactless changes what the card
+    /// answers in a reader from that moment on; deactivating one can leave it
+    /// unreachable to every terminal that relies on contactless. This is not
+    /// undone by this tool. It is a dry run unless --yes, which needs
+    /// --keys-file or --keys-env.
+    Activate {
+        /// The application AID, 5 to 16 bytes of hex.
+        #[arg(value_name = "AID")]
+        aid: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+    /// Deactivate one application for contactless (CRS SET STATUS with P2 00).
+    /// CHANGES CARD STATE.
+    ///
+    /// WARNING: deactivating an application can leave it unreachable to every
+    /// terminal that relies on contactless, and this tool does not undo it. It
+    /// is a dry run unless --yes, which needs --keys-file or --keys-env.
+    Deactivate {
+        /// The application AID, 5 to 16 bytes of hex.
+        #[arg(value_name = "AID")]
+        aid: String,
         #[command(flatten)]
         write: GpWriteFlags,
     },
@@ -2388,6 +2464,29 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     |s, t| gp::channel_close(s, channel, t),
                 ),
             },
+            GpAction::Crs { action } => match action {
+                CrsAction::List {
+                    aid,
+                    reader,
+                    json,
+                    trace,
+                    channel,
+                } => run_gp_crs_list(
+                    aid.as_deref(),
+                    reader.as_deref(),
+                    json,
+                    trace,
+                    channel.channel,
+                ),
+                CrsAction::Info {
+                    reader,
+                    json,
+                    trace,
+                    channel,
+                } => run_gp_crs_info(reader.as_deref(), json, trace, channel.channel),
+                CrsAction::Activate { aid, write } => run_gp_crs_set(&aid, true, &write),
+                CrsAction::Deactivate { aid, write } => run_gp_crs_set(&aid, false, &write),
+            },
             GpAction::Delete {
                 aid,
                 related,
@@ -3547,6 +3646,85 @@ fn run_aram_config(major: u8, minor: u8, patch: u8, r: &GpReadWriteFlags) -> con
         r.trace,
         r.channel.channel,
         |s, t| gp::aram_config(s, t, major, minor, patch, &auth),
+    )
+}
+
+fn run_gp_crs_list(
+    aid: Option<&str>,
+    reader: Option<&str>,
+    json: bool,
+    trace: bool,
+    channel: u8,
+) -> contract::ExitCode {
+    let prefix = match aid {
+        None => None,
+        Some(a) => match gp::parse_crs_prefix(a) {
+            Some(v) => Some(v),
+            None => {
+                return report_refusal(
+                    "gp crs list",
+                    "--aid must be 1 to 16 bytes of hex",
+                    serde_json::json!({ "error": { "kind": "bad-aid" } }),
+                    json,
+                );
+            }
+        },
+    };
+    run_gp("gp crs list", reader, json, trace, channel, |s, t| {
+        gp::crs_list(s, t, prefix.as_deref())
+    })
+}
+
+fn run_gp_crs_info(
+    reader: Option<&str>,
+    json: bool,
+    trace: bool,
+    channel: u8,
+) -> contract::ExitCode {
+    run_gp("gp crs info", reader, json, trace, channel, |s, t| {
+        gp::crs_info(s, t)
+    })
+}
+
+fn run_gp_crs_set(aid: &str, activate: bool, w: &GpWriteFlags) -> contract::ExitCode {
+    let name = if activate {
+        "gp crs activate"
+    } else {
+        "gp crs deactivate"
+    };
+    let Some(aid) = parse_aid(aid) else {
+        return report_refusal(
+            name,
+            "the AID must be 5 to 16 bytes of hex",
+            serde_json::json!({ "error": { "kind": "bad-aid" } }),
+            w.json,
+        );
+    };
+    let req = gp::CrsRequest { aid, activate };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::crs_set_status_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp(name, data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        name,
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::crs_set_status(s, t, &req, &auth, w.yes),
     )
 }
 

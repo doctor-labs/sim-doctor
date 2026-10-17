@@ -333,3 +333,7 @@ behind `--tar`), so a score of 100 does not mean a clean card.
 
 - Switched the license to MIT.
 - Closed resolved dependency blockers in AGENTS.md (#28).
+
+- `gp crs list|info|activate|deactivate`: the Contactless Registry Service (CRS, GlobalPlatform
+  Amendment C), reads on the CRS application plus two card-state writes gated behind `--yes`
+  (#241).
