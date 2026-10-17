@@ -72,6 +72,8 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l sarif -d 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l csv -d 'The same results as a CSV log, in the layout SIMTester writes' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar -d 'Which TARs to probe for MSL 0, and how many' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar-filter -d 'SIMTester\'s `-stre`: skip TAR probes whose response matches this regex' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l class -d 'The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).' -r -f -a "etsi\t'CLA `0x80`, ETSI TS 102 221 clause 10.1.2. The default'
+gsm\t'CLA `0xA0`, GSM 11.11. `--class gsm`'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l face -d 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report' -r -f -a "rich\t''
 plain\t''
 compact\t''
@@ -674,12 +676,14 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_s
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l kid -d 'Pin the KID octet (one hex byte, like 31) for every probe instead of sweeping it from the keyset. Header octet, not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l spi1 -d 'Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l spi2 -d 'Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l class -d 'The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).' -r -f -a "etsi\t'CLA `0x80`, ETSI TS 102 221 clause 10.1.2. The default'
+gsm\t'CLA `0xA0`, GSM 11.11. `--class gsm`'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l i-understand-this-can-brick-the-card -d 'Required. Without it, `fuzz` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l allow-real-hardware -d 'Required in addition to the opt-in above when the reader\'s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, `fuzz` refuses to run against anything that is not recognisably the software card'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l json -d 'Emit one JSON envelope on stdout, and nothing else'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l quick -d 'Probe a small, documented subset instead of the full space'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -l poke -d 'Like `--quick`, but probes only the three TARs SIMTester\'s `-poke` probes: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds'
-complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -s h -l help -d 'Print help'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from ota" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from mutate" -l replay -d 'Answer from a recorded exchange log (one {"command","response"} JSON object per line, as SIM_DOCTOR_RECORD writes) instead of a card' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from mutate" -l max-cases -d 'Cases to send (1 to 10000)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand fuzz; and __fish_seen_subcommand_from mutate" -l timeout -d 'Stop sending after this many seconds' -r

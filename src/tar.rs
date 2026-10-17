@@ -32,9 +32,10 @@
 //! \[V] swSIM `src/apduh.c`, `sim_apduh_demux`: `case 0xC2: /* ENVELOPE */`
 //! is dispatched only when `cmd->hdr->cla.raw == 0x80`, which is the
 //! three-generation form SIMTester's `Envelope.getAPDU` builds. So
-//! [`Class::Etsi`] is the default, and [`CLASS_ASSUMPTION`] says in the
-//! output that `Class::Gsm` is not selectable yet rather than leaving that to
-//! be discovered on a 2G card.
+//! [`Class::Etsi`] is the default. The 2G class is selectable with
+//! `--class gsm` (issue #268), and [`class_assumption`] says in the output
+//! which class was used and what a card routing CAT at the other class has
+//! not been shown, rather than leaving that to be discovered on a 2G card.
 //!
 //! # Why this module never moves on while the card is mid-command
 //!
@@ -114,7 +115,7 @@ use std::fmt;
 use serde_json::{json, Value};
 
 use crate::apdu::{
-    Command, Header, Le, Response, StatusWord, CLA_FETCH_ETSI, CLA_GET_RESPONSE_ISO,
+    Command, Header, Le, Response, StatusWord, CLA_GET_RESPONSE_GSM, CLA_GET_RESPONSE_ISO,
 };
 use crate::session::{self, PendingFollowUp, Policy};
 use crate::transport::{CardSession, Error as TransportError};
@@ -225,7 +226,7 @@ pub const FOCUSED_PROBES: usize = 656;
 ///
 /// Named after the class rather than after a use, because which of the two a
 /// card routes is a property of the card, not of this tool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, clap::ValueEnum)]
 pub enum Class {
     /// CLA `0x80`, ETSI TS 102 221 clause 10.1.2. The default.
     ///
@@ -234,10 +235,17 @@ pub enum Class {
     #[default]
     Etsi,
 
-    /// CLA `0xA0`, GSM 11.11.
+    /// CLA `0xA0`, GSM 11.11. `--class gsm`.
     ///
-    /// \[V] SIMTester `Envelope.getAPDU`: the `A0` form is what it builds
-    /// when `third_gen_apdu` is false, i.e. for a 2G SIM.
+    /// \[V] SIMTester `Envelope.getAPDU`, lines 22-25: the `A0` form is
+    /// what it builds when `SIMLibrary.third_gen_apdu` is false, and
+    /// `-2g` / `--2g-cmds` sets exactly that static false
+    /// (`SIMLibrary.java` line 6; `SIMTester.java` lines 615-616). INS `C2`
+    /// and P1 P2 `00 00` are the same in both forms: the class byte is the
+    /// whole of the difference.
+    ///
+    /// GSM 11.11 itself has not been read here, so the clause that fixes
+    /// this octet is \[U]; the octet itself is \[V] against the reference.
     Gsm,
 }
 
@@ -268,6 +276,52 @@ impl fmt::Display for Class {
     }
 }
 
+/// The class a class byte names, or `None` when it names neither.
+///
+/// Reads a class off the wire rather than taking one on trust, so a follow-up
+/// can never be sent at a class the command it answers did not go out at.
+fn class_of_octet(octet: u8) -> Option<Class> {
+    Class::ALL.into_iter().find(|class| class.octet() == octet)
+}
+
+/// The other class: the one this probe did not use.
+fn other_class(class: Class) -> Class {
+    match class {
+        Class::Etsi => Class::Gsm,
+        Class::Gsm => Class::Etsi,
+    }
+}
+
+/// The session policy every follow-up of a probe sent at `class` goes under.
+///
+/// **A follow-up goes out at the class of the command it answers.** \[V]
+/// SIMTester switches one static and nothing else: `-2g` sets
+/// `SIMLibrary.third_gen_apdu` false (`SIMLibrary.java` line 6,
+/// `SIMTester.java` lines 615-616), and every CAT command built afterwards
+/// changes its class byte alone -
+///
+/// | command | 3G form | 2G form | reference |
+/// |---|---|---|---|
+/// | ENVELOPE | `80 C2 00 00` | `A0 C2 00 00` | `Envelope.getAPDU`, lines 22-25 |
+/// | FETCH | `80 12 00 00` | `A0 12 00 00` | `APDUToolkit.fetchAPDU`, lines 28-31 |
+/// | GET RESPONSE | `00 C0 00 00` | `A0 C0 00 00` | `APDUToolkit.getResponse`, lines 48-51 |
+/// | STATUS | `00 F2 00 00` | `A0 F2 00 00` | `APDUToolkit.sendStatus`, lines 81-84 |
+///
+/// so the `61 xx` a CLA `A0` ENVELOPE draws is collected with GET RESPONSE at
+/// CLA `A0`, and the `91 xx` it answers is drained with FETCH at CLA `A0`. At
+/// [`Class::Etsi`] this is what has always been sent, unchanged: FETCH at CLA
+/// `80`, GET RESPONSE at CLA `00`.
+fn policy_for(class: Class, policy: &Policy) -> Policy {
+    Policy {
+        get_response_class: match class {
+            Class::Etsi => CLA_GET_RESPONSE_ISO,
+            Class::Gsm => CLA_GET_RESPONSE_GSM,
+        },
+        fetch_class: class.octet(),
+        ..*policy
+    }
+}
+
 /// What a report says about the class byte it used.
 ///
 /// Published rather than assumed away, for the same reason the FCP dialect is:
@@ -275,7 +329,29 @@ impl fmt::Display for Class {
 /// TAR, and a scan reporting "no TAR accepted" from a wrongly-addressed
 /// envelope would be reporting a fact about its own addressing as though it
 /// were a fact about the card.
-pub const CLASS_ASSUMPTION: &str = "the ENVELOPE was sent at CLA 80 (etsi), the only class swSIM dispatches ENVELOPE at; a 2G card routes ENVELOPE at CLA A0 (gsm) and that is not selectable yet, so a scan that found no accepted TAR on a 2G card has not shown the card refuses TARs, only that nothing arrived where this tool sent it";
+/// What a report says about the class byte it used, for the class it used.
+///
+/// \[V] The two classes and the one octet each switches on are in
+/// [`policy_for`]'s table, which cites each one against the reference.
+///
+/// Published rather than assumed away, for the same reason the FCP dialect
+/// is: an ENVELOPE sent at the wrong class is refused before the card reaches
+/// the TAR, and a scan reporting "no TAR accepted" from a wrongly-addressed
+/// envelope would be reporting a fact about its own addressing as though it
+/// were a fact about the card.
+pub fn class_assumption(class: Class) -> String {
+    let octet = format!("{:02X}", class.octet());
+    let other = other_class(class);
+    format!(
+        "the ENVELOPE and every CAT follow-up went out at CLA {octet} ({id}), which --class \
+         {id} selects; swSIM dispatches ENVELOPE only at CLA 80 and a 2G card routes it at CLA \
+         A0, so a card that routes CAT at the other class has not been shown this tool anything \
+         about its TAR accept-list, only that nothing arrived where this tool sent it - re-run \
+         with --class {other} to probe that class as well",
+        id = class.id(),
+        other = other.id(),
+    )
+}
 
 /// INS of the ENVELOPE command.
 ///
@@ -1641,7 +1717,7 @@ impl Audit {
             "selection_detail": self.selection.to_string(),
             "class": self.selection.class.id(),
             "class_octet": format!("{:02X}", self.selection.class.octet()),
-            "class_assumption": CLASS_ASSUMPTION,
+            "class_assumption": class_assumption(self.selection.class),
             "max_probes": MAX_PROBES,
             "probed": self.probes.len(),
             "exchanges": self.exchanges,
@@ -1706,12 +1782,12 @@ impl Audit {
             "TAR SELECTION: {} at CLA {}",
             self.selection, self.selection.class
         ));
-        if matches!(self.selection.class, Class::Etsi) {
-            out.push_str(NEWLINE);
-            out.push_str("  NOTE: ");
-            out.push_str(CLASS_ASSUMPTION);
-            out.push_str(NEWLINE);
-        }
+        // Printed for both classes, because it is about the class: what it
+        // says is that nothing arrived where this tool sent it.
+        out.push_str(NEWLINE);
+        out.push_str("  NOTE: ");
+        out.push_str(&class_assumption(self.selection.class));
+        out.push_str(NEWLINE);
 
         if let Some(sent) = &self.terminal_profile {
             out.push_str(NEWLINE);
@@ -1848,6 +1924,15 @@ pub enum Error {
     #[error("the SMS-PP-DOWNLOAD envelope for this TAR could not be built: {0}")]
     UnbuildableEnvelope(&'static str),
 
+    /// The envelope is addressed at a class byte this module cannot name.
+    ///
+    /// A caller error rather than a card error, and refused rather than
+    /// guessed at: a class byte outside CLA `80` and CLA `A0` has no
+    /// follow-up class here either, so there is nothing this module could send
+    /// after the `61 xx` it drew.
+    #[error("the ENVELOPE APDU is not addressed at a class this module can name: {0}")]
+    UnaddressedEnvelope(String),
+
     /// The reader reported a failure.
     #[error(transparent)]
     Transport(#[from] TransportError),
@@ -1945,8 +2030,14 @@ fn is_swicc(reader: &crate::transport::ReaderName) -> bool {
 /// alone and recorded as the probe's answer**: this scan is not a CAT
 /// terminal, and a FETCH it never answers with a TERMINAL RESPONSE is not
 /// something to do to a live card, so the policy is [`PendingFollowUp::Ignore`]
-/// for it. GET RESPONSE is collected at CLA `00`, the class a USIM accepts
-/// (the GSM class `A0` is rejected by one).
+/// for it.
+///
+/// **The follow-ups go out at the class `apdu` itself is addressed at.** The
+/// class is read off the command's own CLA byte rather than passed beside it,
+/// so the `61 xx` a probe draws is always collected at the class the probe
+/// was sent at, and no caller can send an ENVELOPE at one class and have its
+/// GET RESPONSE and FETCH go out at another. At CLA `80` that is GET RESPONSE
+/// at CLA `00` and FETCH at CLA `80`, exactly as before.
 ///
 /// swicc-pcsc is the exception, by reader name: see [`probe_split`].
 pub(crate) fn probe_envelope<S: CardSession + ?Sized>(
@@ -1954,8 +2045,19 @@ pub(crate) fn probe_envelope<S: CardSession + ?Sized>(
     apdu: &[u8],
     policy: &Policy,
 ) -> Result<Result<Reply, String>, Error> {
+    let Some(&cla) = apdu.first() else {
+        return Err(Error::UnbuildableEnvelope(
+            "the ENVELOPE APDU has no header",
+        ));
+    };
+    let Some(class) = class_of_octet(cla) else {
+        return Err(Error::UnaddressedEnvelope(format!(
+            "CLA {cla:02X} is neither CLA 80 (etsi) nor CLA A0 (gsm), so this module cannot say \
+             which class the follow-ups to it belong at"
+        )));
+    };
     if is_swicc(session.reader()) {
-        return probe_split(session, apdu, policy);
+        return probe_split(session, apdu, class, policy);
     }
     if apdu.len() < ENVELOPE_HEADER_LEN {
         return Err(Error::UnbuildableEnvelope(
@@ -1966,8 +2068,7 @@ pub(crate) fn probe_envelope<S: CardSession + ?Sized>(
     let header = Header::from_bytes([head[0], head[1], head[2], head[3]]);
     let policy = Policy {
         proactive_command: PendingFollowUp::Ignore,
-        get_response_class: CLA_GET_RESPONSE_ISO,
-        ..*policy
+        ..policy_for(class, policy)
     };
     let exchange = match session::send(session, &Command::case3(header, data.to_vec()), &policy) {
         Ok(exchange) => exchange,
@@ -2011,6 +2112,7 @@ pub(crate) fn probe_envelope<S: CardSession + ?Sized>(
 fn probe_split<S: CardSession + ?Sized>(
     session: &mut S,
     apdu: &[u8],
+    class: Class,
     policy: &Policy,
 ) -> Result<Result<Reply, String>, Error> {
     let (opening, data) = apdu.split_at(ENVELOPE_HEADER_LEN.min(apdu.len()));
@@ -2066,7 +2168,9 @@ fn probe_split<S: CardSession + ?Sized>(
                     .to_owned(),
             ));
         };
-        let _ = session::send(session, &Command::fetch(CLA_FETCH_ETSI, le), policy);
+        // FETCH at the class the envelope went out at: \[V]
+        // `APDUToolkit.fetchAPDU`, lines 28-31.
+        let _ = session::send(session, &Command::fetch(class.octet(), le), policy);
         exchanges += 1;
     }
 
@@ -2222,7 +2326,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
         if interrupt() {
             halted = Some(Stop::Interrupted);
         } else {
-            match send_terminal_profile(session, policy) {
+            match send_terminal_profile(session, selection.class, policy) {
                 Ok(sent) => {
                     exchanges += sent.exchanges;
                     sent_profile = Some(sent);
@@ -2389,6 +2493,34 @@ const TERMINAL_PROFILE_HEADER: [u8; 4] = [0x80, 0x10, 0x00, 0x00];
 /// TS 102 221 clause 11.2.4 TERMINAL RESPONSE header: CLA 80 INS 14.
 const TERMINAL_RESPONSE_HEADER: [u8; 4] = [0x80, 0x14, 0x00, 0x00];
 
+/// The TERMINAL PROFILE header at `class`: INS `10`, P1 P2 `00 00`.
+///
+/// CLA `80` is [`TERMINAL_PROFILE_HEADER`] unchanged; CLA `A0` is the same
+/// command at the class of a 2G CAT session. \[V] SIMTester's `-2g` switches
+/// the class byte of the CAT commands it builds and nothing else (see
+/// [`policy_for`]), and ENVELOPE is the one whose header is quoted there with
+/// its INS and P1 P2 held constant.
+fn terminal_profile_header(class: Class) -> [u8; 4] {
+    [class.octet(), TERMINAL_PROFILE_HEADER[1], 0x00, 0x00]
+}
+
+/// The TERMINAL RESPONSE header at `class`: INS `14`, P1 P2 `00 00`.
+///
+/// CLA `80` is [`TERMINAL_RESPONSE_HEADER`] unchanged.
+fn terminal_response_header(class: Class) -> [u8; 4] {
+    [class.octet(), TERMINAL_RESPONSE_HEADER[1], 0x00, 0x00]
+}
+
+/// The whole TERMINAL PROFILE APDU at `class`, as a report prints it.
+fn terminal_profile_apdu(class: Class) -> Vec<u8> {
+    [
+        &terminal_profile_header(class)[..],
+        &[1],
+        &TERMINAL_PROFILE_DATA[..],
+    ]
+    .concat()
+}
+
 /// General result `30`, "Command beyond terminal's capabilities" (TS 102 223
 /// clause 8.12, table of general results).
 const RESULT_BEYOND_CAPABILITIES: u8 = 0x30;
@@ -2414,6 +2546,9 @@ pub struct ProactiveCommand {
 /// What the TERMINAL PROFILE exchange did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalProfile {
+    /// The class the TERMINAL PROFILE, the FETCHes that drain what it draws
+    /// and the TERMINAL RESPONSES that decline them were all sent at.
+    pub class: Class,
     /// The card's own answer to the TERMINAL PROFILE command (before any
     /// FETCH), `None` if it carried no status word.
     pub status: Option<StatusWord>,
@@ -2430,7 +2565,9 @@ impl TerminalProfile {
     pub fn to_json(&self) -> Value {
         json!({
             "sent": true,
-            "command": octets(&[&TERMINAL_PROFILE_HEADER[..], &[1], &TERMINAL_PROFILE_DATA].concat()),
+            "class": self.class.id(),
+            "class_octet": format!("{:02X}", self.class.octet()),
+            "command": octets(&terminal_profile_apdu(self.class)),
             "profile": octets(&TERMINAL_PROFILE_DATA),
             "status": self.status.map(|status| status.to_string()),
             "proactive_commands": self.proactive.iter().map(|command| json!({
@@ -2453,8 +2590,10 @@ impl TerminalProfile {
             |status| status.to_string(),
         );
         format!(
-            "TERMINAL PROFILE: {} -> {status}; {} proactive command(s) fetched and declined{}",
-            octets(&[&TERMINAL_PROFILE_HEADER[..], &[1], &TERMINAL_PROFILE_DATA].concat()),
+            "TERMINAL PROFILE at CLA {}: {} -> {status}; {} proactive command(s) fetched and \
+             declined{}",
+            self.class,
+            octets(&terminal_profile_apdu(self.class)),
             self.proactive.len(),
             if self.still_pending {
                 "; one is STILL PENDING"
@@ -2497,9 +2636,9 @@ fn command_details(command: &[u8]) -> Option<[u8; 3]> {
 
 /// TERMINAL RESPONSE "command beyond terminal's capabilities" for `details`:
 /// Command details echoed, Device identities ME -> UICC, Result `30`.
-fn terminal_response(details: [u8; 3]) -> Command {
+fn terminal_response(details: [u8; 3], class: Class) -> Command {
     Command::case3(
-        Header::from_bytes(TERMINAL_RESPONSE_HEADER),
+        Header::from_bytes(terminal_response_header(class)),
         [
             0x81,
             0x03,
@@ -2542,6 +2681,7 @@ fn fetched(exchange: &session::Exchange) -> bool {
 /// type of command is recorded, not the content.
 pub fn send_terminal_profile<S: CardSession + ?Sized>(
     session: &mut S,
+    class: Class,
     policy: &Policy,
 ) -> Result<TerminalProfile, Error> {
     let to_error = |err: session::Error| match err {
@@ -2549,13 +2689,15 @@ pub fn send_terminal_profile<S: CardSession + ?Sized>(
         session::Error::Parse(err) => Error::Response(err),
         _ => Error::UnbuildableEnvelope("a TERMINAL PROFILE or RESPONSE could not be encoded"),
     };
+    // The profile, the FETCHes that drain what it draws and the TERMINAL
+    // RESPONSES that decline them all go out at one class.
     let policy = Policy {
         proactive_command: PendingFollowUp::Fetch,
         max_follow_ups: 1,
-        ..*policy
+        ..policy_for(class, policy)
     };
     let profile = Command::case3(
-        Header::from_bytes(TERMINAL_PROFILE_HEADER),
+        Header::from_bytes(terminal_profile_header(class)),
         TERMINAL_PROFILE_DATA.to_vec(),
     );
     let mut exchange = session::send(session, &profile, &policy).map_err(to_error)?;
@@ -2589,13 +2731,14 @@ pub fn send_terminal_profile<S: CardSession + ?Sized>(
             },
             ..policy
         };
-        exchange =
-            session::send(session, &terminal_response(details), &policy).map_err(to_error)?;
+        exchange = session::send(session, &terminal_response(details, class), &policy)
+            .map_err(to_error)?;
         exchanges += exchange.exchange_count();
     }
     let still_pending = exchange.status().is_some_and(|status| status.sw1() == 0x91);
 
     Ok(TerminalProfile {
+        class,
         status,
         proactive,
         still_pending,
@@ -3552,7 +3695,7 @@ mod tests {
         assert_eq!(block["selection"], "focused");
         assert_eq!(block["class"], "etsi");
         assert_eq!(block["class_octet"], "80");
-        assert_eq!(block["class_assumption"], CLASS_ASSUMPTION);
+        assert_eq!(block["class_assumption"], class_assumption(Class::Etsi));
         assert_eq!(block["max_probes"], MAX_PROBES);
         assert_eq!(block["probed"], FOCUSED_PROBES);
         assert_eq!(block["accepted_count"], 0);
@@ -3868,6 +4011,16 @@ mod tests {
     ];
 
     impl ProfileCard {
+        /// Whether this command is the TAR this card routes, at whatever class
+        /// it was addressed at. The card has no opinion about the class, which
+        /// is what makes "the plan does not depend on the class" testable.
+        fn routes(&self, command: &[u8]) -> bool {
+            let Some(class) = command.first().copied().and_then(class_of_octet) else {
+                return false;
+            };
+            envelope_apdu(self.accepts, class).as_deref() == Some(command)
+        }
+
         fn new(pending: bool) -> Self {
             Self {
                 reader: ReaderName::new("loopback").expect("a reader name"),
@@ -3901,11 +4054,7 @@ mod tests {
                     vec![0x90, 0x00]
                 }
                 Some(0xC2) if !self.profiled => vec![0x6F, 0x00],
-                Some(0xC2)
-                    if command == envelope_apdu(self.accepts, Class::Etsi).expect("built") =>
-                {
-                    vec![0x90, 0x00]
-                }
+                Some(0xC2) if self.routes(command) => vec![0x90, 0x00],
                 Some(0xC2) => vec![0x94, 0x04],
                 _ => vec![0x6D, 0x00],
             })
@@ -4038,7 +4187,8 @@ mod tests {
     #[test]
     fn a_pending_proactive_command_is_fetched_and_declined() {
         let mut card = ProfileCard::new(true);
-        let sent = send_terminal_profile(&mut card, &Policy::default()).expect("no error");
+        let sent =
+            send_terminal_profile(&mut card, Class::Etsi, &Policy::default()).expect("no error");
 
         assert_eq!(sent.status.map(|s| s.to_string()).as_deref(), Some("910B"));
         assert_eq!(
@@ -4071,7 +4221,8 @@ mod tests {
                 0xD0, 0x09, 0x81, 0x03, 0x01, 0x05, 0x00, 0x82, 0x02, 0x81, 0x82, 0x91, 0x0B,
             ],
         ]);
-        let sent = send_terminal_profile(&mut card, &Policy::default()).expect("no error");
+        let sent =
+            send_terminal_profile(&mut card, Class::Etsi, &Policy::default()).expect("no error");
         assert_eq!(sent.proactive.len(), MAX_PROACTIVE_DRAINED);
         assert!(sent.still_pending);
     }
@@ -4160,5 +4311,277 @@ mod tests {
         let reason = audit.stopped.as_deref().expect("stopped at the ceiling");
         assert!(reason.contains("ceiling of 10"), "{reason}");
         assert_eq!(audit.to_json()["exhausted"], false);
+    }
+
+    // ---------------------------------------------------------------------
+    // #268: the 2G class. Everything below asserts on the ACTUAL bytes a
+    // scripted card received, never on a builder fn's return value.
+    // ---------------------------------------------------------------------
+
+    /// A focused selection at `class`, the one shape both classes are run at.
+    fn focused_at(class: Class) -> Selection {
+        Selection {
+            mode: Mode::Focused,
+            class,
+            skip_response: None,
+        }
+    }
+
+    /// No flag is CLA 80, exactly as before #268.
+    ///
+    /// The default has to be pinned on the wire rather than on `Class::default`,
+    /// because "the default" is a claim about the bytes that reach a card.
+    #[test]
+    fn the_no_flag_audit_sends_its_envelopes_at_cla_80() {
+        let mut card = Scripted::cycling(&[&[0x61, 0x3A], &[0x90, 0x00]]).swicc();
+        let audit = audit(
+            &mut card,
+            &Selection::focused(),
+            &Policy::default(),
+            &mut never,
+        )
+        .expect("no transport error");
+
+        let sent = card.sent();
+        // A swicc reader is sent the header and the data apart, so each probe
+        // is two transmits: the header opens the command, the data is its body.
+        assert_eq!(sent.len(), 2 * (CALIBRATION_PROBES + FOCUSED_PROBES));
+        assert!(
+            sent.iter()
+                .step_by(2)
+                .all(|opening| opening[0] == Class::Etsi.octet()),
+            "every ENVELOPE opened at CLA 80 with no flag"
+        );
+        assert_eq!(
+            &sent[0][..5],
+            &[0x80, 0xC2, 0x00, 0x00, 0x3A],
+            "CLA 80, INS C2, P1 00, P2 00, Lc 3A - unchanged"
+        );
+        assert_eq!(audit.to_json()["class_octet"], "80");
+    }
+
+    /// `--class gsm` sends the ENVELOPE at CLA A0, on the wire.
+    ///
+    /// \[V] SIMTester `Envelope.getAPDU`, lines 22-25: the `A0` form, and the
+    /// INS and P1 P2 identical to the `80` form.
+    #[test]
+    fn the_gsm_class_sends_its_envelopes_at_cla_a0() {
+        let mut card = Scripted::cycling(&[&[0x61, 0x3A], &[0x90, 0x00]]).swicc();
+        audit(
+            &mut card,
+            &focused_at(Class::Gsm),
+            &Policy::default(),
+            &mut never,
+        )
+        .expect("no transport error");
+
+        let sent = card.sent();
+        assert!(
+            sent.iter()
+                .step_by(2)
+                .all(|opening| opening[0] == Class::Gsm.octet()),
+            "every ENVELOPE opened at CLA A0"
+        );
+        assert_eq!(
+            &sent[0][..5],
+            &[0xA0, 0xC2, 0x00, 0x00, 0x3A],
+            "only the class byte moved"
+        );
+    }
+
+    /// The `61 xx` a probe draws is collected at the class of the command it
+    /// answers, not at the class the tool used to hard-code.
+    ///
+    /// \[V] SIMTester `APDUToolkit.getResponse`, lines 48-51: `00 C0 00 00`
+    /// with `third_gen_apdu`, `A0 C0 00 00` without.
+    #[test]
+    fn a_61_xx_is_collected_at_the_class_of_the_command_it_answers() {
+        for (class, expected) in [(Class::Etsi, 0x00u8), (Class::Gsm, 0xA0u8)] {
+            let mut card = Scripted::new(&[&[0x61, 0x3A], &[0x90, 0x00]]);
+            let reply = probe(&mut card, 0, class, PorMode::default(), &Policy::default())
+                .expect("no transport error")
+                .expect("the card answered");
+
+            let sent = card.sent();
+            assert_eq!(sent.len(), 2, "the ENVELOPE and its GET RESPONSE");
+            assert_eq!(
+                sent[0][0],
+                class.octet(),
+                "the ENVELOPE went out at the class in force"
+            );
+            assert_eq!(
+                &sent[1][..5],
+                &[expected, 0xC0, 0x00, 0x00, 0x3A],
+                "GET RESPONSE at CLA {expected:02X}, Le equal to the advertised length"
+            );
+            assert!(reply.signature.status().is_some());
+        }
+    }
+
+    /// The `91 xx` a probe draws is drained with FETCH at the same class.
+    ///
+    /// \[V] SIMTester `APDUToolkit.fetchAPDU`, lines 28-31: `80 12 00 00` with
+    /// `third_gen_apdu`, `A0 12 00 00` without.
+    #[test]
+    fn a_91_xx_is_drained_with_a_fetch_at_the_same_class() {
+        for (class, expected) in [(Class::Etsi, 0x80u8), (Class::Gsm, 0xA0u8)] {
+            let mut card = Scripted::new(&[&[0x61, 0x3A], &[0x91, 0x80], &[0x90, 0x00]]).swicc();
+            probe(&mut card, 0, class, PorMode::default(), &Policy::default())
+                .expect("no transport error")
+                .expect("the card answered");
+
+            let sent = card.sent();
+            assert_eq!(sent.len(), 3, "the envelope header, its data and one FETCH");
+            assert_eq!(
+                sent[2],
+                vec![expected, crate::apdu::INS_FETCH, 0x00, 0x00, 0x80],
+                "FETCH at CLA {expected:02X}, Le equal to the advertised length"
+            );
+        }
+    }
+
+    /// The class is the only thing that changes: the same card is sent the
+    /// same number of commands and the same TARs, at either class.
+    #[test]
+    fn both_classes_probe_the_same_plan_and_reach_the_same_verdict() {
+        let mut counts = Vec::new();
+        for class in Class::ALL {
+            let mut card = Scripted::cycling(&[&[0x61, 0x3A], &[0x90, 0x00]]).swicc();
+            let audit = audit(
+                &mut card,
+                &focused_at(class),
+                &Policy::default(),
+                &mut never,
+            )
+            .expect("no transport error");
+            counts.push((
+                card.sent().len(),
+                audit.probes.len(),
+                audit.accepted_count(),
+                audit.is_complete(),
+                audit.to_json()["probed"].clone(),
+            ));
+        }
+        assert_eq!(
+            counts[0], counts[1],
+            "the bound and the verdict are class-free"
+        );
+        assert_eq!(counts[0].0, 2 * (CALIBRATION_PROBES + FOCUSED_PROBES));
+        assert_eq!(counts[0].1, FOCUSED_PROBES);
+    }
+
+    /// `--terminal-profile` sends at the class in force: the profile, the
+    /// FETCH that drains what it draws and the TERMINAL RESPONSE that declines
+    /// it, all three at one class.
+    ///
+    /// \[U] SIMTester builds no TERMINAL PROFILE, so the octet is taken from
+    /// the same rule its ENVELOPE, FETCH and GET RESPONSE switches follow
+    /// (`APDUToolkit` and `Envelope`, cited in [`policy_for`]); the class byte
+    /// of a 2G CAT command is a `[U]` claim about GSM 11.11 here, whose text
+    /// has not been read in this project.
+    #[test]
+    fn the_terminal_profile_and_its_drain_go_out_at_the_class_in_force() {
+        let mut card = ProfileCard::new(true);
+        let sent =
+            send_terminal_profile(&mut card, Class::Gsm, &Policy::default()).expect("no error");
+
+        assert_eq!(sent.class, Class::Gsm);
+        assert_eq!(card.sent[0], vec![0xA0, 0x10, 0x00, 0x00, 0x01, 0x13]);
+        assert_eq!(card.sent[1], vec![0xA0, 0x12, 0x00, 0x00, 0x0B]);
+        assert_eq!(
+            card.sent[2],
+            vec![
+                0xA0, 0x14, 0x00, 0x00, 0x0C, 0x81, 0x03, 0x01, 0x05, 0x00, 0x82, 0x02, 0x82, 0x81,
+                0x83, 0x01, 0x30
+            ],
+            "TERMINAL RESPONSE at CLA A0 too"
+        );
+        let block = sent.to_json();
+        assert_eq!(block["class"], "gsm");
+        assert_eq!(block["class_octet"], "A0");
+        assert_eq!(block["command"], "A0 10 00 00 01 13");
+    }
+
+    /// The audit at `--class gsm` sends the TERMINAL PROFILE at CLA A0 and
+    /// probes the same number of TARs as at CLA 80.
+    #[test]
+    fn an_audit_with_the_terminal_profile_probes_the_same_plan_in_both_classes() {
+        let mut plan = Vec::new();
+        for class in Class::ALL {
+            let mut card = ProfileCard::new(false);
+            let audit = audit_with(
+                &mut card,
+                &focused_at(class),
+                &Policy::default(),
+                true,
+                &mut never,
+            )
+            .expect("no transport error");
+            plan.push((card.sent.len(), audit.probes.len(), audit.accepted_count()));
+            assert_eq!(
+                card.sent[0][0],
+                class.octet(),
+                "the TERMINAL PROFILE opened at the class in force"
+            );
+            assert_eq!(
+                &card.sent[0][..6],
+                &[class.octet(), 0x10, 0x00, 0x00, 0x01, 0x13],
+                "CLA, INS 10, P1 00, P2 00, Lc 01, profile 13"
+            );
+        }
+        assert_eq!(plan[0], plan[1], "the plan does not depend on the class");
+        assert_eq!(plan[0].0, 1 + CALIBRATION_PROBES + FOCUSED_PROBES);
+    }
+
+    /// The published assumption names the class in force and the one that was
+    /// not probed. It used to say the GSM class "is not selectable yet"; that
+    /// was the sentence this issue made false.
+    #[test]
+    fn the_class_assumption_names_the_class_in_force_and_the_one_left_alone() {
+        let etsi = class_assumption(Class::Etsi);
+        assert!(etsi.contains("CLA 80 (etsi)"), "{etsi}");
+        assert!(etsi.contains("--class gsm"), "{etsi}");
+        assert!(!etsi.contains("not selectable yet"), "{etsi}");
+
+        let gsm = class_assumption(Class::Gsm);
+        assert!(gsm.contains("CLA A0 (gsm)"), "{gsm}");
+        assert!(gsm.contains("--class etsi"), "{gsm}");
+        assert_ne!(etsi, gsm);
+    }
+
+    /// The class octets are the ones the reference switches between, and the
+    /// class is part of the fingerprint `--diff` compares.
+    #[test]
+    fn the_two_classes_and_their_octets_are_the_reference_pair() {
+        assert_eq!(Class::Etsi.octet(), 0x80);
+        assert_eq!(Class::Gsm.octet(), 0xA0);
+        assert_eq!(Class::ALL.len(), 2);
+        assert_eq!(class_of_octet(0x80), Some(Class::Etsi));
+        assert_eq!(class_of_octet(0xA0), Some(Class::Gsm));
+        assert_eq!(class_of_octet(0x00), None, "CLA 00 is not a CAT class here");
+        assert_ne!(
+            focused_at(Class::Etsi).fingerprint(),
+            focused_at(Class::Gsm).fingerprint(),
+            "--diff must not be able to compare the two"
+        );
+    }
+
+    /// The class in force is in the human report as well as the JSON, and the
+    /// note is printed at either class rather than only at the default one.
+    #[test]
+    fn the_human_report_names_the_class_in_force() {
+        let human = audit(
+            &mut Scripted::cycling(&[&[0x61, 0x3A], &[0x90, 0x00]]).swicc(),
+            &focused_at(Class::Gsm),
+            &Policy::default(),
+            &mut never,
+        )
+        .expect("no transport error")
+        .to_human();
+        assert!(
+            human.contains("TAR SELECTION: focused at CLA gsm (A0)"),
+            "{human}"
+        );
+        assert!(human.contains("CLA A0 (gsm)"), "{human}");
     }
 }
