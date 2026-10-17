@@ -262,6 +262,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp,cplc-set)
                 cmd="sim__doctor__subcmd__gp__subcmd__cplc__subcmd__set"
                 ;;
+            sim__doctor__subcmd__gp,crs)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs"
+                ;;
             sim__doctor__subcmd__gp,delete)
                 cmd="sim__doctor__subcmd__gp__subcmd__delete"
                 ;;
@@ -343,6 +346,36 @@ _sim__doctor() {
             sim__doctor__subcmd__gp__subcmd__channel__subcmd__help,open)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel__subcmd__help__subcmd__open"
                 ;;
+            sim__doctor__subcmd__gp__subcmd__crs,activate)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__activate"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs,deactivate)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__deactivate"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs,help)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__help"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs,info)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__info"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs,list)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__list"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs__subcmd__help,activate)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__activate"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs__subcmd__help,deactivate)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__deactivate"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs__subcmd__help,help)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs__subcmd__help,info)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__info"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__crs__subcmd__help,list)
+                cmd="sim__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__list"
+                ;;
             sim__doctor__subcmd__gp__subcmd__help,ara)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__ara"
                 ;;
@@ -354,6 +387,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,cplc-set)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cplc__subcmd__set"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help,crs)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__crs"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,delete)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__delete"
@@ -405,6 +441,18 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help__subcmd__channel,open)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__open"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__crs,activate)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__activate"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__crs,deactivate)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__deactivate"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__crs,info)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__info"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__crs,list)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__list"
                 ;;
             sim__doctor__subcmd__help,card)
                 cmd="sim__doctor__subcmd__help__subcmd__card"
@@ -547,6 +595,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help__subcmd__gp,cplc-set)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cplc__subcmd__set"
                 ;;
+            sim__doctor__subcmd__help__subcmd__gp,crs)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__crs"
+                ;;
             sim__doctor__subcmd__help__subcmd__gp,delete)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__delete"
                 ;;
@@ -594,6 +645,18 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__gp__subcmd__channel,open)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__open"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__crs,activate)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__activate"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__crs,deactivate)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__deactivate"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__crs,info)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__info"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__crs,list)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__list"
                 ;;
             sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto,check)
                 cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__check"
@@ -1922,7 +1985,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp)
-            opts="-h --help info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram help"
+            opts="-h --help info ara status select crs channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2379,6 +2442,220 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs)
+            opts="-h --help list info activate deactivate help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__activate)
+            opts="-h --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__deactivate)
+            opts="-h --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__help)
+            opts="list info activate deactivate help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__activate)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__deactivate)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__info)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__help__subcmd__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__info)
+            opts="-h --reader --json --trace --channel --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__list)
+            opts="-h --aid --reader --json --trace --channel --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --aid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__delete)
             opts="-h --aid --related --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -2456,7 +2733,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help)
-            opts="info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram help"
+            opts="info ara status select crs channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2598,6 +2875,76 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cplc__subcmd__set)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__crs)
+            opts="list info activate deactivate"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__activate)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__deactivate)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__info)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -3498,7 +3845,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp)
-            opts="info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram"
+            opts="info ara status select crs channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3640,6 +3987,76 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cplc__subcmd__set)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__crs)
+            opts="list info activate deactivate"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__activate)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__deactivate)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__info)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__crs__subcmd__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
