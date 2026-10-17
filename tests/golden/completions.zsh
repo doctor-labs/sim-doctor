@@ -77,6 +77,80 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(profile)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__profile_commands" \
+"*::: :->profile" \
+&& ret=0
+
+    case $state in
+    (profile)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-profile-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope instead of the table]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(probe)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[Which PC/SC reader to use]:NAME:_default' \
+'--json[Emit one JSON envelope instead of the report]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(match)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[Which PC/SC reader to use]:NAME:_default' \
+'--json[Emit one JSON envelope instead of the report]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':name -- The `-t` name, spelled as `sim-doctor profile list` prints it:_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__profile__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-profile-help-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(probe)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(match)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (ts48)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
@@ -1970,6 +2044,34 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(profile)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__profile_commands" \
+"*::: :->profile" \
+&& ret=0
+
+    case $state in
+    (profile)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-profile-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(probe)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(match)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (ts48)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__ts48_commands" \
@@ -2505,6 +2607,7 @@ _sim-doctor_commands() {
 'modules:Describe the crate module roots and the layering between them' \
 'readers:List the PC/SC readers by name and index, for --reader or --reader-index' \
 'scan:Select a card'\''s master file, walk everything under it, and report' \
+'profile:Print the card-profile database, or probe a card against it' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
 'ci:Write the GitHub Actions workflow that runs this repo'\''s action on pull requests' \
@@ -3384,6 +3487,7 @@ _sim-doctor__subcmd__help_commands() {
 'modules:Describe the crate module roots and the layering between them' \
 'readers:List the PC/SC readers by name and index, for --reader or --reader-index' \
 'scan:Select a card'\''s master file, walk everything under it, and report' \
+'profile:Print the card-profile database, or probe a card against it' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
 'ci:Write the GitHub Actions workflow that runs this repo'\''s action on pull requests' \
@@ -3836,6 +3940,30 @@ _sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__por_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help ota-expanded por commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__profile_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__profile_commands() {
+    local commands; commands=(
+'list:Print the card-profile database with its provenance. Needs no card' \
+'probe:Probe a card and report which profiles matched, with the evidence' \
+'match:Check one named profile against a card. An unknown name is refused before any reader is opened' \
+    )
+    _describe -t commands 'sim-doctor help profile commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__profile__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__profile__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help profile list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__profile__subcmd__match_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__profile__subcmd__match_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help profile match commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__profile__subcmd__probe_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__profile__subcmd__probe_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help profile probe commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__readers_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__readers_commands() {
     local commands; commands=()
@@ -4051,6 +4179,61 @@ _sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__por_commands() {
 _sim-doctor__subcmd__ota-expanded__subcmd__por_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor ota-expanded por commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile_commands] )) ||
+_sim-doctor__subcmd__profile_commands() {
+    local commands; commands=(
+'list:Print the card-profile database with its provenance. Needs no card' \
+'probe:Probe a card and report which profiles matched, with the evidence' \
+'match:Check one named profile against a card. An unknown name is refused before any reader is opened' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor profile commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__help_commands() {
+    local commands; commands=(
+'list:Print the card-profile database with its provenance. Needs no card' \
+'probe:Probe a card and report which profiles matched, with the evidence' \
+'match:Check one named profile against a card. An unknown name is refused before any reader is opened' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor profile help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__help__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__help__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile help list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__help__subcmd__match_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__help__subcmd__match_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile help match commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__help__subcmd__probe_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__help__subcmd__probe_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile help probe commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__match_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__match_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile match commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__profile__subcmd__probe_commands] )) ||
+_sim-doctor__subcmd__profile__subcmd__probe_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor profile probe commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__readers_commands] )) ||
 _sim-doctor__subcmd__readers_commands() {
