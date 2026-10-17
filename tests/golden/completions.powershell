@@ -235,6 +235,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('select', 'select', [CompletionResultType]::ParameterValue, 'SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card''s current selection')
             [CompletionResult]::new('crs', 'crs', [CompletionResultType]::ParameterValue, 'Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless')
             [CompletionResult]::new('channel', 'channel', [CompletionResultType]::ParameterValue, 'Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N')
+            [CompletionResult]::new('release-scp', 'release-scp', [CompletionResultType]::ParameterValue, 'Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE')
             [CompletionResult]::new('delete', 'delete', [CompletionResultType]::ParameterValue, 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT')
             [CompletionResult]::new('make-default', 'make-default', [CompletionResultType]::ParameterValue, 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT')
             [CompletionResult]::new('rename-isd', 'rename-isd', [CompletionResultType]::ParameterValue, 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT')
@@ -408,6 +409,16 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;gp;channel;help;help' {
+            break
+        }
+        'sim-doctor;gp;release-scp' {
+            [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'The logical channel whose secure channel is released, 1 to 19')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('--trace', '--trace', [CompletionResultType]::ParameterName, 'Add every APDU exchange (command and response hex) as data.trace')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the MANAGE CHANNEL close. Without it nothing is sent')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
         'sim-doctor;gp;delete' {
@@ -659,6 +670,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('select', 'select', [CompletionResultType]::ParameterValue, 'SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card''s current selection')
             [CompletionResult]::new('crs', 'crs', [CompletionResultType]::ParameterValue, 'Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless')
             [CompletionResult]::new('channel', 'channel', [CompletionResultType]::ParameterValue, 'Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N')
+            [CompletionResult]::new('release-scp', 'release-scp', [CompletionResultType]::ParameterValue, 'Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE')
             [CompletionResult]::new('delete', 'delete', [CompletionResultType]::ParameterValue, 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT')
             [CompletionResult]::new('make-default', 'make-default', [CompletionResultType]::ParameterValue, 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT')
             [CompletionResult]::new('rename-isd', 'rename-isd', [CompletionResultType]::ParameterValue, 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT')
@@ -711,6 +723,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;gp;help;channel;close' {
+            break
+        }
+        'sim-doctor;gp;help;release-scp' {
             break
         }
         'sim-doctor;gp;help;delete' {
@@ -1391,6 +1406,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('select', 'select', [CompletionResultType]::ParameterValue, 'SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card''s current selection')
             [CompletionResult]::new('crs', 'crs', [CompletionResultType]::ParameterValue, 'Contactless Registry Service (CRS, GlobalPlatform Amendment C): list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless')
             [CompletionResult]::new('channel', 'channel', [CompletionResultType]::ParameterValue, 'Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N')
+            [CompletionResult]::new('release-scp', 'release-scp', [CompletionResultType]::ParameterValue, 'Release the SCP03 secure channel on a logical channel: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE')
             [CompletionResult]::new('delete', 'delete', [CompletionResultType]::ParameterValue, 'Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT')
             [CompletionResult]::new('make-default', 'make-default', [CompletionResultType]::ParameterValue, 'Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT')
             [CompletionResult]::new('rename-isd', 'rename-isd', [CompletionResultType]::ParameterValue, 'Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT')
@@ -1442,6 +1458,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;gp;channel;close' {
+            break
+        }
+        'sim-doctor;help;gp;release-scp' {
             break
         }
         'sim-doctor;help;gp;delete' {
