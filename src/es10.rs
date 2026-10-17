@@ -46,6 +46,57 @@
 //! | RemoveNotificationFromList | 5.7.12 | `BF30` | `BF30` |
 //! | eUICCMemoryReset | 5.7.19 | `BF34` | `BF34` |
 //!
+//! # SGP.32 (IoT eUICC), issue #229: two more ES10b functions
+//!
+//! | Function | Clause | Request tag | Response tag |
+//! |---|---|---|---|
+//! | GetCerts | 5.9.10 (`[U]`) | `BF56` | `BF56` |
+//! | GetEimConfigurationData | 5.9.18 (`[U]`) | `BF55` | `BF55` |
+//!
+//! **This pair rests on pySim alone, and the two clause numbers are `[U]`.**
+//! SGP.22 v2.5 above was checked against its PDF; SGP.32 was **not reachable
+//! offline** while issue #229 was built, so no page of it was read. Every
+//! tag and every enumeration value below is `[V]` against osmocom/pysim
+//! (`master`, the 3c437d4 of AGENTS.md section 5.1), file `pySim/euicc.py`:
+//! `GetCertsReq` `BF56` (line 318) and `GetCertsResp` `BF56` (line 326),
+//! `EumCertificate` `A5` (line 319) and `EuiccCertificate` `A6` (line 322),
+//! `GetCertsError` `81` with `invalidCiPKId=1` and `undefinedError=127`
+//! (lines 324-325), `GetEimConfigurationData` `BF55` (line 349) over
+//! `EimConfigurationDataSeq` `A0` (line 348) and the fields inside it:
+//! `EimId` `80`, `EimFqdn` `81`, `EimIdType` `82`, `CounterValue` `83`,
+//! `AssociationToken` `84`, `EimSupportedProtocol` `87` (lines 330-342),
+//! `eimIdTypeOid=1` / `eimIdTypeFqdn=2` / `eimIdTypeProprietary=3`
+//! (line 335) and `eimRetrieveHttps=0`, `eimRetrieveCoaps=1`,
+//! `eimInjectHttps=2`, `eimInjectCoaps=3`, `eimProprietary=4`
+//! (lines 341-342).
+//!
+//! Two gaps in that reference, both carried as `[U]` in the code below. The
+//! clause numbers are pySim's own comment (lines 317 and 329), not the
+//! document. And `counterValue` / `associationToken` are read by pySim with
+//! `Asn1DerInteger()` (lines 339-340, from `osmocom.construct`, which is not
+//! on this machine), so what is enforced here is the strict DER INTEGER rule
+//! of X.690 clause 8.3 rather than an observation of pySim's output. The
+//! certificate TLVs stay opaque: `GreedyBytes` at `pySim/euicc.py` lines 320
+//! and 323, and this crate parses X.509 elsewhere, so a certificate is
+//! reported by its length and its bytes.
+//!
+//! One further discrepancy, and the one that shapes the decoder: pySim's
+//! `EimConfigurationData` is itself a tag-`80` TLV nested inside its `A0`
+//! (`pySim/euicc.py` line 344, inside `EimConfigurationDataSeq` line 347),
+//! so the wire form pySim decodes carries one level more nesting than
+//! SGP.32's `SEQUENCE` tag alone accounts for:
+//!
+//! ```text
+//! BF55 { A0 { 80 { 80 <eimId> 81 <eimFqdn> 82 <idType> ... } } }
+//! ```
+//!
+//! SGP.32 was not reachable offline, so which of the two shapes a card
+//! answers with could not be settled from the document. The reference the
+//! issue names is the wrapped one, so
+//! [`decode_get_eim_configuration_data`] reads it as primary, still
+//! accepts the fields sitting directly in the `A0`, and reports which one
+//! it saw in [`EimConfigurationData::shape`] rather than guessing.
+//!
 //! Where issue #18 differs from the spec: the issue says "`<=255` data bytes"
 //! under 5.7.2, but Table 47 gives Lc as "Var." and the 255-byte rule is
 //! stated in 5.7.6 and 2.5.5 (blocks of 255 bytes, a last block that MAY be
@@ -204,6 +255,40 @@ pub enum DecodeError {
     /// A BIT STRING whose unused-bits octet is impossible.
     #[error("{0} is not a valid BIT STRING")]
     BadBitString(&'static str),
+    /// A field that must hold a DER INTEGER holds another type.
+    #[error("{field} is not a DER INTEGER (identifier octet {found:02X})")]
+    NotAnInteger {
+        /// The ASN.1 field name.
+        field: &'static str,
+        /// The identifier octet found.
+        found: u8,
+    },
+    /// A DER INTEGER that is negative, or carries no value octet at all.
+    #[error("{field} is not a non-negative DER INTEGER with value octets")]
+    NegativeInteger {
+        /// The ASN.1 field name.
+        field: &'static str,
+    },
+    /// A DER INTEGER whose value is not written in the shortest form.
+    #[error("{field} is a DER INTEGER whose value octets are not minimal")]
+    NonMinimalInteger {
+        /// The ASN.1 field name.
+        field: &'static str,
+    },
+    /// A DER INTEGER wider than the 64 bits this reports.
+    #[error("{field} is a DER INTEGER wider than the 64 bits reported here")]
+    IntegerTooWide {
+        /// The ASN.1 field name.
+        field: &'static str,
+    },
+    /// Bytes that are not one strictly encoded DER value.
+    #[error("{field} is not a strict DER encoding: {message}")]
+    BadDerEncoding {
+        /// The ASN.1 field name.
+        field: &'static str,
+        /// What the strict decoder said.
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -699,6 +784,30 @@ code_enum! {
     ProfileClass { Test = 0, Provisioning = 1, Operational = 2 }
 }
 code_enum! {
+    /// `GetCertsError`, tag `81` of a GetCerts response (SGP.32 section 5.9.10
+    /// [U]; values [V] osmocom/pysim `pySim/euicc.py` lines 324-325, which
+    /// spell them `invalidCiPKId` and `undefinedError`). The TLV is terminal:
+    /// a response holding it holds no certificate.
+    GetCertsError { InvalidCiPkId = 1, UndefinedError = 127 }
+}
+code_enum! {
+    /// `EimIdType`, tag `82` of `EimConfigurationData` (SGP.32 section 5.9.18
+    /// [U]; values [V] osmocom/pysim `pySim/euicc.py` line 335:
+    /// `eimIdTypeOid`, `eimIdTypeFqdn`, `eimIdTypeProprietary`).
+    EimIdType { Oid = 1, Fqdn = 2, Proprietary = 3 }
+}
+code_enum! {
+    /// `EimSupportedProtocol`, tag `87` of `EimConfigurationData`, which may
+    /// repeat (SGP.32 section 5.9.18 [U]; values [V] osmocom/pysim
+    /// `pySim/euicc.py` lines 341-342: `eimRetrieveHttps`,
+    /// `eimRetrieveCoaps`, `eimInjectHttps`, `eimInjectCoaps`,
+    /// `eimProprietary`).
+    EimSupportedProtocol {
+        RetrieveHttps = 0, RetrieveCoaps = 1, InjectHttps = 2, InjectCoaps = 3,
+        Proprietary = 4,
+    }
+}
+code_enum! {
     /// `IconType` ([SGP.22 v2.5 §5.7.15]).
     IconType { Jpg = 0, Png = 1 }
 }
@@ -878,6 +987,20 @@ pub fn set_nickname_request(iccid: &[u8], nickname: &str) -> Result<Vec<u8>, Enc
 /// notification's metadata, nothing retrieved or removed ([SGP.22 v2.5 §5.7.11]).
 pub fn list_notification_request() -> Vec<u8> {
     tlv(0xBF28, &[])
+}
+
+/// `GetCertsRequest`: `BF 56 00`, an empty BER-TLV. SGP.32 section 5.9.10
+/// [U]; `BF56` is [V] osmocom/pysim `pySim/euicc.py` line 318 (`GetCertsReq`,
+/// nested nothing). The response is the two certificates or one error code.
+pub fn get_certs_request() -> Vec<u8> {
+    tlv(0xBF56, &[])
+}
+
+/// `GetEimConfigurationDataRequest`: `BF 55 00`, an empty BER-TLV. SGP.32
+/// section 5.9.18 [U]; `BF55` is [V] osmocom/pysim `pySim/euicc.py` line 349
+/// (`GetEimConfigurationData`, nested one `EimConfigurationDataSeq`).
+pub fn get_eim_configuration_data_request() -> Vec<u8> {
+    tlv(0xBF55, &[])
 }
 
 /// `PrepareDownloadRequest`, `BF21` ([SGP.22 v2.5 §5.7.5]). The signed and
@@ -2319,6 +2442,260 @@ fn result_code(
     Ok((require(result, field)?, unknown))
 }
 
+// ---------------------------------------------------------------------------
+// SGP.32, issue #229: GetCerts and GetEimConfigurationData
+// ---------------------------------------------------------------------------
+
+/// The certificates of a GetCerts response, kept whole.
+///
+/// Both are opaque: `GreedyBytes` in osmocom/pysim `pySim/euicc.py` lines 320
+/// and 323, and [V] that is all this says about them. This crate parses
+/// X.509 elsewhere, so a certificate is reported as its length and its
+/// bytes and no invented parser sits between the card and the operator.
+/// Either may be absent.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Certificates {
+    /// `eumCertificate`, tag `A5`.
+    pub eum: Option<Vec<u8>>,
+    /// `euiccCertificate`, tag `A6`.
+    pub euicc: Option<Vec<u8>>,
+    /// Tags this decoder does not know.
+    pub unknown: Vec<Unknown>,
+}
+
+/// `GetCertsResponse` (SGP.32 section 5.9.10, clause [U]; tags and values [V]
+/// osmocom/pysim `pySim/euicc.py` lines 317-326).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GetCertsResponse {
+    /// The certificates the card holds.
+    Ok(Certificates),
+    /// `getCertsError`, tag `81`, and nothing else: the error is terminal.
+    Error(GetCertsError),
+}
+
+/// Decodes the response data of GetCerts (`BF56`).
+///
+/// # Errors
+///
+/// A [`DecodeError`] for a malformed structure.
+pub fn decode_get_certs(data: &[u8]) -> Result<GetCertsResponse, DecodeError> {
+    let (mut eum, mut euicc) = (None, None);
+    let mut error = None;
+    let mut unknown = Vec::new();
+    for node in only(data, 0xBF56)? {
+        match node.tag {
+            0xA5 if eum.is_none() => eum = Some(node.value.to_vec()),
+            0xA6 if euicc.is_none() => euicc = Some(node.value.to_vec()),
+            0x81 if error.is_none() => {
+                error = Some(GetCertsError::from_code(small_int(
+                    node.value,
+                    "getCertsError",
+                )?));
+            }
+            _ => keep(&mut unknown, node),
+        }
+    }
+    if let Some(code) = error {
+        return Ok(GetCertsResponse::Error(code));
+    }
+    Ok(GetCertsResponse::Ok(Certificates {
+        eum,
+        euicc,
+        unknown,
+    }))
+}
+
+/// Which of the two possible shapes inside the `A0` a card answered with.
+///
+/// pySim's `EimConfigurationData` is itself tagged `80`
+/// (`pySim/euicc.py` line 344) and nests one level inside
+/// `EimConfigurationDataSeq` (line 347), so its `A0` carries a single `80`
+/// wrapper around the fields. SGP.32's `SEQUENCE` tag accounts for the
+/// fields sitting directly in the `A0` instead. Both answers are accepted;
+/// the decoder reports the one it saw instead of picking one and refusing
+/// the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EimShape {
+    /// `BF55 { A0 { 80 { 80 <eimId> 81 <eimFqdn> ... } } }`: pySim's
+    /// `EimConfigurationData` inside `EimConfigurationDataSeq`. Primary,
+    /// because pySim is the reference the issue names.
+    Wrapper80,
+    /// `BF55 { A0 { 80 <eimId> 81 <eimFqdn> ... } }`: the fields directly
+    /// in the sequence. Fallback.
+    Direct,
+}
+
+impl EimShape {
+    /// The spelling used in `--json` and in the human report.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Wrapper80 => {
+                "wrapper-80 (pySim EimConfigurationData inside EimConfigurationDataSeq)"
+            }
+            Self::Direct => "direct",
+        }
+    }
+}
+
+/// What an IoT eUICC says about the EIM it is provisioned with
+/// (`EimConfigurationData`, SGP.32 section 5.9.18, clause [U]; every tag [V]
+/// osmocom/pysim `pySim/euicc.py` lines 330-342).
+///
+/// The response carries these inside one `A0` sequence, which is decoded as
+/// a tag of its own and never flattened into the response. Inside that
+/// sequence they arrive either under pySim's tag-`80` wrapper or directly,
+/// and [`shape`](Self::shape) says which it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EimConfigurationData {
+    /// Which of the two shapes inside the `A0` this answer used; see
+    /// [`EimShape`].
+    pub shape: EimShape,
+    /// `eimId`, tag `80`, UTF-8.
+    pub eim_id: String,
+    /// `eimFqdn`, tag `81`, UTF-8.
+    pub eim_fqdn: String,
+    /// `eimIdType`, tag `82`.
+    pub eim_id_type: EimIdType,
+    /// `counterValue`, tag `83`: a DER INTEGER, not a raw octet.
+    pub counter_value: u64,
+    /// `associationToken`, tag `84`: a DER INTEGER, not a raw octet.
+    pub association_token: u64,
+    /// `eimSupportedProtocol`, tag `87`, once per protocol the card supports
+    /// and in the order returned: a card that supports several answers with
+    /// several, so all of them are kept.
+    pub supported_protocols: Vec<EimSupportedProtocol>,
+    /// Tags this decoder does not know.
+    pub unknown: Vec<Unknown>,
+}
+
+/// Decodes the response data of GetEimConfigurationData (`BF55`).
+///
+/// The fields are read from inside the `A0`, wrapped in pySim's tag-`80`
+/// `EimConfigurationData` if that wrapper is there and directly if it is
+/// not; [`EimConfigurationData::shape`] records which. The two are told
+/// apart by their nesting, not by their tag, because the wrapper and
+/// `eimId` share `80`.
+///
+/// # Errors
+///
+/// A [`DecodeError`] for a malformed structure, including a `counterValue`
+/// or `associationToken` that is not a non-negative minimal DER INTEGER.
+pub fn decode_get_eim_configuration_data(data: &[u8]) -> Result<EimConfigurationData, DecodeError> {
+    let outer = only(data, 0xBF55)?;
+    let [choice] = outer.as_slice() else {
+        return Err(DecodeError::MissingField("getEimConfigurationDataResponse"));
+    };
+    if choice.tag != 0xA0 {
+        return Err(DecodeError::UnexpectedTag {
+            context: "GetEimConfigurationDataResponse",
+            found: choice.tag,
+        });
+    }
+    let (body, shape) = unwrap_eim(choice.value);
+    let (mut eim_id, mut eim_fqdn, mut id_type) = (None, None, None);
+    let (mut counter, mut token) = (None, None);
+    let mut protocols = Vec::new();
+    let mut unknown = Vec::new();
+    for node in parse(body)? {
+        let v = node.value;
+        match node.tag {
+            0x80 if eim_id.is_none() => eim_id = Some(utf8(v, "eimId")?),
+            0x81 if eim_fqdn.is_none() => eim_fqdn = Some(utf8(v, "eimFqdn")?),
+            0x82 if id_type.is_none() => {
+                id_type = Some(EimIdType::from_code(small_int(v, "eimIdType")?));
+            }
+            0x83 if counter.is_none() => counter = Some(der_integer(v, "counterValue")?),
+            0x84 if token.is_none() => token = Some(der_integer(v, "associationToken")?),
+            0x87 => protocols.push(EimSupportedProtocol::from_code(small_int(
+                v,
+                "eimSupportedProtocol",
+            )?)),
+            _ => keep(&mut unknown, node),
+        }
+    }
+    Ok(EimConfigurationData {
+        shape,
+        eim_id: require(eim_id, "eimId")?,
+        eim_fqdn: require(eim_fqdn, "eimFqdn")?,
+        eim_id_type: require(id_type, "eimIdType")?,
+        counter_value: require(counter, "counterValue")?,
+        association_token: require(token, "associationToken")?,
+        supported_protocols: protocols,
+        unknown,
+    })
+}
+
+/// The body of the `A0` to decode, and the shape it came in.
+///
+/// pySim's `EimConfigurationData` is tagged `80` (`pySim/euicc.py` line 344)
+/// and so is `EimId` (line 330), so the tag on its own decides nothing: it
+/// is the nesting that does. The `A0` content is a wrapper only when it is
+/// exactly one TLV, that TLV carries `80`, and its own value parses as a
+/// TLV sequence whose first child carries a field tag. Everything else -
+/// a lone `80` holding the UTF-8 of an EIM id, a plain field list, an
+/// unparseable `80` - is the direct shape. Anything unreadable falls back
+/// to the direct shape rather than erroring, so a well-formed direct answer
+/// can never be lost to a misread, and no byte vector can make this loop.
+fn unwrap_eim(a0: &[u8]) -> (&[u8], EimShape) {
+    const FIELD_TAGS: [u32; 6] = [0x80, 0x81, 0x82, 0x83, 0x84, 0x87];
+    let Ok(outer) = parse(a0) else {
+        return (a0, EimShape::Direct);
+    };
+    let [node] = outer.as_slice() else {
+        return (a0, EimShape::Direct);
+    };
+    if node.tag != 0x80 {
+        return (a0, EimShape::Direct);
+    }
+    let Ok(inner) = parse(node.value) else {
+        return (a0, EimShape::Direct);
+    };
+    match inner.first() {
+        Some(first) if FIELD_TAGS.contains(&first.tag) => (node.value, EimShape::Wrapper80),
+        _ => (a0, EimShape::Direct),
+    }
+}
+
+/// A field whose value octets are a **DER INTEGER**, which is the one
+/// encoding in this file that is not a raw octet: `02 <len> <two's
+/// complement>`, so 0 is `02 01 00`, 1 is `02 01 01`, 128 is `02 02 00 80`
+/// and 255 is `02 02 00 FF`. Reading `83 03 02 02 00 80` as one octet
+/// instead of as the value 128 is the mistake this function exists to
+/// prevent.
+///
+/// The envelope (identifier octet `02`, length written minimally, nothing
+/// after it) is decoded by [`crate::der`], the strict reader, which is what
+/// BER-TLV is not. X.690 8.3's three rules for the value are then checked
+/// here, because a TLV reader does not know them: the value is not negative,
+/// it is written in the shortest form, and it fits the 64 bits reported.
+fn der_integer(value: &[u8], field: &'static str) -> Result<u64, DecodeError> {
+    let der = crate::der::Der::decode(value).map_err(|e| DecodeError::BadDerEncoding {
+        field,
+        message: e.to_string(),
+    })?;
+    if der.tag() != 0x02 {
+        return Err(DecodeError::NotAnInteger {
+            field,
+            found: der.tag(),
+        });
+    }
+    let bytes = der.value();
+    match bytes.split_first() {
+        None => return Err(DecodeError::NegativeInteger { field }),
+        Some((&high, _)) if high & 0x80 != 0 => return Err(DecodeError::NegativeInteger { field }),
+        _ => {}
+    }
+    // A leading `00` only earns its place when the octet after it needs it.
+    if bytes[0] == 0x00 && bytes.get(1).is_some_and(|next| next & 0x80 == 0) {
+        return Err(DecodeError::NonMinimalInteger { field });
+    }
+    let magnitude = if bytes[0] == 0x00 { &bytes[1..] } else { bytes };
+    if magnitude.len() > 8 {
+        return Err(DecodeError::IntegerTooWide { field });
+    }
+    Ok(magnitude.iter().fold(0u64, |n, b| (n << 8) | u64::from(*b)))
+}
+
 impl fmt::Display for BitString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in &self.bytes {
@@ -3397,5 +3774,472 @@ mod tests {
             blocks_sized(0x81, &[7u8; 300], 1),
             Err(EncodeError::TooManyBlocks { .. })
         ));
+    }
+
+    // -- SGP.32, issue #229: GetCerts and GetEimConfigurationData --------
+    //
+    // Every byte vector below was built by hand from the tag and value list
+    // of osmocom/pysim `pySim/euicc.py` (the module documentation gives the
+    // line numbers), not copied out of a tool's output: there is no IoT
+    // eUICC here to capture one from, and SGP.32 itself was not reachable
+    // offline, so nothing here is claimed to be a capture. What is claimed is
+    // that the decoder accepts exactly the structure that reference describes
+    // and refuses everything else.
+
+    /// A GetCerts response holding both certificates.
+    const BOTH_CERTS: &str = "BF560B A505 AABBCCDDEE A602 0102";
+
+    /// The fields of `EimConfigurationData`, without either envelope.
+    fn eim_fields(
+        id: &str,
+        fqdn: &str,
+        id_type: u8,
+        counter: &[u8],
+        token: &[u8],
+        protocols: &[u8],
+    ) -> Vec<u8> {
+        let mut inner = tlv(0x80, id.as_bytes());
+        push_tlv(&mut inner, 0x81, fqdn.as_bytes());
+        push_tlv(&mut inner, 0x82, &[id_type]);
+        push_tlv(&mut inner, 0x83, counter);
+        push_tlv(&mut inner, 0x84, token);
+        for protocol in protocols {
+            push_tlv(&mut inner, 0x87, &[*protocol]);
+        }
+        inner
+    }
+
+    /// A GetEimConfigurationData response: `BF55 { A0 { ... } }`.
+    fn eim_response(
+        id: &str,
+        fqdn: &str,
+        id_type: u8,
+        counter: &[u8],
+        token: &[u8],
+        protocols: &[u8],
+    ) -> Vec<u8> {
+        tlv(
+            0xBF55,
+            &tlv(
+                0xA0,
+                &eim_fields(id, fqdn, id_type, counter, token, protocols),
+            ),
+        )
+    }
+
+    /// The same response in the shape pySim decodes: the fields sit under
+    /// `EimConfigurationData`'s own tag-`80` wrapper inside the `A0`.
+    fn eim_response_wrapped(
+        id: &str,
+        fqdn: &str,
+        id_type: u8,
+        counter: &[u8],
+        token: &[u8],
+        protocols: &[u8],
+    ) -> Vec<u8> {
+        let fields = eim_fields(id, fqdn, id_type, counter, token, protocols);
+        tlv(0xBF55, &tlv(0xA0, &tlv(0x80, &fields)))
+    }
+
+    /// The content of the `A0` of a whole `BF55` response.
+    fn eim_content(response: &[u8]) -> &[u8] {
+        let a0 = parse(response).unwrap()[0].value;
+        parse(a0).unwrap()[0].value
+    }
+
+    /// The one answer both shapes must produce, asserted for each of them.
+    fn assert_the_same_answer(eim: &EimConfigurationData) {
+        assert_eq!(eim.eim_id, "1.3.6.1.4.1.41487");
+        assert_eq!(eim.eim_fqdn, "eim.example.org");
+        assert_eq!(eim.eim_id_type, EimIdType::Oid);
+        assert_eq!(eim.counter_value, 7);
+        assert_eq!(eim.association_token, 256);
+        assert_eq!(
+            eim.supported_protocols,
+            vec![
+                EimSupportedProtocol::RetrieveHttps,
+                EimSupportedProtocol::InjectCoaps
+            ]
+        );
+        assert!(eim.unknown.is_empty());
+    }
+
+    fn eim_ok(counter: &[u8], token: &[u8]) -> Result<EimConfigurationData, DecodeError> {
+        decode_get_eim_configuration_data(&eim_response(
+            "1.3.6.1.4.1.41487",
+            "eim.example.org",
+            1,
+            counter,
+            token,
+            &[0, 3],
+        ))
+    }
+
+    #[test]
+    fn sgp32_requests_are_empty_ber_tlvs() {
+        assert_eq!(get_certs_request(), h("BF5600"));
+        assert_eq!(get_eim_configuration_data_request(), h("BF5500"));
+    }
+
+    #[test]
+    fn get_certs_carries_both_certificates_opaque() {
+        let GetCertsResponse::Ok(certs) = decode_get_certs(&h(BOTH_CERTS)).unwrap() else {
+            panic!("a GetCerts response with two certificates is not an error");
+        };
+        assert_eq!(certs.eum, Some(h("AABBCCDDEE")));
+        assert_eq!(certs.euicc, Some(h("0102")));
+        assert!(certs.unknown.is_empty());
+    }
+
+    #[test]
+    fn get_certs_may_carry_one_certificate_or_none() {
+        let GetCertsResponse::Ok(only_eum) =
+            decode_get_certs(&h("BF5607 A505 AABBCCDDEE")).unwrap()
+        else {
+            panic!("one certificate is not an error");
+        };
+        assert_eq!(only_eum.eum, Some(h("AABBCCDDEE")));
+        assert_eq!(only_eum.euicc, None);
+
+        let GetCertsResponse::Ok(only_euicc) = decode_get_certs(&h("BF5604 A602 0102")).unwrap()
+        else {
+            panic!("one certificate is not an error");
+        };
+        assert_eq!(only_euicc.euicc, Some(h("0102")));
+        assert_eq!(only_euicc.eum, None);
+
+        let GetCertsResponse::Ok(none) = decode_get_certs(&h("BF5600")).unwrap() else {
+            panic!("an empty response is not an error");
+        };
+        assert_eq!((none.eum, none.euicc), (None, None));
+    }
+
+    #[test]
+    fn get_certs_error_is_terminal_and_unlisted_codes_stay_unknown() {
+        assert_eq!(
+            decode_get_certs(&h("BF5603 81 01 01")),
+            Ok(GetCertsResponse::Error(GetCertsError::InvalidCiPkId))
+        );
+        assert_eq!(
+            decode_get_certs(&h("BF5603 81 01 7F")),
+            Ok(GetCertsResponse::Error(GetCertsError::UndefinedError))
+        );
+        assert_eq!(
+            decode_get_certs(&h("BF5603 81 01 2A")),
+            Ok(GetCertsResponse::Error(GetCertsError::Unknown(42)))
+        );
+        // A response that (a card should not) holds a certificate as well:
+        // the error is still what is reported, never an empty certificate.
+        assert_eq!(
+            decode_get_certs(&h("BF560A A505 AABBCCDDEE 81 01 01")),
+            Ok(GetCertsResponse::Error(GetCertsError::InvalidCiPkId))
+        );
+        // The error is one octet, as every code in this file is.
+        assert!(decode_get_certs(&h("BF5604 81 02 00 01")).is_err());
+        assert!(decode_get_certs(&h("BF5500")).is_err());
+    }
+
+    #[test]
+    fn get_certs_certificate_longer_than_127_octets_uses_the_long_length() {
+        let cert = vec![0xAB_u8; 200];
+        let response = tlv(0xBF56, &tlv(0xA5, &cert));
+        assert_eq!(&response[..4], [0xBF, 0x56, 0x81, 0xCB]);
+        let GetCertsResponse::Ok(certs) = decode_get_certs(&response).unwrap() else {
+            panic!("a long certificate is not an error");
+        };
+        assert_eq!(certs.eum.as_deref().map(<[u8]>::len), Some(200));
+        assert_eq!(certs.euicc, None);
+    }
+
+    #[test]
+    fn eim_configuration_data_is_decoded_out_of_the_a0_sequence() {
+        let response = eim_response(
+            "1.3.6.1.4.1.41487",
+            "eim.example.org",
+            1,
+            &[0x02, 0x01, 0x07],
+            &[0x02, 0x02, 0x01, 0x00],
+            &[0, 3],
+        );
+        // The A0 sequence tag is a tag of its own, not decoration: the bytes
+        // on the wire are BF 55 <len> A0 <len> 80 ...
+        assert_eq!(
+            &response[..6],
+            [0xBF, 0x55, 0x3A, 0xA0, 0x38, 0x80],
+            "BF55 {{ A0 {{ 80 eimId"
+        );
+        let eim = decode_get_eim_configuration_data(&response).unwrap();
+        assert_eq!(eim.eim_id, "1.3.6.1.4.1.41487");
+        assert_eq!(eim.eim_fqdn, "eim.example.org");
+        assert_eq!(eim.eim_id_type, EimIdType::Oid);
+        assert_eq!(eim.counter_value, 7);
+        assert_eq!(eim.association_token, 256);
+        // Every 87 is kept, in order: a card may support several protocols.
+        assert_eq!(
+            eim.supported_protocols,
+            vec![
+                EimSupportedProtocol::RetrieveHttps,
+                EimSupportedProtocol::InjectCoaps
+            ]
+        );
+    }
+
+    #[test]
+    fn the_pysim_wrapper_shape_is_decoded_and_reported() {
+        let response = eim_response_wrapped(
+            "1.3.6.1.4.1.41487",
+            "eim.example.org",
+            1,
+            &[0x02, 0x01, 0x07],
+            &[0x02, 0x02, 0x01, 0x00],
+            &[0, 3],
+        );
+        // The vector really is the wrapped shape: the `A0` holds one `80`
+        // and nothing else, and that `80` holds a TLV sequence.
+        let wrapper = parse(eim_content(&response)).unwrap();
+        assert_eq!(wrapper.len(), 1);
+        assert_eq!(wrapper[0].tag, 0x80);
+        assert_eq!(parse(wrapper[0].value).unwrap()[0].tag, 0x80);
+        let eim = decode_get_eim_configuration_data(&response).unwrap();
+        assert_eq!(eim.shape, EimShape::Wrapper80);
+        assert_eq!(
+            eim.shape.as_str(),
+            "wrapper-80 (pySim EimConfigurationData inside EimConfigurationDataSeq)"
+        );
+        assert_the_same_answer(&eim);
+    }
+
+    #[test]
+    fn the_direct_shape_is_decoded_and_reported() {
+        let response = eim_response(
+            "1.3.6.1.4.1.41487",
+            "eim.example.org",
+            1,
+            &[0x02, 0x01, 0x07],
+            &[0x02, 0x02, 0x01, 0x00],
+            &[0, 3],
+        );
+        // The vector really is the direct shape: the `A0` holds seven field
+        // TLVs, not one wrapper.
+        assert_eq!(parse(eim_content(&response)).unwrap().len(), 7);
+        let eim = decode_get_eim_configuration_data(&response).unwrap();
+        assert_eq!(eim.shape, EimShape::Direct);
+        assert_eq!(eim.shape.as_str(), "direct");
+        assert_the_same_answer(&eim);
+    }
+
+    #[test]
+    fn a_lone_80_holding_utf8_is_an_eim_id_not_a_wrapper() {
+        // `80` is both the wrapper and `eimId`, so only the nesting tells
+        // them apart. This `80` holds the UTF-8 of an id, which is not a
+        // TLV sequence, so it is the id and the answer is the direct shape:
+        // refused nowhere, guessed at nowhere, and never a loop.
+        let response = eim_response(
+            "eim",
+            "eim.example.org",
+            1,
+            &[0x02, 0x01, 0x00],
+            &[0x02, 0x01, 0x00],
+            &[0],
+        );
+        let fields = parse(eim_content(&response)).unwrap();
+        assert_eq!(fields.len(), 6);
+        assert_eq!(fields[0].tag, 0x80);
+        assert!(parse(fields[0].value).is_err());
+        let eim = decode_get_eim_configuration_data(&response).unwrap();
+        assert_eq!(eim.shape, EimShape::Direct);
+        assert_eq!(eim.eim_id, "eim");
+        assert_eq!(eim.eim_fqdn, "eim.example.org");
+        assert_eq!(eim.eim_id_type, EimIdType::Oid);
+        assert_eq!(eim.counter_value, 0);
+        assert_eq!(eim.association_token, 0);
+        assert_eq!(
+            eim.supported_protocols,
+            vec![EimSupportedProtocol::RetrieveHttps]
+        );
+    }
+
+    #[test]
+    fn eim_id_type_and_every_supported_protocol_are_named() {
+        for (code, want) in [
+            (1, EimIdType::Oid),
+            (2, EimIdType::Fqdn),
+            (3, EimIdType::Proprietary),
+            (9, EimIdType::Unknown(9)),
+        ] {
+            assert_eq!(EimIdType::from_code(code), want);
+            let response = eim_response(
+                "eim",
+                "eim.example.org",
+                code,
+                &[0x02, 0x01, 0x00],
+                &[0x02, 0x01, 0x00],
+                &[],
+            );
+            assert_eq!(
+                decode_get_eim_configuration_data(&response)
+                    .unwrap()
+                    .eim_id_type,
+                want,
+                "eimIdType {code}"
+            );
+        }
+        for code in 0..=4 {
+            assert_eq!(EimSupportedProtocol::from_code(code).code(), code);
+        }
+        // Six protocol TLVs in one response, one of them unlisted.
+        let response = eim_response(
+            "eim",
+            "eim.example.org",
+            2,
+            &[0x02, 0x01, 0x00],
+            &[0x02, 0x01, 0x00],
+            &[0, 1, 2, 3, 4, 9],
+        );
+        let eim = decode_get_eim_configuration_data(&response).unwrap();
+        assert_eq!(
+            eim.supported_protocols,
+            vec![
+                EimSupportedProtocol::RetrieveHttps,
+                EimSupportedProtocol::RetrieveCoaps,
+                EimSupportedProtocol::InjectHttps,
+                EimSupportedProtocol::InjectCoaps,
+                EimSupportedProtocol::Proprietary,
+                EimSupportedProtocol::Unknown(9),
+            ]
+        );
+        // No 87 at all is not an error; it is an empty list.
+        assert_eq!(
+            decode_get_eim_configuration_data(&eim_response(
+                "eim",
+                "eim.example.org",
+                3,
+                &[0x02, 0x01, 0x00],
+                &[0x02, 0x01, 0x00],
+                &[],
+            ))
+            .unwrap()
+            .supported_protocols,
+            Vec::<EimSupportedProtocol>::new()
+        );
+    }
+
+    #[test]
+    fn eim_counter_and_token_are_der_integers_not_raw_octets() {
+        // 0 is 02 01 00, 1 is 02 01 01, 128 is 02 02 00 80 and 255 is 02 02
+        // 00 FF: the tag and the length octet belong to the encoding, not to
+        // the value, and a leading 00 belongs to the encoding too.
+        for (bytes, want) in [
+            (h("020100"), 0_u64),
+            (h("020101"), 1),
+            (h("02020080"), 128),
+            (h("020200FF"), 255),
+            (h("02020100"), 256),
+            // u64::MAX is nine value octets: the leading 00 is what makes
+            // an eight-octet 0xFF.. a positive number.
+            (h("020900FFFFFFFFFFFFFFFF"), u64::MAX),
+        ] {
+            assert_eq!(
+                eim_ok(&bytes, &bytes).unwrap().counter_value,
+                want,
+                "counterValue {bytes:02X?}"
+            );
+            assert_eq!(
+                eim_ok(&bytes, &bytes).unwrap().association_token,
+                want,
+                "associationToken {bytes:02X?}"
+            );
+        }
+    }
+
+    #[test]
+    fn eim_rejects_an_integer_that_is_not_der() {
+        // A single raw octet is not a DER value at all.
+        assert!(matches!(
+            eim_ok(&[0x07], &[0x02, 0x01, 0x00]),
+            Err(DecodeError::BadDerEncoding { .. })
+        ));
+        // An OCTET STRING where an INTEGER belongs.
+        assert!(matches!(
+            eim_ok(&[0x04, 0x01, 0x07], &[0x02, 0x01, 0x00]),
+            Err(DecodeError::NotAnInteger {
+                field: "counterValue",
+                found: 4
+            })
+        ));
+        // Negative, and empty of value octets.
+        assert!(matches!(
+            eim_ok(&[0x02, 0x01, 0x80], &[0x02, 0x01, 0x00]),
+            Err(DecodeError::NegativeInteger { .. })
+        ));
+        assert!(matches!(
+            eim_ok(&[0x02, 0x01, 0x01], &[0x02, 0x00]),
+            Err(DecodeError::NegativeInteger {
+                field: "associationToken"
+            })
+        ));
+        // A value written longer than it needs to be.
+        assert!(matches!(
+            eim_ok(&[0x02, 0x02, 0x00, 0x01], &[0x02, 0x01, 0x00]),
+            Err(DecodeError::NonMinimalInteger {
+                field: "counterValue"
+            })
+        ));
+        // Wider than the 64 bits reported.
+        assert!(matches!(
+            eim_ok(
+                &[0x02, 0x09, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                &[0x02, 0x01, 0x00]
+            ),
+            Err(DecodeError::IntegerTooWide { .. })
+        ));
+        // Bytes after the INTEGER, and a length written non-minimally: both
+        // are the strict reader's to refuse, and neither is a number.
+        assert!(matches!(
+            eim_ok(&[0x02, 0x02, 0x01, 0x00, 0xFF], &[0x02, 0x01, 0x00]),
+            Err(DecodeError::BadDerEncoding { .. })
+        ));
+        assert!(matches!(
+            eim_ok(&[0x02, 0x81, 0x01, 0x07], &[0x02, 0x01, 0x00]),
+            Err(DecodeError::BadDerEncoding { .. })
+        ));
+    }
+
+    #[test]
+    fn a_malformed_eim_response_is_refused_not_guessed() {
+        // No A0 sequence: the fields are never read at the top level.
+        assert!(matches!(
+            decode_get_eim_configuration_data(&h("BF5503 80 01 41")),
+            Err(DecodeError::UnexpectedTag {
+                context: "GetEimConfigurationDataResponse",
+                found: 0x80
+            })
+        ));
+        // Wrong response tag entirely.
+        assert!(matches!(
+            decode_get_eim_configuration_data(&h(BOTH_CERTS)),
+            Err(DecodeError::WrongTag { .. })
+        ));
+        // An A0 missing every field.
+        assert!(matches!(
+            decode_get_eim_configuration_data(&h("BF5502 A000")),
+            Err(DecodeError::MissingField("eimId"))
+        ));
+        // eimFqdn not valid UTF-8.
+        assert!(matches!(
+            decode_get_eim_configuration_data(&h("BF5508 A006 8001 41 8101 FF")),
+            Err(DecodeError::BadUtf8("eimFqdn"))
+        ));
+        // A one-octet code is required of 82 as of every code here.
+        assert!(matches!(
+            decode_get_eim_configuration_data(&h("BF550C A00A 8001 41 8101 41 8202 0001")),
+            Err(DecodeError::BadLength {
+                field: "eimIdType",
+                ..
+            })
+        ));
+        // Nothing at all.
+        assert!(decode_get_eim_configuration_data(&h("BF5500")).is_err());
+        assert!(decode_get_eim_configuration_data(&[]).is_err());
     }
 }

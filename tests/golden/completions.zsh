@@ -1891,6 +1891,26 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(get-certs)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get-eim-configuration-data)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (notifications)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
@@ -2088,6 +2108,14 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (challenge)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get-certs)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get-eim-configuration-data)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2741,6 +2769,14 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(get-certs)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(get-eim-configuration-data)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (notifications)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__euicc__subcmd__notifications_commands" \
@@ -2968,6 +3004,8 @@ _sim-doctor__subcmd__euicc_commands() {
 'info:EID, EUICCInfo1 and EUICCInfo2 (lpac \`chip info\`)' \
 'profiles:Installed profiles\: ICCID, state, class, nickname, provider, name (lpac \`profile list\`)' \
 'challenge:GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7)\: the 16-byte challenge a profile download signs over (pySim \`get_euicc_challenge\`). Read-only' \
+'get-certs:The EUM and eUICC CI certificates of an IoT eUICC (SGP.32 GetCerts, ES10b). Read-only\: one STORE DATA request, nothing on the card changes. The certificates are reported as their length and their hex, not parsed; the eUICC CI error TLV is reported as the error it is' \
+'get-eim-configuration-data:What an IoT eUICC says about its EIM\: id, FQDN, id type, counter value, association token and every supported protocol (SGP.32 GetEimConfigurationData, ES10b). Read-only. The counter value and the association token are DER INTEGERs and are decoded as their value, not as the octets that carry it' \
 'notifications:Pending notification metadata (lpac \`notification list\`); \`dump\` and \`replay\` below; \`notifications remove <seq>\` removes one' \
 'nickname:Set a profile'\''s nickname (lpac \`profile nickname\`). A write\: a dry run unless \`--yes\`, never exposed over MCP' \
 'enable:Enable a profile (lpac \`profile enable\`, ES10c EnableProfile with REFRESH). A dry run unless \`--yes\`\: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP' \
@@ -3000,12 +3038,24 @@ _sim-doctor__subcmd__euicc__subcmd__enable_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc enable commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__get-certs_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__get-certs_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc get-certs commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__get-eim-configuration-data_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__get-eim-configuration-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc get-eim-configuration-data commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__help_commands() {
     local commands; commands=(
 'info:EID, EUICCInfo1 and EUICCInfo2 (lpac \`chip info\`)' \
 'profiles:Installed profiles\: ICCID, state, class, nickname, provider, name (lpac \`profile list\`)' \
 'challenge:GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7)\: the 16-byte challenge a profile download signs over (pySim \`get_euicc_challenge\`). Read-only' \
+'get-certs:The EUM and eUICC CI certificates of an IoT eUICC (SGP.32 GetCerts, ES10b). Read-only\: one STORE DATA request, nothing on the card changes. The certificates are reported as their length and their hex, not parsed; the eUICC CI error TLV is reported as the error it is' \
+'get-eim-configuration-data:What an IoT eUICC says about its EIM\: id, FQDN, id type, counter value, association token and every supported protocol (SGP.32 GetEimConfigurationData, ES10b). Read-only. The counter value and the association token are DER INTEGERs and are decoded as their value, not as the octets that carry it' \
 'notifications:Pending notification metadata (lpac \`notification list\`); \`dump\` and \`replay\` below; \`notifications remove <seq>\` removes one' \
 'nickname:Set a profile'\''s nickname (lpac \`profile nickname\`). A write\: a dry run unless \`--yes\`, never exposed over MCP' \
 'enable:Enable a profile (lpac \`profile enable\`, ES10c EnableProfile with REFRESH). A dry run unless \`--yes\`\: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP' \
@@ -3037,6 +3087,16 @@ _sim-doctor__subcmd__euicc__subcmd__help__subcmd__disable_commands() {
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__enable_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc help enable commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__get-certs_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__get-certs_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help get-certs commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__get-eim-configuration-data_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__get-eim-configuration-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help get-eim-configuration-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__help_commands() {
@@ -3896,6 +3956,8 @@ _sim-doctor__subcmd__help__subcmd__euicc_commands() {
 'info:EID, EUICCInfo1 and EUICCInfo2 (lpac \`chip info\`)' \
 'profiles:Installed profiles\: ICCID, state, class, nickname, provider, name (lpac \`profile list\`)' \
 'challenge:GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7)\: the 16-byte challenge a profile download signs over (pySim \`get_euicc_challenge\`). Read-only' \
+'get-certs:The EUM and eUICC CI certificates of an IoT eUICC (SGP.32 GetCerts, ES10b). Read-only\: one STORE DATA request, nothing on the card changes. The certificates are reported as their length and their hex, not parsed; the eUICC CI error TLV is reported as the error it is' \
+'get-eim-configuration-data:What an IoT eUICC says about its EIM\: id, FQDN, id type, counter value, association token and every supported protocol (SGP.32 GetEimConfigurationData, ES10b). Read-only. The counter value and the association token are DER INTEGERs and are decoded as their value, not as the octets that carry it' \
 'notifications:Pending notification metadata (lpac \`notification list\`); \`dump\` and \`replay\` below; \`notifications remove <seq>\` removes one' \
 'nickname:Set a profile'\''s nickname (lpac \`profile nickname\`). A write\: a dry run unless \`--yes\`, never exposed over MCP' \
 'enable:Enable a profile (lpac \`profile enable\`, ES10c EnableProfile with REFRESH). A dry run unless \`--yes\`\: switches the active profile and the device loses its connection until it re-attaches. Never exposed over MCP' \
@@ -3926,6 +3988,16 @@ _sim-doctor__subcmd__help__subcmd__euicc__subcmd__disable_commands() {
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__enable_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help euicc enable commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__get-certs_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__get-certs_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc get-certs commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__get-eim-configuration-data_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__get-eim-configuration-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc get-eim-configuration-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__info_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__info_commands() {

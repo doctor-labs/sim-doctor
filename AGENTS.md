@@ -1205,6 +1205,15 @@ download anything until the address is set back. `--yes` then re-reads GetEuiccC
 only success, a code the enumeration does not name is `es10-refused` with the code carried); like the
 other eUICC writes it is not a tool over MCP.
 
+The two SGP.32 (IoT eUICC) reads of issue #229 are `euicc get-certs` (GetCerts `BF56`) and
+`euicc get-eim-configuration-data` (GetEimConfigurationData `BF55`): one STORE DATA request each, on the same
+channel lifecycle as the read-only three, and every tag [V] against pySim `pySim/euicc.py` alone - SGP.32 was
+not reachable offline, so the clause numbers 5.9.10 and 5.9.18 are [U]. Neither is a tool over MCP, because
+`mcp.rs` pins the read-tool list and a test pins its length, so extending it is an owner decision rather than a
+side effect of a new subcommand. pySim nests an extra tag-`80` `EimConfigurationData` inside the `A0` that
+SGP.32's `SEQUENCE` tag does not account for, so `decode_get_eim_configuration_data` accepts that shape and the
+direct one and reports which it saw in `eim_configuration_data.shape` (`wrapper-80` / `direct`); the wrapper and
+`eimId` share tag `80`, so the nesting is what tells them apart.
 The swSIM fixture is not an eUICC, so the card-side check is the live-card item on #92; the tests
 use synthetic ES10 responses through the replay transport.
 

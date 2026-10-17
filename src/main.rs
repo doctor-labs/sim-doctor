@@ -509,6 +509,17 @@ enum EuiccAction {
     /// GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7): the 16-byte challenge a
     /// profile download signs over (pySim `get_euicc_challenge`). Read-only.
     Challenge(EuiccFlags),
+    /// The EUM and eUICC CI certificates of an IoT eUICC (SGP.32 GetCerts,
+    /// ES10b). Read-only: one STORE DATA request, nothing on the card changes.
+    /// The certificates are reported as their length and their hex, not
+    /// parsed; the eUICC CI error TLV is reported as the error it is.
+    GetCerts(EuiccFlags),
+    /// What an IoT eUICC says about its EIM: id, FQDN, id type, counter
+    /// value, association token and every supported protocol (SGP.32
+    /// GetEimConfigurationData, ES10b). Read-only. The counter value and the
+    /// association token are DER INTEGERs and are decoded as their value,
+    /// not as the octets that carry it.
+    GetEimConfigurationData(EuiccFlags),
     /// Pending notification metadata (lpac `notification list`); `dump` and `replay` below;
     /// `notifications remove <seq>` removes one.
     Notifications(NotificationsArgs),
@@ -3206,6 +3217,10 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
             EuiccAction::Profiles(f) => run_euicc(euicc::Query::Profiles, &f),
             EuiccAction::Challenge(f) => run_euicc(euicc::Query::Challenge, &f),
+            EuiccAction::GetCerts(f) => run_euicc(euicc::Query::GetCerts, &f),
+            EuiccAction::GetEimConfigurationData(f) => {
+                run_euicc(euicc::Query::GetEimConfigurationData, &f)
+            }
             EuiccAction::Notifications(n) => match n.action {
                 None => run_euicc(euicc::Query::Notifications, &n.flags),
                 Some(NotificationAction::Remove(a)) => run_euicc_remove(&a),
