@@ -438,6 +438,7 @@ Options:
       --params <HEX>         The Install Parameters field as TLV with the mandatory C9 tag (default C900: none) [default: C900]
       --privileges <HEX>     Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused [default: 000000]
       --make-default         Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro's --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first
+      --bs <BYTES>           Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split: the bytes loaded are the same. Shown in the dry run's APDUs [default: 240]
       --dap-key-file <PATH>  File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)
       --dap-key-env <VAR>    Environment variable holding the AES DAP key
       --dap-sd <HEX>         The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default: the issuer security domain being authenticated)

@@ -485,6 +485,7 @@ _arguments "${_arguments_options[@]}" : \
 '--app=[The application (instance) AID. Defaults to the module AID]:HEX:_default' \
 '--params=[The Install Parameters field as TLV with the mandatory C9 tag (default C900\: none)]:HEX:_default' \
 '--privileges=[Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused]:HEX:_default' \
+'--bs=[Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split\: the bytes loaded are the same. Shown in the dry run'\''s APDUs]:BYTES:_default' \
 '--dap-key-file=[File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
 '--dap-key-env=[Environment variable holding the AES DAP key]:VAR:_default' \
 '--dap-sd=[The Security Domain that verifies the DAP, 5 to 16 bytes of hex (default\: the issuer security domain being authenticated)]:HEX:_default' \
