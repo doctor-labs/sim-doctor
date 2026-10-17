@@ -11434,137 +11434,137 @@ mod crs_tests {
         let r = crs_set_status(&mut ok, true, &request(APP2, true), &auth(&good), false).unwrap();
         assert!(r.data.get("error").is_none(), "{:?}", r.data);
     }
-#[cfg(test)]
-mod create_sd_tests {
-    use super::*;
+    #[cfg(test)]
+    mod create_sd_tests {
+        use super::*;
 
-    fn minimal() -> CreateSdRequest {
-        CreateSdRequest {
-            domain_aid: vec![0xD2, 0x76, 0x00, 0x01, 0x51],
-            load_file_aid: SSD_PACKAGE_AID.to_vec(),
-            module_aid: SSD_APPLET_AID.to_vec(),
-            privileges: vec![0x00, 0x00, 0x00],
-            params: Vec::new(),
-            scp: None,
-            allow_to: false,
-            allow_from: false,
+        fn minimal() -> CreateSdRequest {
+            CreateSdRequest {
+                domain_aid: vec![0xD2, 0x76, 0x00, 0x01, 0x51],
+                load_file_aid: SSD_PACKAGE_AID.to_vec(),
+                module_aid: SSD_APPLET_AID.to_vec(),
+                privileges: vec![0x00, 0x00, 0x00],
+                params: Vec::new(),
+                scp: None,
+                allow_to: false,
+                allow_from: false,
+            }
+        }
+
+        // Table 11-43 (line 8231): LV(load file AID) LV(module AID) LV(application
+        // AID) LV(privileges) BERLV(install parameters) BERLV(install token).
+        // Table 11-49 (line 8471): the C9 Application Specific Parameters, empty.
+        // Table 11-7 (line 7900): byte 1 bit b8, the Security Domain privilege.
+        #[test]
+        fn minimal_domain_is_byte_exact() {
+            let cmd = create_sd_command(&minimal()).expect("builds");
+            assert_eq!(
+                hex::encode_upper(&cmd.encode().expect("encodes")[..4]),
+                "80E60C00"
+            );
+            assert_eq!(
+                hex::encode_upper(cmd.data()),
+                concat!(
+                    "07A0000001515350",   // LV A0000001515350, the SSD package AID
+                    "08A000000151535041", // LV A000000151535041, the SSD applet class
+                    "05D276000151",       // LV D276000151, the new domain
+                    "03800000",           // LV 80 00 00, Security Domain privilege
+                    "02C900",             // BERLV C9 00, empty Application Specific Parameters
+                    "00",                 // BERLV 00, no install token
+                )
+            );
+        }
+
+        // The same command with tag 81, tag 82 and tag 87 all present, in the order
+        // GlobalPlatformPro GPToolNG.domain_install_params amends them in.
+        #[test]
+        fn every_install_parameter_is_byte_exact() {
+            let mut req = minimal();
+            req.scp = Some(vec![0x03, 0x88]);
+            req.allow_to = true;
+            req.allow_from = true;
+            let cmd = create_sd_command(&req).expect("builds");
+            assert_eq!(
+                hex::encode_upper(&cmd.encode().expect("encodes")[..4]),
+                "80E60C00"
+            );
+            assert_eq!(
+                hex::encode_upper(cmd.data()),
+                concat!(
+                    "07A0000001515350",
+                    "08A000000151535041",
+                    "05D276000151",
+                    "03800000",
+                    "0EC90C810203888202202087022020",
+                    "00",
+                )
+            );
+        }
+
+        #[test]
+        fn parameters_are_wrapped_in_c9() {
+            let params =
+                sd_install_parameters(&[], Some(&[0x03, 0x88]), true, true).expect("wraps");
+            assert_eq!(hex::encode_upper(&params), "C90C810203888202202087022020");
+        }
+
+        #[test]
+        fn security_domain_privilege_is_always_set() {
+            assert_eq!(
+                sd_privileges(&[0x00, 0x00, 0x00]).expect("ok"),
+                [0x80, 0x00, 0x00]
+            );
+            assert_eq!(sd_privileges(&[0x00]).expect("ok"), [0x80, 0x00, 0x00]);
+            assert_eq!(
+                sd_privileges(&[0x00, 0x04, 0x00]).expect("ok"),
+                [0x80, 0x04, 0x00]
+            );
+            assert!(sd_privileges(&[0x10, 0x00, 0x00]).is_err());
+            assert!(sd_privileges(&[0x08, 0x00, 0x00]).is_err());
+            assert!(sd_privileges(&[]).is_err());
+            assert!(sd_privileges(&[0, 0]).is_err());
+        }
+
+        #[test]
+        fn parameters_refuse_a_second_c9_or_rubbish() {
+            assert!(sd_install_parameters(&[0xC9, 0x00], None, false, false).is_err());
+            assert!(sd_install_parameters(&[0x82], None, false, false).is_err());
+        }
+
+        #[test]
+        fn privileges_beyond_the_issuer_are_named() {
+            let mut bits = [0u8; 3];
+            bits[0] = 0x80;
+            assert!(privileges_beyond_issuer(&bits, Some(&bits)).is_empty());
+            assert!(privileges_beyond_issuer(&bits, None).is_empty());
+            let mut issuer = bits;
+            issuer[1] = 0x40;
+            bits[1] = 0x44;
+            assert_eq!(
+                privileges_beyond_issuer(&bits, Some(&issuer)),
+                vec!["global_registry"]
+            );
+        }
+
+        #[test]
+        fn the_dry_run_touches_no_card_and_names_every_tlv() {
+            let mut req = minimal();
+            req.allow_to = true;
+            req.allow_from = true;
+            let data = create_sd_dry_run(&req).expect("builds");
+            assert_eq!(data["card_touched"], json!(false));
+            assert_eq!(data["sent"], json!(false));
+            assert_eq!(data["dry_run"], json!(true));
+            let tlvs = &data["target"]["install_parameters_tlvs"];
+            assert_eq!(tlvs[0]["tag"], json!("C9"));
+            assert_eq!(tlvs[0]["inner"][0]["tag"], json!("82"));
+            assert_eq!(tlvs[0]["inner"][0]["value"], json!("2020"));
+            assert_eq!(tlvs[0]["inner"][1]["tag"], json!("87"));
+            assert_eq!(tlvs[0]["inner"][1]["value"], json!("2020"));
+            assert_eq!(
+                data["target"]["privilege_names"][0],
+                json!("security_domain")
+            );
         }
     }
-
-    // Table 11-43 (line 8231): LV(load file AID) LV(module AID) LV(application
-    // AID) LV(privileges) BERLV(install parameters) BERLV(install token).
-    // Table 11-49 (line 8471): the C9 Application Specific Parameters, empty.
-    // Table 11-7 (line 7900): byte 1 bit b8, the Security Domain privilege.
-    #[test]
-    fn minimal_domain_is_byte_exact() {
-        let cmd = create_sd_command(&minimal()).expect("builds");
-        assert_eq!(
-            hex::encode_upper(&cmd.encode().expect("encodes")[..4]),
-            "80E60C00"
-        );
-        assert_eq!(
-            hex::encode_upper(cmd.data()),
-            concat!(
-                "07A0000001515350",   // LV A0000001515350, the SSD package AID
-                "08A000000151535041", // LV A000000151535041, the SSD applet class
-                "05D276000151",       // LV D276000151, the new domain
-                "03800000",           // LV 80 00 00, Security Domain privilege
-                "02C900",             // BERLV C9 00, empty Application Specific Parameters
-                "00",                 // BERLV 00, no install token
-            )
-        );
-    }
-
-    // The same command with tag 81, tag 82 and tag 87 all present, in the order
-    // GlobalPlatformPro GPToolNG.domain_install_params amends them in.
-    #[test]
-    fn every_install_parameter_is_byte_exact() {
-        let mut req = minimal();
-        req.scp = Some(vec![0x03, 0x88]);
-        req.allow_to = true;
-        req.allow_from = true;
-        let cmd = create_sd_command(&req).expect("builds");
-        assert_eq!(
-            hex::encode_upper(&cmd.encode().expect("encodes")[..4]),
-            "80E60C00"
-        );
-        assert_eq!(
-            hex::encode_upper(cmd.data()),
-            concat!(
-                "07A0000001515350",
-                "08A000000151535041",
-                "05D276000151",
-                "03800000",
-                "0EC90C810203888202202087022020",
-                "00",
-            )
-        );
-    }
-
-    #[test]
-    fn parameters_are_wrapped_in_c9() {
-        let params = sd_install_parameters(&[], Some(&[0x03, 0x88]), true, true).expect("wraps");
-        assert_eq!(hex::encode_upper(&params), "C90C810203888202202087022020");
-    }
-
-    #[test]
-    fn security_domain_privilege_is_always_set() {
-        assert_eq!(
-            sd_privileges(&[0x00, 0x00, 0x00]).expect("ok"),
-            [0x80, 0x00, 0x00]
-        );
-        assert_eq!(sd_privileges(&[0x00]).expect("ok"), [0x80, 0x00, 0x00]);
-        assert_eq!(
-            sd_privileges(&[0x00, 0x04, 0x00]).expect("ok"),
-            [0x80, 0x04, 0x00]
-        );
-        assert!(sd_privileges(&[0x10, 0x00, 0x00]).is_err());
-        assert!(sd_privileges(&[0x08, 0x00, 0x00]).is_err());
-        assert!(sd_privileges(&[]).is_err());
-        assert!(sd_privileges(&[0, 0]).is_err());
-    }
-
-    #[test]
-    fn parameters_refuse_a_second_c9_or_rubbish() {
-        assert!(sd_install_parameters(&[0xC9, 0x00], None, false, false).is_err());
-        assert!(sd_install_parameters(&[0x82], None, false, false).is_err());
-    }
-
-    #[test]
-    fn privileges_beyond_the_issuer_are_named() {
-        let mut bits = [0u8; 3];
-        bits[0] = 0x80;
-        assert!(privileges_beyond_issuer(&bits, Some(&bits)).is_empty());
-        assert!(privileges_beyond_issuer(&bits, None).is_empty());
-        let mut issuer = bits;
-        issuer[1] = 0x40;
-        bits[1] = 0x44;
-        assert_eq!(
-            privileges_beyond_issuer(&bits, Some(&issuer)),
-            vec!["global_registry"]
-        );
-    }
-
-    #[test]
-    fn the_dry_run_touches_no_card_and_names_every_tlv() {
-        let mut req = minimal();
-        req.allow_to = true;
-        req.allow_from = true;
-        let data = create_sd_dry_run(&req).expect("builds");
-        assert_eq!(data["card_touched"], json!(false));
-        assert_eq!(data["sent"], json!(false));
-        assert_eq!(data["dry_run"], json!(true));
-        let tlvs = &data["target"]["install_parameters_tlvs"];
-        assert_eq!(tlvs[0]["tag"], json!("C9"));
-        assert_eq!(tlvs[0]["inner"][0]["tag"], json!("82"));
-        assert_eq!(tlvs[0]["inner"][0]["value"], json!("2020"));
-        assert_eq!(tlvs[0]["inner"][1]["tag"], json!("87"));
-        assert_eq!(tlvs[0]["inner"][1]["value"], json!("2020"));
-        assert_eq!(
-            data["target"]["privilege_names"][0],
-            json!("security_domain")
-        );
-    }
-}
-
 }
