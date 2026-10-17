@@ -2162,3 +2162,51 @@ fn a_card_key_csv_that_cannot_be_opened_is_refused_and_quotes_no_key() {
     let _ = std::fs::remove_file(&good_csv);
     let _ = std::fs::remove_file(&keys);
 }
+
+/// A CSV card key provider whose PIN columns are sealed under a transport key, written with the
+/// library's own writer so this test never puts a plaintext key file on disk.
+fn sealed_card_keys(
+    suffix: &str,
+    pin1: &str,
+    pin2: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    use sim_doctor::cardsh::keycsv::{CardKeyCsv, FieldCryptor, TransportKey};
+    let mut cryptor = FieldCryptor::default();
+    cryptor.set("PIN1", TransportKey::from_hex(&"11".repeat(32)).unwrap());
+    cryptor.set("PIN2", TransportKey::from_hex(&"22".repeat(32)).unwrap());
+    let columns = ["ICCID", "PIN1", "PIN2"];
+    let mut csv = CardKeyCsv::header(&columns);
+    // The empty ICCID cell is the row for every card, so no ICCID read is needed.
+    csv.push_str(&CardKeyCsv::seal_row(&cryptor, &columns, &["", pin1, pin2]).unwrap());
+    let dir = std::env::temp_dir();
+    let csv_path = dir.join(format!("simdoc-281-keys-{suffix}.csv"));
+    let key_path = dir.join(format!("simdoc-281-transport-{suffix}.txt"));
+    std::fs::write(
+        &key_path,
+        format!("PIN1={}\nPIN2={}\n", "11".repeat(32), "22".repeat(32)),
+    )
+    .unwrap();
+    std::fs::write(&csv_path, csv).unwrap();
+    (csv_path, key_path)
+}
+
+fn card_keys(
+    fixture: &str,
+    csv: &std::path::Path,
+    keys: &std::path::Path,
+    args: &[&str],
+) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("card")
+        .args(args)
+        .arg("--card-key-csv")
+        .arg(csv)
+        .arg("--card-key-key")
+        .arg(keys)
+        .env(
+            "SIM_DOCTOR_TEST_REPLAY",
+            format!("{}/tests/corpus/{fixture}", env!("CARGO_MANIFEST_DIR")),
+        )
+        .output()
+        .expect("the binary runs")
+}
