@@ -630,7 +630,7 @@ _arguments "${_arguments_options[@]}" : \
 '--load=[The CAP file (a zip of javacard/*.cap components)]:CAP:_files' \
 '--module=[The Executable Module AID (the applet class). Optional when the CAP has one applet]:HEX:_default' \
 '--app=[The application (instance) AID. Defaults to the module AID]:HEX:_default' \
-'--params=[The Install Parameters field as TLV with the mandatory C9 tag (default C900\: none)]:HEX:_default' \
+'--params=[The Install Parameters field as TLV with the mandatory C9 tag (default C900\: none; required with --no-felix)]:HEX:_default' \
 '--privileges=[Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused]:HEX:_default' \
 '--bs=[Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split\: the bytes loaded are the same. Shown in the dry run'\''s APDUs]:BYTES:_default' \
 '--dap-key-file=[File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
@@ -647,6 +647,8 @@ rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'-F[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
+'--no-felix[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
 '--make-default[Make the applet default selected\: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro'\''s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \

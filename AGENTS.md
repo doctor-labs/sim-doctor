@@ -867,6 +867,36 @@ SCP81/RAM over HTTP; DAP is in the Card Spec (9.2.1, 11.6.2.3, C.2, C.3). Replay
 PUT KEY data by pySim itself (`SCP03`, `build_put_key_data`), CMAC checked with python `cryptography` and
 `openssl mac`.
 
+**The Felix DWIM switch (`gp install -F` / `--no-felix`, issue #253).** GlobalPlatformPro declares
+it as `OPT_SAD = acceptsAll(asList("F", "no-felix"), "Disable Felix mode DWIM")`
+(`GPCommandLineInterfaceNG.java:45`; the older `GPCommandLineInterface.java:46` declares the same
+constant and never reads it), and it is consumed in exactly two places, both in `GPToolNG`:
+
+1. **The default key set.** `resolveKeys` (`GPToolNG.java:206`): with no `--key*` option and no key
+   in the environment, it warns and falls back to `PlaintextCardKeys.defaultKey()`
+   (`GPToolNG.java:212`); with `-F` the same situation throws `no keys given`. So `-F` means "do not
+   authenticate with a key set I made up".
+2. **The `81` install parameter.** `--domain` installs a Security Domain over the FeliCa AIDs
+   `A0000001515350` / `A000000151535041` (`GPToolNG.java:476`) and, unless `-F`, adds the secure
+   channel protocol parameter to the install data (`GPToolNG.java:484` ->
+   `domain_install_params`, `:844`): tag `81` set to `scp.getValue()` followed by the enum field `i`,
+   kept as it is if the caller already supplied an `81`. That is the "card quirk" the issue names -
+   the FeliCa-family SD gets its SCP version filled in for it.
+
+**Neither DWIM exists here, so nothing on the wire changes when the flag is absent or present.**
+Keys are never guessed: `--yes` requires `--keys-file|--keys-env` and the dry run with no keys is
+fully offline. Tag `81` is never added: `--params` is whatever the caller types, defaulting to the
+empty `C9 00` that `install_for_install` requires (`gp.rs:2209`), and a build of `81` has to be
+spelled out (`--params C90081020310` is `C9 00` plus `81 02 03 10`: SCP03 with a 16 byte key). There is no
+`--domain` subcommand and no default AID rule. What `-F` therefore does here is refuse the one field
+this tool still chooses for the caller: with `--no-felix`, `--params` is required and a run without
+it is refused (`params-required`, exit 1, nothing sent, refused before the CAP is even read). With
+no flag the behaviour is unchanged (`C900`), and `--params` given with or without `-F` sends the same
+bytes. What could not be established: `PlaintextCardKeys.defaultKey()` and the `GPSecureChannelVersion`
+enum are not in the sources on this box, so the reference default key bytes and the exact second
+value byte of `81` are read from the two code sites above, not from the enum; and nothing in
+GlobalPlatformPro besides those two sites reads `OPT_SAD`.
+
 **Not done (scoped out):** DES, RSA and ECC DAP keys and DAP verification (the card verifies), SHA-1 LFDBH,
 several DAP blocks, PUT KEY of anything but an SCP03 AES-128 key set (RSA/ECC/DES, a lone DAP key such as
 KVN 73, extended format, chained PUT KEY), 192/256-bit SCP03 key sets, C-DECRYPTION. No tokens (delegated

@@ -2666,3 +2666,92 @@ fn gp_install_make_default_sets_the_default_selected_privilege() {
     let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
     assert_eq!(env.payload().data()["target"]["privileges"], "84");
 }
+
+/// `gp install` sends the Install Parameters field it was told to send and
+/// never one it picked for itself: with no `--params` the field is the empty
+/// `C9 00` and no secure channel protocol parameter (GlobalPlatform Amendment C
+/// tag `81`) is ever added to it (issue #253).
+///
+/// `-F` / `--no-felix` is the DWIM switch of GlobalPlatformPro
+/// (`GPCommandLineInterfaceNG.java:45`, "Disable Felix mode DWIM"), and there it
+/// turns off two FeliCa-style guesses: the built-in default SCP03 key set when
+/// none is given (`GPToolNG.java:206`) and the `81` parameter added to a
+/// security domain install (`GPToolNG.java:484`, `:844`). sim-doctor has
+/// neither - keys are never guessed and tag `81` is never added - so the one
+/// field this tool does choose is the empty `C9 00`, and `-F` refuses to choose
+/// it: `--params` becomes required and nothing is sent. Bytes the caller asks
+/// for still reach the card unchanged.
+#[test]
+fn gp_install_refuses_to_guess_install_parameters() {
+    let _guard = spawn_lock();
+    let cap = write_test_cap("felix");
+    let cap_arg = cap.to_str().unwrap();
+    // The secure channel protocol parameter spelled out rather than guessed: tag
+    // 81, length 02, SCP03 and a 16 byte key. Nothing here builds it for you.
+    let explicit = "C90081020310";
+
+    // No flag, no --params: the empty field this tool chose, and no tag 81.
+    let out = run(
+        &["gp", "install", "--load", cap_arg, "--json"],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let data = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let data = data.payload().data();
+    assert_eq!(data["target"]["install_parameters"], "C900");
+    let chosen = data["plan"]["apdus"].as_array().unwrap().last().unwrap()["apdu"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(chosen.starts_with("80E60C00"), "{chosen}");
+    assert!(chosen.contains("02C900"), "{chosen}");
+    assert!(!chosen.contains("81020310"), "{chosen}");
+
+    // -F without --params: refused, nothing sent, no APDU in the document at all.
+    let out = run(
+        &["gp", "install", "--load", cap_arg, "-F", "--json"],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 1, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Findings);
+    assert_eq!(env.payload().data()["error"]["kind"], "params-required");
+    assert!(!out.stdout.contains("80E6"), "{}", out.stdout);
+
+    // The refusal is about the parameter, not about the CAP: it comes first.
+    let out = run(
+        &[
+            "gp",
+            "install",
+            "--load",
+            "no-such-file.cap",
+            "--no-felix",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 1, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Findings);
+    assert_eq!(env.payload().data()["error"]["kind"], "params-required");
+
+    // -F with --params, and the same run without -F, send the same bytes: the
+    // flag refuses a guess, it does not change what was asked for.
+    let mut apdus = Vec::new();
+    for extra in [&["-F"][..], &[][..]] {
+        let mut args = vec!["gp", "install", "--load", cap_arg, "--params", explicit];
+        args.extend_from_slice(extra);
+        args.push("--json");
+        let out = run(&args, Stdio::piped());
+        assert_eq!(out.code(), 0, "{extra:?}: {}", out.stderr);
+        let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+        let data = env.payload().data();
+        assert_eq!(data["target"]["install_parameters"], explicit);
+        let apdu = data["plan"]["apdus"].as_array().unwrap().last().unwrap()["apdu"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(apdu.contains("06C90081020310"), "{apdu}");
+        apdus.push(apdu);
+    }
+    assert_eq!(apdus[0], apdus[1]);
+    let _ = std::fs::remove_file(cap);
+}

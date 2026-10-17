@@ -268,7 +268,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l load -d 'The CAP file (a zip of javacard/*.cap components)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l module -d 'The Executable Module AID (the applet class). Optional when the CAP has one applet' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l app -d 'The application (instance) AID. Defaults to the module AID' -r
-complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l params -d 'The Install Parameters field as TLV with the mandatory C9 tag (default C900: none)' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l params -d 'The Install Parameters field as TLV with the mandatory C9 tag (default C900: none; required with --no-felix)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l privileges -d 'Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l bs -d 'Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split: the bytes loaded are the same. Shown in the dry run\'s APDUs' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-key-file -d 'File holding the AES DAP key (hex, optionally KEY/KCV; chmod 600)' -r -F
@@ -287,6 +287,7 @@ rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -s F -l no-felix -d 'Refuse to guess the install parameters: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l make-default -d 'Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro\'s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
