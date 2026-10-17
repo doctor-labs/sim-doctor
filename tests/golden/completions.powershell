@@ -43,6 +43,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('saip', 'saip', [CompletionResultType]::ParameterValue, '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing')
             [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('esim-cert', 'esim-cert', [CompletionResultType]::ParameterValue, 'Verify an eSIM certificate chain offline, up to a CI root you supply')
+            [CompletionResult]::new('ota-expanded', 'ota-expanded', [CompletionResultType]::ParameterValue, 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out')
             [CompletionResult]::new('fuzz', 'fuzz', [CompletionResultType]::ParameterValue, 'APDU discovery and the OTA/SMS fuzz sweep')
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
@@ -703,6 +704,54 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         'sim-doctor;esim-cert;help;help' {
             break
         }
+        'sim-doctor;ota-expanded' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('encode', 'encode', [CompletionResultType]::ParameterValue, 'Wrap one or more C-APDUs (hex each) in a Command Scripting template')
+            [CompletionResult]::new('decode', 'decode', [CompletionResultType]::ParameterValue, 'Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite')
+            [CompletionResult]::new('por', 'por', [CompletionResultType]::ParameterValue, 'Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS `02 71 00` user data header')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;ota-expanded;encode' {
+            [CompletionResult]::new('--indefinite', '--indefinite', [CompletionResultType]::ParameterName, 'Use the indefinite length coding (tag AE 80 ... 00 00, TS 102 226 table 5.2a) instead of the default definite one (tag AA, table 5.2). TS 102 226 recommends the indefinite coding only for HTTPS and CoAP, not for SMS')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "ota-expanded" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;ota-expanded;decode' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "ota-expanded" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;ota-expanded;por' {
+            [CompletionResult]::new('--remote-format', '--remote-format', [CompletionResultType]::ParameterName, 'Read the secure data as a compact (TS 102 226 5.1.2) or expanded (5.2.2) Remote Application response')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "ota-expanded" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'sim-doctor;ota-expanded;help' {
+            [CompletionResult]::new('encode', 'encode', [CompletionResultType]::ParameterValue, 'Wrap one or more C-APDUs (hex each) in a Command Scripting template')
+            [CompletionResult]::new('decode', 'decode', [CompletionResultType]::ParameterValue, 'Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite')
+            [CompletionResult]::new('por', 'por', [CompletionResultType]::ParameterValue, 'Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS `02 71 00` user data header')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;ota-expanded;help;encode' {
+            break
+        }
+        'sim-doctor;ota-expanded;help;decode' {
+            break
+        }
+        'sim-doctor;ota-expanded;help;por' {
+            break
+        }
+        'sim-doctor;ota-expanded;help;help' {
+            break
+        }
         'sim-doctor;fuzz' {
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
@@ -1032,6 +1081,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('saip', 'saip', [CompletionResultType]::ParameterValue, '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing')
             [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('esim-cert', 'esim-cert', [CompletionResultType]::ParameterValue, 'Verify an eSIM certificate chain offline, up to a CI root you supply')
+            [CompletionResult]::new('ota-expanded', 'ota-expanded', [CompletionResultType]::ParameterValue, 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out')
             [CompletionResult]::new('fuzz', 'fuzz', [CompletionResultType]::ParameterValue, 'APDU discovery and the OTA/SMS fuzz sweep')
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
@@ -1198,6 +1248,21 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;esim-cert;verify' {
+            break
+        }
+        'sim-doctor;help;ota-expanded' {
+            [CompletionResult]::new('encode', 'encode', [CompletionResultType]::ParameterValue, 'Wrap one or more C-APDUs (hex each) in a Command Scripting template')
+            [CompletionResult]::new('decode', 'decode', [CompletionResultType]::ParameterValue, 'Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite')
+            [CompletionResult]::new('por', 'por', [CompletionResultType]::ParameterValue, 'Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS `02 71 00` user data header')
+            break
+        }
+        'sim-doctor;help;ota-expanded;encode' {
+            break
+        }
+        'sim-doctor;help;ota-expanded;decode' {
+            break
+        }
+        'sim-doctor;help;ota-expanded;por' {
             break
         }
         'sim-doctor;help;fuzz' {

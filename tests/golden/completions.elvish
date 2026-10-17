@@ -40,6 +40,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing'
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
+            cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
             cand fuzz 'APDU discovery and the OTA/SMS fuzz sweep'
             cand euicc 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes'
             cand card 'A pySim-shell style shell over the card: select files, read them, send APDUs'
@@ -605,6 +606,45 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;esim-cert;help;help'= {
         }
+        &'sim-doctor;ota-expanded'= {
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+            cand encode 'Wrap one or more C-APDUs (hex each) in a Command Scripting template'
+            cand decode 'Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite'
+            cand por 'Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS `02 71 00` user data header'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;ota-expanded;encode'= {
+            cand --indefinite 'Use the indefinite length coding (tag AE 80 ... 00 00, TS 102 226 table 5.2a) instead of the default definite one (tag AA, table 5.2). TS 102 226 recommends the indefinite coding only for HTTPS and CoAP, not for SMS'
+            cand --json 'Emit one JSON envelope of kind "ota-expanded" on stdout'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;ota-expanded;decode'= {
+            cand --json 'Emit one JSON envelope of kind "ota-expanded" on stdout'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;ota-expanded;por'= {
+            cand --remote-format 'Read the secure data as a compact (TS 102 226 5.1.2) or expanded (5.2.2) Remote Application response'
+            cand --json 'Emit one JSON envelope of kind "ota-expanded" on stdout'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
+        &'sim-doctor;ota-expanded;help'= {
+            cand encode 'Wrap one or more C-APDUs (hex each) in a Command Scripting template'
+            cand decode 'Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite'
+            cand por 'Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS `02 71 00` user data header'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;ota-expanded;help;encode'= {
+        }
+        &'sim-doctor;ota-expanded;help;decode'= {
+        }
+        &'sim-doctor;ota-expanded;help;por'= {
+        }
+        &'sim-doctor;ota-expanded;help;help'= {
+        }
         &'sim-doctor;fuzz'= {
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
@@ -890,6 +930,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing'
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
+            cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
             cand fuzz 'APDU discovery and the OTA/SMS fuzz sweep'
             cand euicc 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes'
             cand card 'A pySim-shell style shell over the card: select files, read them, send APDUs'
@@ -1011,6 +1052,17 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand verify 'Verify a certificate chain (leaf first) up to a CI root'
         }
         &'sim-doctor;help;esim-cert;verify'= {
+        }
+        &'sim-doctor;help;ota-expanded'= {
+            cand encode 'Wrap one or more C-APDUs (hex each) in a Command Scripting template'
+            cand decode 'Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite'
+            cand por 'Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS `02 71 00` user data header'
+        }
+        &'sim-doctor;help;ota-expanded;encode'= {
+        }
+        &'sim-doctor;help;ota-expanded;decode'= {
+        }
+        &'sim-doctor;help;ota-expanded;por'= {
         }
         &'sim-doctor;help;fuzz'= {
             cand apdu 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session'
