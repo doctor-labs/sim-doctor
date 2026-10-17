@@ -919,6 +919,11 @@ struct GpArgs {
 }
 
 #[derive(Subcommand)]
+// The size of a variant here is clap's per-command parse state, not runtime
+// data: only one variant is ever alive, and the enum is never copied. Boxing a
+// variant is not available to the clap derive, so the lint is off for this enum
+// alone rather than worked around by dropping options.
+#[allow(clippy::large_enum_variant)]
 enum GpAction {
     /// `gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11).
     ///
@@ -1182,6 +1187,13 @@ enum GpAction {
     /// sent. Keys are never guessed and the secure channel protocol parameter
     /// (tag 81) is never added, so there is nothing else to turn off
     /// (GlobalPlatformPro -F, issue #253).
+    /// --cl-activated, --cl-notify, --cl-notify-remove, --cl-family,
+    /// --cl-display-optional, --cl-contact and --cl-contactless add the contactless
+    /// install parameters of GlobalPlatform Amendment C: they amend the Install
+    /// Parameters field with one EF Contactless Parameters template, so WHAT IS
+    /// INSTALLED ON THE CARD DEPENDS ON THEM. All off, the bytes sent are exactly
+    /// the bytes sent without them. An AID that --cl-notify adds and
+    /// --cl-notify-remove removes is refused before anything is sent.
     ///
     /// Exit 0 for a dry run or a verified install, 1 otherwise.
     Install {
@@ -1225,7 +1237,7 @@ enum GpAction {
         )]
         block_size: u16,
         #[command(flatten)]
-        dap: GpDapArgs,
+        extra: GpInstallExtras,
         #[command(flatten)]
         write: GpWriteFlags,
     },
@@ -1892,6 +1904,88 @@ fn parse_receipt_kind(text: &str) -> Result<gp::ReceiptKind, String> {
 fn hex_bytes(text: &str, what: &str) -> Result<Vec<u8>, String> {
     let squeezed: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     hex::decode(&squeezed).map_err(|_| format!("{what} is not hex"))
+}
+
+/// The contactless install parameters of GlobalPlatform Amendment C: the `--cl-*`
+/// flags of `gp install`. They change what the card is told to install, so they
+/// sit inside the same dry-run-by-default, `--yes`, one-SCP03-attempt, keys from
+/// file or environment rules as every other card write of this command, and none
+/// of them is exposed over MCP.
+///
+/// Every flag off sends exactly the Install Parameters field it sent before, so
+/// an install that asks for none is byte identical. Any flag on amends the
+/// Install Parameters field with one `EF` Contactless Parameters template beside
+/// the `C9` application parameters; a flag overwrites the same value `--params`
+/// already carried. An AID is checked to be 5 to 16 bytes of hex, and
+/// `--cl-family` to be one byte of hex, before a reader is opened.
+///
+/// Contradicting flags are refused before anything is sent: one AID cannot be
+/// both added to and removed from the CREL notify list. Naming neither
+/// communication interface, or both, is not a contradiction and means both.
+/// The `--cl-*` contactless flags and the DAP arguments of `gp install`, in one
+/// struct so the command handler stays readable and under the argument limit.
+#[derive(Args)]
+struct GpInstallExtras {
+    #[command(flatten)]
+    contactless: GpContactlessArgs,
+    #[command(flatten)]
+    dap: GpDapArgs,
+}
+
+#[derive(Args)]
+struct GpContactlessArgs {
+    /// --cl-activated: set the contactless activation state byte (EF A0 81).
+    #[arg(long = "cl-activated")]
+    cl_activated: bool,
+    /// --cl-notify AID: add this AID to the CREL notify list (EF A1 A3 4F).
+    /// Repeatable; the AIDs go into one list in the order given.
+    #[arg(long = "cl-notify", value_name = "AID")]
+    cl_notify: Vec<String>,
+    /// --cl-notify-remove AID: remove this AID from the CREL notify list
+    /// (EF A1 A4 4F). Repeatable. An AID given here and to --cl-notify is
+    /// refused: the card cannot be told to add and remove the same entry.
+    #[arg(long = "cl-notify-remove", value_name = "AID")]
+    cl_notify_remove: Vec<String>,
+    /// --cl-family HEX: the Application Family id, one byte of hex (EF A1 87).
+    #[arg(long = "cl-family", value_name = "HEX", value_parser = parse_hex_byte)]
+    cl_family: Option<u8>,
+    /// --cl-display-optional: the display is not required for this application
+    /// (EF A1 88 01).
+    #[arg(long = "cl-display-optional")]
+    cl_display_optional: bool,
+    /// --cl-contact: enable the contact interface (EF A0 A5 82, bit 80).
+    #[arg(long = "cl-contact")]
+    cl_contact: bool,
+    /// --cl-contactless: enable the contactless interface (EF A0 A5 82, bit 40).
+    /// With --cl-contact the mask is C0, both interfaces.
+    #[arg(long = "cl-contactless")]
+    cl_contactless: bool,
+}
+
+impl GpContactlessArgs {
+    /// The library value, or `Err` naming the flag whose AID is not 5 to 16
+    /// bytes of hex. Checked before a reader is opened, so a bad AID never
+    /// reaches a card.
+    fn build(&self) -> Result<gp::ContactlessParams, (&'static str, String)> {
+        let aids = |name: &str, values: &[String]| {
+            values
+                .iter()
+                .map(|v| {
+                    parse_aid(v)
+                        .ok_or(("bad-aid", format!("--{name} must be 5 to 16 bytes of hex")))
+                })
+                .collect::<Result<Vec<Vec<u8>>, (&'static str, String)>>()
+        };
+        Ok(gp::ContactlessParams {
+            activated: self.cl_activated,
+            notify: aids("cl-notify", &self.cl_notify)?,
+            notify_remove: aids("cl-notify-remove", &self.cl_notify_remove)?,
+            family: self.cl_family,
+            display_optional: self.cl_display_optional,
+            contact: self.cl_contact,
+            contactless: self.cl_contactless,
+        })
+    }
 }
 
 fn parse_hex_byte(text: &str) -> Result<u8, String> {
@@ -3144,7 +3238,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 privileges,
                 make_default,
                 block_size,
-                dap,
+                extra,
                 write,
             } => {
                 // Unparsable hex is left for run_gp_install to refuse.
@@ -3162,7 +3256,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     },
                     &privileges,
                     usize::from(block_size),
-                    &dap,
+                    &extra,
                     &write,
                 )
             }
@@ -4689,9 +4783,10 @@ fn run_gp_install(
     params: GpInstallParams,
     privileges: &str,
     block_size: usize,
-    dap: &GpDapArgs,
+    extra: &GpInstallExtras,
     w: &GpWriteFlags,
 ) -> contract::ExitCode {
+    let GpInstallExtras { contactless, dap } = extra;
     let refuse = |kind: &str, message: String| {
         let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
         report_refusal("gp", &message, data, w.json)
@@ -4767,6 +4862,17 @@ fn run_gp_install(
     };
     let (Ok(params), Ok(privileges)) = (hex::decode(&params), hex::decode(privileges)) else {
         return refuse("bad-hex", "--params and --privileges must be hex".into());
+    };
+    let cl = match contactless.build() {
+        Ok(cl) => cl,
+        Err((kind, message)) => return refuse(kind, message),
+    };
+    // Amends the Install Parameters field, or returns it byte for byte when no
+    // --cl-* flag is set. Refuses a contradictory notify list, so it cannot be
+    // reached with a card already open.
+    let params = match gp::amend_install_params(&params, &cl) {
+        Ok(params) => params,
+        Err(e) => return refuse("bad-cl-params", e.to_string()),
     };
     let dap = match load_dap(dap) {
         Ok(dap) => dap,

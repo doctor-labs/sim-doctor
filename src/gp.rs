@@ -2099,6 +2099,9 @@ pub enum BuildError {
     /// The personalization data is empty or is not BER-TLV.
     #[error("personalization data must be BER-TLV, and not empty")]
     PersonalizationData,
+    /// One AID is both added to and removed from the CREL notify list.
+    #[error("--cl-notify and --cl-notify-remove both name AID {0}: the card would be told to add and remove the same CREL notify entry")]
+    NotifyConflict(String),
 }
 
 /// Default LOAD block size: pySim's, the old GlobalPlatformPro default, leaves
@@ -2971,6 +2974,276 @@ pub fn set_status_command(
         // Command::case3 adds the Lc byte via push_data_field automatically.
         Command::case3(header, aid)
     })
+}
+
+/// The contactless install parameters of GlobalPlatform Amendment C: the `--cl-*`
+/// options of `gp install`. The default asks for nothing and amends nothing.
+///
+/// These go in the Install Parameters field as one `EF` Contactless Parameters
+/// template (Amendment C Table 11-3), a top level sibling of `C9`, never inside
+/// it. Which flags a card will accept is the card's business, not this tool's:
+/// the bytes below are what the reference tool sends and nothing more.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContactlessParams {
+    /// `--cl-activated`: set the contactless activation state byte (`A0 81`).
+    pub activated: bool,
+    /// `--cl-notify`: AIDs added to the CREL notify list (`A1 A3 4F`), in order.
+    pub notify: Vec<Vec<u8>>,
+    /// `--cl-notify-remove`: AIDs removed from it (`A1 A4 4F`), in order.
+    pub notify_remove: Vec<Vec<u8>>,
+    /// `--cl-family`: the Application Family id (`A1 87`), one byte.
+    pub family: Option<u8>,
+    /// `--cl-display-optional`: display not required (`A1 88 01`).
+    pub display_optional: bool,
+    /// `--cl-contact`: the contact interface is enabled (`A0 A5 82`).
+    pub contact: bool,
+    /// `--cl-contactless`: the contactless interface is enabled (the same tag).
+    pub contactless: bool,
+}
+
+impl ContactlessParams {
+    /// Whether any Amendment C parameter is set at all.
+    pub fn any(&self) -> bool {
+        self.activated
+            || !self.notify.is_empty()
+            || !self.notify_remove.is_empty()
+            || self.family.is_some()
+            || self.display_optional
+            || self.contact
+            || self.contactless
+    }
+
+    /// The Communication Interface Identifier bitmask: b8 contact, b7
+    /// contactless. Naming neither interface, or both of them, gives `C0`;
+    /// naming one gives that bit alone.
+    fn interface_mask(&self) -> u8 {
+        match (self.contact, self.contactless) {
+            (true, false) => 0x80,
+            (false, true) => 0x40,
+            _ => 0xC0,
+        }
+    }
+}
+
+/// One BER-TLV node of the Install Parameters field: a one or two byte tag, and
+/// either a value or children. Only what the Amendment C template needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParamTlv {
+    tag: Vec<u8>,
+    /// The value of a primitive node; empty for a constructed one.
+    value: Vec<u8>,
+    /// The children of a constructed node.
+    children: Option<Vec<ParamTlv>>,
+}
+
+impl ParamTlv {
+    /// A primitive node: tag with a value.
+    fn leaf(tag: u8, value: Vec<u8>) -> Self {
+        Self {
+            tag: vec![tag],
+            value,
+            children: None,
+        }
+    }
+
+    /// A constructed node: tag with children.
+    fn branch(tag: u8, children: Vec<ParamTlv>) -> Self {
+        Self {
+            tag: vec![tag],
+            value: Vec::new(),
+            children: Some(children),
+        }
+    }
+
+    /// Parses a run of BER-TLVs, recursing into constructed tags, which is the
+    /// bit `20` of the first tag byte set (`pro.javacard.tlv.TLVParser`,
+    /// `TLVParser.java:49`). `None` on anything malformed, which is how a caller
+    /// tells a TLV field from opaque bytes.
+    fn parse_all(input: &[u8]) -> Option<Vec<Self>> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at < input.len() {
+            let first = *input.get(at)?;
+            let mut tag = vec![first];
+            let mut next = at + 1;
+            if first & 0x1F == 0x1F {
+                tag.push(*input.get(next)?);
+                next += 1;
+            }
+            let (len, after) = ber_read(input, next)?;
+            next = after;
+            let body = input.get(next..next + len)?;
+            let children = if first & 0x20 == 0x20 {
+                Some(Self::parse_all(body)?)
+            } else {
+                None
+            };
+            out.push(Self {
+                value: if children.is_some() {
+                    Vec::new()
+                } else {
+                    body.to_vec()
+                },
+                tag,
+                children,
+            });
+            at = next + len;
+        }
+        Some(out)
+    }
+
+    /// The node back on the wire.
+    fn encode(&self) -> Vec<u8> {
+        let body = match &self.children {
+            Some(kids) => kids.iter().flat_map(Self::encode).collect(),
+            None => self.value.clone(),
+        };
+        let mut out = self.tag.clone();
+        out.extend(ber_len(body.len()));
+        out.extend(body);
+        out
+    }
+
+    /// Replaces the primitive at `path` with `value`, creating the constructed
+    /// containers on the way down.
+    fn set_path(children: &mut Vec<Self>, path: &[u8], value: Vec<u8>) {
+        let Some((&tag, rest)) = path.split_first() else {
+            return;
+        };
+        match children.iter().position(|c| c.tag.first() == Some(&tag)) {
+            Some(i) if rest.is_empty() => children[i] = Self::leaf(tag, value),
+            Some(i) => {
+                let kids = children[i].children.get_or_insert_with(Vec::new);
+                Self::set_path(kids, rest, value);
+            }
+            None => {
+                let node = if rest.is_empty() {
+                    Self::leaf(tag, value)
+                } else {
+                    let mut parent = Self::branch(tag, Vec::new());
+                    Self::set_path(
+                        parent.children.as_mut().expect("a branch has children"),
+                        rest,
+                        value,
+                    );
+                    parent
+                };
+                children.push(node);
+            }
+        }
+    }
+
+    /// Appends `leaf` to the constructed parent at `path`, keeping whatever it
+    /// already holds, and creating the containers on the way down. Two
+    /// `--cl-notify` AIDs therefore land as two `4F` children of one `A3`.
+    fn add_path(children: &mut Vec<Self>, path: &[u8], leaf: Self) {
+        let Some((&tag, rest)) = path.split_first() else {
+            return;
+        };
+        match children.iter().position(|c| c.tag.first() == Some(&tag)) {
+            Some(i) if rest.is_empty() => {
+                children[i].children.get_or_insert_with(Vec::new).push(leaf)
+            }
+            Some(i) => {
+                let kids = children[i].children.get_or_insert_with(Vec::new);
+                Self::add_path(kids, rest, leaf);
+            }
+            None => {
+                let node = if rest.is_empty() {
+                    Self::branch(tag, vec![leaf])
+                } else {
+                    let mut parent = Self::branch(tag, Vec::new());
+                    Self::add_path(
+                        parent.children.as_mut().expect("a branch has children"),
+                        rest,
+                        leaf,
+                    );
+                    parent
+                };
+                children.push(node);
+            }
+        }
+    }
+}
+
+/// Reads a BER length at `at`, returning it and the offset past it.
+fn ber_read(input: &[u8], at: usize) -> Option<(usize, usize)> {
+    let first = *input.get(at)?;
+    match first {
+        0..=0x7F => Some((usize::from(first), at + 1)),
+        0x81 => Some((usize::from(*input.get(at + 1)?), at + 2)),
+        0x82 => Some((
+            usize::from(u16::from_be_bytes([
+                *input.get(at + 1)?,
+                *input.get(at + 2)?,
+            ])),
+            at + 3,
+        )),
+        _ => None,
+    }
+}
+
+/// Amends the Install Parameters field with the contactless (Amendment C)
+/// parameters in `cl` and returns the field to send.
+///
+/// With every Amendment C parameter off this returns `base` byte for byte, so an
+/// install that asks for none sends exactly what it sent before the `--cl-*`
+/// options existed. Otherwise it builds, or amends in place, the `EF` Contactless
+/// Parameters template (Amendment C Table 11-3) as a **top level sibling** of
+/// `C9` and never inside it, keeps every other tag of `base` in order, and adds
+/// an empty `C9 00` sibling when `base` has none, because the field must always
+/// carry `C9`. A flag overwrites the value `base` carries for that tag, so the
+/// command line wins. A `base` that is not TLV at all is taken whole as the `C9`
+/// application parameters.
+///
+/// # Errors
+///
+/// [`BuildError::NotifyConflict`] when one AID is both added to and removed from
+/// the CREL notify list, which asks the card for two opposite things at once. It
+/// is refused here, before any command is built and so before a card is touched.
+pub fn amend_install_params(base: &[u8], cl: &ContactlessParams) -> Result<Vec<u8>, BuildError> {
+    for aid in cl.notify.iter().chain(&cl.notify_remove) {
+        aid_ok("CREL notify AID", aid, false)?;
+    }
+    for aid in &cl.notify {
+        if cl.notify_remove.contains(aid) {
+            return Err(BuildError::NotifyConflict(hex::encode_upper(aid)));
+        }
+    }
+    if !cl.any() {
+        return Ok(base.to_vec());
+    }
+    let params =
+        ParamTlv::parse_all(base).unwrap_or_else(|| vec![ParamTlv::leaf(0xC9, base.to_vec())]);
+    let mut ef = params
+        .iter()
+        .find(|t| t.tag.first() == Some(&0xEF))
+        .and_then(|t| t.children.clone())
+        .unwrap_or_default();
+    if cl.activated {
+        ParamTlv::set_path(&mut ef, &[0xA0, 0x81], vec![0x01]);
+    }
+    if cl.contact || cl.contactless {
+        ParamTlv::set_path(&mut ef, &[0xA0, 0xA5, 0x82], vec![cl.interface_mask()]);
+    }
+    for aid in &cl.notify {
+        ParamTlv::add_path(&mut ef, &[0xA1, 0xA3], ParamTlv::leaf(0x4F, aid.clone()));
+    }
+    for aid in &cl.notify_remove {
+        ParamTlv::add_path(&mut ef, &[0xA1, 0xA4], ParamTlv::leaf(0x4F, aid.clone()));
+    }
+    if let Some(family) = cl.family {
+        ParamTlv::set_path(&mut ef, &[0xA1, 0x87], vec![family]);
+    }
+    if cl.display_optional {
+        ParamTlv::set_path(&mut ef, &[0xA1, 0x88], vec![0x01]);
+    }
+    let mut rebuilt: Vec<ParamTlv> = params.into_iter().filter(|t| t.tag != [0xEF]).collect();
+    if !rebuilt.iter().any(|t| t.tag == [0xC9]) {
+        rebuilt.insert(0, ParamTlv::leaf(0xC9, Vec::new()));
+    }
+    rebuilt.push(ParamTlv::branch(0xEF, ef));
+    Ok(rebuilt.iter().flat_map(ParamTlv::encode).collect())
 }
 
 /// What `gp delete` removes.
@@ -10182,6 +10455,316 @@ mod tests {
         assert_eq!(sent_ins(&card, "E6"), 0);
         assert_eq!(sent_ins(&card, "E2"), 0);
         assert_no_key_material(&everything(&r, &keys));
+    }
+
+    /// The `--cl-*` flags of `gp install`: the contactless install parameters of
+    /// GlobalPlatform Amendment C. The byte vectors below are the reference
+    /// tool's own (GlobalPlatformPro, branch `next`,
+    /// `nextgen/src/test/java/pro/javacard/gp/ng/TestContactlessParams.java`
+    /// lines 33 to 111 and `nextgen/src/main/java/pro/javacard/gp/ng/GPToolNG.java`
+    /// lines 876 to 958; LGPL-3.0, read and cited, never copied).
+    fn cl_with(f: impl FnOnce(&mut ContactlessParams)) -> ContactlessParams {
+        let mut cl = ContactlessParams::default();
+        f(&mut cl);
+        cl
+    }
+
+    fn amended(base: &str, cl: &ContactlessParams) -> String {
+        hex::encode_upper(amend_install_params(&hex::decode(base).unwrap(), cl).unwrap())
+    }
+
+    fn aid(s: &str) -> Vec<u8> {
+        hex::decode(s).unwrap()
+    }
+
+    /// The whole INSTALL [for install] APDU `gp install` sends for the Install
+    /// Parameters field `params`: the AIDs and privileges main sends today, with
+    /// `params` as its BER length prefixed field. The lengths are worked out here
+    /// so no test can mistype one.
+    fn ifi_apdu(params: &str) -> String {
+        let mut data = String::from(concat!(
+            "07A0000000770100",
+            "08A000000077010001",
+            "08A000000077010002",
+            "03000000",
+        ));
+        data.push_str(&format!("{:02X}", params.len() / 2));
+        data.push_str(params);
+        data.push_str("00");
+        format!("80E60C00{:02X}{data}00", data.len() / 2)
+    }
+
+    #[test]
+    fn contactless_off_returns_the_install_parameters_byte_for_byte() {
+        // Nothing asked for, nothing sent: the field comes back untouched, so an
+        // install that asks for none sends exactly what main sends today.
+        for base in [
+            "",
+            "C900",
+            "C9020000",
+            "EF05A003810101",
+            "8101AAC90142",
+            "0102",
+            "EF0AA003810101A103870107",
+        ] {
+            assert_eq!(
+                amended(base, &ContactlessParams::default()),
+                base,
+                "{base} must come back unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn cl_activated_writes_the_template_beside_c9_never_inside_it() {
+        // C9 00 then EF 05 A0 03 81 01 01: the EF is a sibling of C9.
+        assert_eq!(
+            amended("", &cl_with(|c| c.activated = true)),
+            "C900EF05A003810101"
+        );
+        // An empty C9 is added even when --params had none.
+        assert_eq!(
+            amended("8101AAC90142", &cl_with(|c| c.activated = true)),
+            "8101AAC90142EF05A003810101"
+        );
+        // A --params that is not TLV at all becomes the C9 application parameters.
+        assert_eq!(
+            amended("0102", &cl_with(|c| c.activated = true)),
+            "C9020102EF05A003810101"
+        );
+    }
+
+    #[test]
+    fn cl_interface_mask_names_the_interfaces() {
+        // b8 contact, b7 contactless: naming one interface gives that bit alone.
+        for (name, mask) in [("contact", "80"), ("contactless", "40"), ("both", "C0")] {
+            let got = amended(
+                "",
+                &cl_with(|c| {
+                    c.activated = true;
+                    c.contact = name == "contact" || name == "both";
+                    c.contactless = name == "contactless" || name == "both";
+                }),
+            );
+            assert_eq!(
+                got,
+                format!("C900EF0AA008810101A5038201{mask}"),
+                "--cl-{name}"
+            );
+        }
+        // Neither interface named: no mask is sent at all.
+        assert_eq!(
+            amended("", &cl_with(|c| c.activated = true)),
+            "C900EF05A003810101"
+        );
+    }
+
+    #[test]
+    fn cl_notify_appends_to_one_crel_list() {
+        let one = amended("", &cl_with(|c| c.notify = vec![aid("A000000151000000")]));
+        assert_eq!(one, "C900EF0EA10CA30A4F08A000000151000000");
+        // Two AIDs, in order, as two 4F children of the one A3.
+        let two = amended(
+            "",
+            &cl_with(|c| {
+                c.notify = vec![aid("A000000151000000"), aid("A000000151535041")];
+            }),
+        );
+        assert_eq!(
+            two,
+            "C900EF18A116A3144F08A0000001510000004F08A000000151535041"
+        );
+        // Removal goes to the sibling A4 template.
+        assert_eq!(
+            amended(
+                "",
+                &cl_with(|c| c.notify_remove = vec![aid("A000000151000000")])
+            ),
+            "C900EF0EA10CA40A4F08A000000151000000"
+        );
+    }
+
+    #[test]
+    fn cl_family_is_one_byte_and_display_is_88_01() {
+        assert_eq!(
+            amended(
+                "",
+                &cl_with(|c| {
+                    c.family = Some(0x42);
+                    c.display_optional = true;
+                })
+            ),
+            "C900EF08A106870142880101"
+        );
+        assert_eq!(
+            amended("", &cl_with(|c| c.display_optional = true)),
+            "C900EF05A103880101"
+        );
+        assert_eq!(
+            amended("", &cl_with(|c| c.family = Some(0x00))),
+            "C900EF05A103870100"
+        );
+        assert_eq!(
+            amended("", &cl_with(|c| c.family = Some(0xFF))),
+            "C900EF05A1038701FF"
+        );
+    }
+
+    #[test]
+    fn cl_amends_an_existing_template_in_place_and_the_flag_wins() {
+        // --params already carries EF A0 81 01; --cl-family adds to it and keeps it.
+        assert_eq!(
+            amended("EF05A003810101", &cl_with(|c| c.family = Some(0x07))),
+            "C900EF0AA003810101A103870107"
+        );
+        // The flag overwrites the value --params carried for that tag.
+        assert_eq!(
+            amended(
+                "C900EF0AA003810101A103870107",
+                &cl_with(|c| c.family = Some(0x42))
+            ),
+            "C900EF0AA003810101A103870142"
+        );
+        // An EF template with nothing in it is filled in, not dropped.
+        assert_eq!(
+            amended("EF00", &cl_with(|c| c.activated = true)),
+            "C900EF05A003810101"
+        );
+    }
+
+    #[test]
+    fn a_conflicting_notify_list_is_refused_before_anything_is_built() {
+        let err = amend_install_params(
+            &[],
+            &cl_with(|c| {
+                c.notify = vec![aid("A000000151000000")];
+                c.notify_remove = vec![aid("A000000151000000")];
+            }),
+        )
+        .unwrap_err();
+        assert!(matches!(&err, BuildError::NotifyConflict(a) if a == "A000000151000000"));
+        assert!(err.to_string().contains("A000000151000000"));
+        // Two different AIDs are not a contradiction: one is added, one removed.
+        assert!(amend_install_params(
+            &[],
+            &cl_with(|c| {
+                c.notify = vec![aid("A000000151000000")];
+                c.notify_remove = vec![aid("A000000151535041")];
+            })
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn a_malformed_notify_aid_is_refused_before_a_card_is_touched() {
+        for bad in ["A000", &"AB".repeat(17)] {
+            let err =
+                amend_install_params(&[], &cl_with(|c| c.notify = vec![aid(bad)])).unwrap_err();
+            assert!(
+                matches!(
+                    &err,
+                    BuildError::Aid {
+                        field: "CREL notify AID",
+                        ..
+                    }
+                ),
+                "{bad}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_install_apdu_carries_the_amended_parameters() {
+        let send = |cl: &ContactlessParams| {
+            let params = amend_install_params(&hex::decode("C900").unwrap(), cl).unwrap();
+            install_for_install(
+                &aid(PKG),
+                &aid(MODULE),
+                &aid(APP),
+                &[0, 0, 0],
+                &params,
+                true,
+            )
+            .unwrap()
+            .encode()
+            .unwrap()
+        };
+        // Every flag off: exactly the bytes main sends today.
+        assert_eq!(ifi_apdu("C900"), PLAIN_IFI);
+        assert_eq!(
+            send(&ContactlessParams::default()),
+            hex::decode(PLAIN_IFI).unwrap()
+        );
+        // --cl-activated alone: the EF template grows the field, and Lc with it.
+        let activated = cl_with(|c| c.activated = true);
+        assert_eq!(amended("C900", &activated), "C900EF05A003810101");
+        assert_eq!(
+            send(&activated),
+            hex::decode(ifi_apdu("C900EF05A003810101")).unwrap()
+        );
+        // A command that actually changes the bytes: Lc is larger than PLAIN_IFI's.
+        assert!(send(&activated) != hex::decode(PLAIN_IFI).unwrap());
+        assert_eq!(ifi_apdu("C900EF05A003810101").len(), PLAIN_IFI.len() + 14);
+    }
+
+    #[test]
+    fn the_dry_run_prints_the_data_it_would_send() {
+        let mut req = install_request();
+        req.params = amend_install_params(
+            &req.params,
+            &cl_with(|c| {
+                c.activated = true;
+                c.family = Some(0x42);
+            }),
+        )
+        .unwrap();
+        let params = hex::encode_upper(&req.params);
+        let data = install_dry_run(&req).unwrap();
+        assert_eq!(data["dry_run"], true);
+        assert_eq!(data["sent"], false);
+        assert_eq!(data["target"]["install_parameters"], params);
+        let apdus = data["plan"]["apdus"].as_array().unwrap();
+        assert_eq!(apdus.len(), 4);
+        assert_eq!(apdus[3]["apdu"], ifi_apdu(&params));
+        assert_ne!(apdus[3]["apdu"], PLAIN_IFI);
+    }
+
+    #[test]
+    fn a_contactless_install_still_runs_the_whole_write_safely() {
+        // The pre-read refusals, the one authentication attempt and the registry
+        // re-read all still run, and every command goes out once, in order,
+        // whatever the --cl-* flags asked for.
+        let keys = keys();
+        let mut req = install_request();
+        req.params = amend_install_params(
+            &req.params,
+            &cl_with(|c| {
+                c.activated = true;
+                c.contactless = true;
+            }),
+        )
+        .unwrap();
+        let want = ifi_apdu(&hex::encode_upper(&req.params));
+        let mut card = card_for_install(true);
+        let r = install(&mut card, true, &req, &auth(&keys), true).unwrap();
+        // The pre-read ran, the card cryptogram was verified locally first, and
+        // there was exactly one authentication attempt.
+        assert_eq!(r.data["pre_read"]["app_present"], false);
+        assert_eq!(r.data["secure_channel"]["card_cryptogram_verified"], true);
+        assert_eq!(r.data["isd_attempts"].as_array().unwrap().len(), 1);
+        // The amended INSTALL is the one that went out, and it went out once.
+        assert_eq!(r.data["plan"]["apdus"][3]["apdu"], want);
+        assert_eq!(sent_ins(&card, "E6"), 2);
+        assert_eq!(wire(&card).iter().filter(|w| **w == want).count(), 0); // sent wrapped, not plain
+                                                                           // Still a dry run without --yes: nothing is sent, the same bytes shown.
+        let mut card = card_for_install(false);
+        let r = install(&mut card, false, &req, &auth(&keys), false).unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["plan"]["apdus"][3]["apdu"], want);
+        for ins in ["E6", "E8"] {
+            assert_eq!(sent_ins(&card, ins), 0);
+        }
     }
 }
 
