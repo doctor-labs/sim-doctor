@@ -8704,13 +8704,16 @@ fn run_batch(args: BatchArgs) -> contract::ExitCode {
         };
         cardsh::Shell::new(
             Box::new(|requested| {
-                let (session, reader, atr) = open_scan_session(requested).map_err(|f| f.message)?;
+                let (session, reader, atr) =
+                    open_scan_session(requested, false, None).map_err(|f| f.message)?;
                 Ok((session, reader.as_str().to_owned(), atr))
             }),
             cardsh::Opts {
                 yes,
                 dialect: dialect.tag_set(),
                 secrets,
+                card_key: None,
+                card_keys: None,
             },
         )
     };
