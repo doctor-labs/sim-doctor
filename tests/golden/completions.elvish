@@ -577,6 +577,10 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;gp;delete'= {
             cand --aid 'The AID to delete, 5 to 16 bytes of hex'
+            cand --dm-key-file 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)'
+            cand --dm-key-env 'Environment variable holding the AES token calculation key'
+            cand --dm-token-file 'File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)'
+            cand --dm-token-env 'Environment variable holding the Delegated Management token'
             cand --reader 'The reader to use, matched against the driver''s own name'
             cand --keys-file 'File holding the keys (keep it chmod 600)'
             cand --keys-env 'Environment variable holding the keys'
@@ -661,6 +665,10 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --dap-domain 'The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated'
             cand --dap-alg 'The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)'
             cand --dap-hash 'The Load File Data Block Hash the DAP signs'
+            cand --dm-key-file 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)'
+            cand --dm-key-env 'Environment variable holding the AES token calculation key'
+            cand --dm-token-file 'File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)'
+            cand --dm-token-env 'Environment variable holding the Delegated Management token'
             cand --reader 'The reader to use, matched against the driver''s own name'
             cand --keys-file 'File holding the keys (keep it chmod 600)'
             cand --keys-env 'Environment variable holding the keys'

@@ -282,6 +282,10 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from release-scp" -l yes -d 'Send the MANAGE CHANNEL close. Without it nothing is sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from release-scp" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l aid -d 'The AID to delete, 5 to 16 bytes of hex' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l dm-key-file -d 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)' -r -F
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l dm-key-env -d 'Environment variable holding the AES token calculation key' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l dm-token-file -d 'File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)' -r -F
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l dm-token-env -d 'Environment variable holding the Delegated Management token' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l reader -d 'The reader to use, matched against the driver\'s own name' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l keys-env -d 'Environment variable holding the keys' -r
@@ -366,6 +370,10 @@ ecc\t'ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-hash -d 'The Load File Data Block Hash the DAP signs' -r -f -a "sha256\t''
 sha384\t''
 sha512\t''"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dm-key-file -d 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)' -r -F
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dm-key-env -d 'Environment variable holding the AES token calculation key' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dm-token-file -d 'File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)' -r -F
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dm-token-env -d 'Environment variable holding the Delegated Management token' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l reader -d 'The reader to use, matched against the driver\'s own name' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l keys-env -d 'Environment variable holding the keys' -r

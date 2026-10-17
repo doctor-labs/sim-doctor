@@ -3204,3 +3204,164 @@ fn the_class_flag_is_refused_where_it_does_not_apply() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("--class"), "{err}");
 }
+
+/// `--dm-key` and `--dm-token` are secrets, like the SCP03 keys: a file or an
+/// environment variable, never a value on the command line. A malformed key, a
+/// wrong stated KCV and a malformed token are refused before a reader is opened,
+/// as one envelope, exit 1, and the refusal never quotes what it was complaining
+/// about. And the token bytes are withheld from the plan, because an issued token
+/// is a live credential that nothing expires and this tool cannot revoke: the
+/// rendered JSON is asserted over, since the rendered JSON is what lands in a
+/// terminal, a log and a bug report.
+#[test]
+fn gp_dm_key_and_token_are_secrets_that_never_reach_the_output() {
+    let _guard = spawn_lock();
+    let key = "404142434445464748494A4B4C4D4E4F";
+    let bad_key = "DEADBEEFDEADBEEFDEADBEEFDEADBEEFXX";
+    let token = "00112233445566778899AABBCCDDEEFF0011";
+    let env = "SIM_DOCTOR_TEST_DM";
+
+    for (flag, value, kind) in [
+        ("--dm-key-env", bad_key.to_string(), "keys-unusable"),
+        ("--dm-key-env", format!("{key}/000000"), "key-kcv-mismatch"),
+        ("--dm-token-env", "ZZ".to_string(), "token-unusable"),
+    ] {
+        let output = Command::new(binary())
+            .args([
+                "gp",
+                "delete",
+                "--aid",
+                "A0000000620001",
+                "--json",
+                flag,
+                env,
+            ])
+            .env(env, &value)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        let envelope = assert_exactly_one_envelope(&stdout, contract::ExitCode::Findings);
+        assert_eq!(envelope.payload().data()["error"]["kind"], kind);
+        for seen in [&stdout, &stderr] {
+            assert!(!seen.contains(&value) && !seen.contains(key), "{seen}");
+        }
+    }
+
+    // A good token on an offline dry run: sent nothing, exit 0, and the token
+    // is in neither the APDU nor the header nor any note.
+    let output = Command::new(binary())
+        .args([
+            "gp",
+            "delete",
+            "--aid",
+            "A0000000620001",
+            "--json",
+            "--dm-token-env",
+            env,
+        ])
+        .env(env, token)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let envelope = assert_exactly_one_envelope(&stdout, contract::ExitCode::Success);
+    let data = envelope.payload().data();
+    assert_eq!(data["card_touched"], false);
+    let step = &data["plan"]["apdus"][0];
+    assert_eq!(step["apdu"], serde_json::Value::Null);
+    assert!(
+        step["data"].as_str().unwrap().contains("withheld"),
+        "{stdout}"
+    );
+    assert!(
+        !stdout.to_lowercase().contains(&token.to_lowercase()),
+        "the token reached the rendered output: {stdout}"
+    );
+
+    // No option takes a DM key or a DM token as its value, and the four sources
+    // exclude each other.
+    for args in [
+        &["gp", "delete", "--aid", "A0000000620001", "--dm-key", key][..],
+        &[
+            "gp",
+            "delete",
+            "--aid",
+            "A0000000620001",
+            "--dm-token",
+            token,
+        ],
+        &["gp", "install", "--load", "x.cap", "--dm-key", key],
+        &[
+            "gp",
+            "delete",
+            "--aid",
+            "A0000000620001",
+            "--dm-key-file",
+            "a",
+            "--dm-key-env",
+            "B",
+        ],
+        &[
+            "gp",
+            "delete",
+            "--aid",
+            "A0000000620001",
+            "--dm-token-file",
+            "a",
+            "--dm-token-env",
+            "B",
+        ],
+        &[
+            "gp",
+            "delete",
+            "--aid",
+            "A0000000620001",
+            "--dm-key-env",
+            "B",
+            "--dm-token-env",
+            "C",
+        ],
+    ] {
+        let r = run(args, Stdio::piped());
+        assert_eq!(r.code(), 129, "{args:?}: {}", r.stderr);
+    }
+}
+
+/// The warning that an issued Delegated Management token is a live credential
+/// this tool cannot revoke is in `--help`, not only in the module docs, because
+/// the flags are what make it reachable.
+#[test]
+fn gp_help_warns_that_dm_tokens_are_live_credentials() {
+    let _guard = spawn_lock();
+    for args in [
+        &["gp", "delete", "--help"][..],
+        &["gp", "install", "--help"],
+    ] {
+        let out = run(args, Stdio::piped());
+        assert_eq!(out.code(), 0, "{}", out.stderr);
+        let help = out.stdout;
+        for flag in [
+            "--dm-key-file",
+            "--dm-key-env",
+            "--dm-token-file",
+            "--dm-token-env",
+        ] {
+            assert!(help.contains(flag), "{args:?} is missing {flag}:\n{help}");
+        }
+        assert!(help.contains("LIVE CREDENTIAL"), "{args:?}:\n{help}");
+        assert!(
+            help.contains("revoke it at the Card Issuer"),
+            "{args:?}:\n{help}"
+        );
+        assert!(help.contains("does not revoke it"), "{args:?}:\n{help}");
+    }
+}
