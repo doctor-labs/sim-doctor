@@ -773,8 +773,25 @@ and no `Clone`/`Serialize`, key errors name a position and never quote the text,
 wire bytes only. The KCV of a supplied key (24 bits, public) is shown. A stated `KEY/KCV` that is wrong
 stops the run before a reader is opened. Do not add a key option that takes the value. Verified
 against Amendment D v1.2 (7.1.1, 7.1.2, 6.2.2-6.2.4), pySim `pySim/global_platform/scp.py` and
-`tests/unittests/test_globalplatform.py` (SCP03_Test_AES128_11), GlobalPlatformPro `SCP03Wrapper`. The
-card key information (GET DATA E0) has no KCV, so a KCV cannot be compared with the card's: the
+`tests/unittests/test_globalplatform.py` (SCP03_Test_AES128_11), GlobalPlatformPro `SCP03Wrapper`.
+
+**S16 (`--s16`).** `--s16` (needs `--keys-file|--keys-env`, like `key_version`) speaks the SCP03 S16 profile: a
+16-byte host challenge, and 16-byte cryptograms and C-MACs. It is a mode of this same flow, not a second one, and
+the CARD announces it: bit 0x01 of the `i` parameter (`scp03::s16_announced`, `scp03::Profile::announced`). A card
+that announces the other profile stops the run after INITIALIZE UPDATE alone (`s16-not-announced` when `--s16` was
+asked for, `s16-required` when it was not), so no authentication attempt is counted. What changes, and only this:
+the host challenge, the card challenge, the two cryptograms (derived with the KDF's `L` = 128 instead of 64, so
+the whole CMAC is the cryptogram) and every transmitted C-MAC. The session keys keep their derivation (`L` is the static key length, 128 for AES-128) and the MAC chaining
+value stays the full 16-byte CMAC in both profiles; `scp03::Channel::mac_len()` is what the wire follows. Verified
+against GlobalPlatformPro `InitUpdateResponse.parse` (i bit 0x01, then a 16-byte challenge and cryptogram),
+`GlobalPlatformCookbook.authenticate_scp03` (`s16() ? 128 : 64`), `ext_authenticate_scp03` and `SCP03.wrap` (16-byte
+MACs, 16-byte chaining value). S16 is C-MAC only (`--mode mac`): the S16 R-MAC length and C-ENC
+padding are [U] in the refmap, so another `--mode` with `--s16` stops with `s16-level-unsupported` before
+anything is sent. **No reference publishes S16 bytes**, so the S16 vectors come from an independent
+model of Amendment D 4.1.5 and 6.2.2-6.2.4 (AES-CMAC from `openssl mac`, not from this crate) that first
+reproduces the Gp4Net and pySim 8-byte vectors byte for byte.
+
+The card key information (GET DATA E0) has no KCV, so a KCV cannot be compared with the card's: the
 cryptogram check is what proves the MAC key. Findings are `data.registry_findings` entries
 (`gp/weak-secure-channel`, `gp/isd-lifecycle`, `gp/app-locked`, `gp/app-excess-privilege`), not
 doctor/1 findings. Sensitive-data encryption (#19) is done for PUT KEY only (#115): the new keys are AES-encrypted under the static DEK. ARA-M is `A00000015141434C00`, GET DATA

@@ -2013,6 +2013,12 @@ struct GpKeyArgs {
     #[arg(long, value_name = "TEMPLATE", value_parser = parse_kdf_template,
           requires = "key_source")]
     key_kdf: Option<&'static str>,
+    /// Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte
+    /// cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the
+    /// "i" parameter) answers it, and a card that does not stops the run with
+    /// nothing else sent.
+    #[arg(long, requires = "key_source")]
+    s16: bool,
 }
 
 /// Where `gp put-key` gets the NEW key set. Never a value on the command line.
@@ -4586,16 +4592,15 @@ fn load_gp_keys(args: &GpKeyArgs, json: bool) -> Result<Option<gp::Keys>, contra
     })
 }
 
-/// A fresh host challenge for one authentication attempt.
+/// A fresh host challenge for one authentication attempt: 8 bytes, or 16 with
+/// `--s16`.
 fn gp_auth<'a>(keys: &'a gp::Keys, args: &GpKeyArgs, channel: u8) -> gp::Auth<'a> {
-    let mut host_challenge = [0u8; 8];
-    rand::fill(&mut host_challenge);
     gp::Auth {
         keys,
         kdf: None,
         key_version: args.key_version,
         level: args.mode.into(),
-        host_challenge,
+        host_challenge: gp::HostChallenge::random(args.s16),
         logical_channel: channel,
     }
 }
@@ -5190,6 +5195,7 @@ fn run_gp_delete_key(
         keys_env: delete_key.keys.keys_env.clone(),
         key_version: 0,
         mode: gp::Scp03Mode::Mac,
+        s16: false,
         key_kdf: None,
     };
     let keys = match load_gp_keys(&kvn_args, delete_key.json) {
