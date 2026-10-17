@@ -1923,8 +1923,8 @@ pub enum BuildError {
     /// A load token with no load file data block hash.
     #[error("a load token needs the load file data block hash")]
     TokenWithoutHash,
-    /// LOAD block size outside 1..=255.
-    #[error("LOAD block size {0} is outside 1..=255")]
+    /// LOAD block size outside 1..=247 (255 minus the 8-byte C-MAC).
+    #[error("LOAD block size {0} is outside 1..=247 (an SCP03 C-MAC takes 8 of the 255 command data bytes)")]
     Chunk(usize),
     /// More LOAD blocks than P2's 0..=255.
     #[error("{0} LOAD blocks, the block number P2 stops at 256")]
@@ -2055,7 +2055,7 @@ pub fn load_commands(
     dap_blocks: &[Vec<u8>],
     block_size: usize,
 ) -> Result<Vec<Command>, BuildError> {
-    if !(1..=0xFF).contains(&block_size) {
+    if !(1..=0xFF - scp03::MAC_LEN).contains(&block_size) {
         return Err(BuildError::Chunk(block_size));
     }
     let mut data: Vec<u8> = dap_blocks.concat();
@@ -2561,6 +2561,10 @@ pub struct InstallRequest {
     pub params: Vec<u8>,
     /// Sign the Load File Data Block Hash and send a DAP block, if set.
     pub dap: Option<DapRequest>,
+    /// Data bytes per LOAD block, 1 to 247 (`--bs`; 255 minus the 8-byte SCP03 C-MAC). [`DEFAULT_LOAD_BLOCK`] unless
+    /// the operator says otherwise; a smaller block suits a card or a secure
+    /// channel that rejects the default Lc.
+    pub block_size: usize,
 }
 
 /// Which hash is the Load File Data Block Hash when a DAP block is sent (GP Card
@@ -2682,7 +2686,7 @@ fn install_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned
         step: "install_for_load",
         command: install_for_load(&req.load_file_aid, sd_aid, &lfdbh, &[], &[])?,
     }];
-    for command in load_commands(&req.load_file, &dap_blocks, DEFAULT_LOAD_BLOCK)? {
+    for command in load_commands(&req.load_file, &dap_blocks, req.block_size)? {
         plan.push(Planned {
             step: "load",
             command,
@@ -5437,6 +5441,7 @@ mod tests {
             privileges: vec![0, 0, 0],
             params: vec![0xC9, 0x00],
             dap: None,
+            block_size: DEFAULT_LOAD_BLOCK,
         }
     }
 
@@ -6129,6 +6134,18 @@ mod tests {
         assert_eq!(apdus[3]["apdu"], PLAIN_IFI);
         assert_eq!(r.data["target"]["load_file_aid"], PKG);
         assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn install_block_size_sets_the_load_block_count() {
+        let mut req = install_request();
+        req.block_size = 100;
+        let data = install_dry_run(&req).unwrap();
+        let apdus = data["plan"]["apdus"].as_array().unwrap();
+        // The load file is 250 bytes; C4 81 FA makes the data block 253 bytes:
+        // three LOAD blocks of 100, 100 and 53, not two of 240 and 13.
+        assert_eq!(apdus.len(), 5);
+        assert!(apdus[1]["apdu"].as_str().unwrap().starts_with("80E8000064"));
     }
 
     #[test]
