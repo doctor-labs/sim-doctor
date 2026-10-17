@@ -117,6 +117,7 @@ pub mod cat;
 pub mod cert;
 pub mod ci;
 pub mod contract;
+pub mod csv;
 pub mod der;
 pub mod ef;
 pub mod erase;
