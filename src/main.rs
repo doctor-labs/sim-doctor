@@ -953,6 +953,43 @@ struct FuzzOtaArgs {
     /// is the CLA an INS-discovery sweep starts from, not an enum.
     #[arg(long, value_enum, value_name = "CLASS", help = CLASS_ARG_HELP, long_help = CLASS_ARG_LONG_HELP)]
     class: Option<tar::Class>,
+    /// Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header
+    /// inside one SMS-PP-DOWNLOAD, as SIMTester's OTA fuzzer does, instead of
+    /// sweeping TAR x keyset x mechanism.
+    ///
+    /// "default" is its 432-envelope plan (4 PID x 9 DCS x 6 CPH x 2 UDHI) and
+    /// runs whole. "bruteforce" is every PID and DCS octet, 786432 envelopes,
+    /// and is a CAPPED PARTIAL sweep: it stops at the published budget of 4096,
+    /// reports complete=false, and says in words how many of the planned
+    /// combinations were not sent.
+    ///
+    /// A hit is a combination the card answered with more than a status word;
+    /// 9000 and nothing else is the non-responsive answer and is not a hit. The
+    /// hits, the value sets and the counts are all in the report's
+    /// "passthrough" block. This mode sends envelopes only: it reads and writes
+    /// no file on the card.
+    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["quick", "poke", "kic", "kid", "spi1", "spi2"])]
+    passthrough: Option<FuzzPassthroughMode>,
+}
+
+/// Which value sets `sim-doctor fuzz ota --passthrough` sweeps.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum FuzzPassthroughMode {
+    /// SIMTester's -of: four PIDs, nine DCS values, six CPHs, UDHI both ways.
+    /// 432 envelopes, which fit the budget and run whole.
+    Default,
+    /// SIMTester's -ofbf: every PID and DCS octet. 786432 envelopes, which do
+    /// not fit the budget, so this is a capped partial sweep and says so.
+    Bruteforce,
+}
+
+impl From<FuzzPassthroughMode> for fuzz::passthrough::Mode {
+    fn from(mode: FuzzPassthroughMode) -> Self {
+        match mode {
+            FuzzPassthroughMode::Default => Self::Default,
+            FuzzPassthroughMode::Bruteforce => Self::Bruteforce,
+        }
+    }
 }
 
 /// `--class`, one line.
@@ -7809,6 +7846,7 @@ fn run_fuzz_apdu(args: FuzzApduArgs) -> contract::ExitCode {
             audit.to_json(),
             &findings,
             args.safety.json,
+            None,
         )
     } else {
         let audit = apdu_scan::cla_discovery(&mut session, mode, &mut reconnect, &mut || {
@@ -7822,6 +7860,7 @@ fn run_fuzz_apdu(args: FuzzApduArgs) -> contract::ExitCode {
             audit.to_json(),
             &findings,
             args.safety.json,
+            None,
         )
     }
 }
@@ -7924,6 +7963,7 @@ fn run_fuzz_mutate(args: FuzzMutateArgs) -> contract::ExitCode {
             apdu_fuzz::plan_json(&config),
             &[],
             args.json,
+            None,
         );
     }
     let run = if args.mock {
@@ -7972,6 +8012,7 @@ fn run_fuzz_mutate(args: FuzzMutateArgs) -> contract::ExitCode {
         run.to_json(),
         &findings,
         args.json,
+        None,
     )
 }
 
@@ -7983,26 +8024,59 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
         Err(code) => return code,
     };
 
-    let class = args.class.unwrap_or_default();
-    let sweep = fuzz::Sweep {
-        quick: args.safety.quick,
-        poke: args.poke,
-        class,
+    let policy = session::Policy::default();
+
+    let Some(mode) = args.passthrough else {
+        let class = args.class.unwrap_or_default();
+        let sweep = fuzz::Sweep {
+            quick: args.safety.quick,
+            poke: args.poke,
+            class,
+        };
+        let overrides = fuzz::Overrides {
+            kic: args.kic,
+            kid: args.kid,
+            spi1: args.spi1,
+            spi2: args.spi2,
+        };
+        let audit = match fuzz::audit_with(&mut session, sweep, overrides, &policy, &mut || {
+            doctor_kit::interrupt::interrupted()
+        }) {
+            Ok(audit) => audit,
+            Err(err) => {
+                return report_failure(
+                    &scan::Failure::new("fuzz-sweep-failed", err.to_string()),
+                    args.safety.json,
+                )
+            }
+        };
+        let findings = fuzz::findings(&audit);
+        return emit_fuzz_report(
+            fuzz::KIND,
+            reader.as_str(),
+            Some(&fuzz::class_note(class)),
+            audit.to_json(),
+            &findings,
+            args.safety.json,
+            None,
+        );
     };
-    let overrides = fuzz::Overrides {
-        kic: args.kic,
-        kid: args.kid,
-        spi1: args.spi1,
-        spi2: args.spi2,
-    };
-    let audit = match fuzz::audit_with(
+
+    // SIMTester OTA passthrough sweep (-of / -ofbf, issue #206). Same opt-in
+    // interlock, same one-APDU ENVELOPE wire mechanics, same published probe
+    // budget; only the four fields inside the envelope move. Hits are reported
+    // rather than raised as findings, so this branch finds nothing and says
+    // what it sent instead.
+    let report = match fuzz::passthrough::audit(
         &mut session,
-        sweep,
-        overrides,
-        &session::Policy::default(),
+        fuzz::passthrough::Sweep {
+            mode: mode.into(),
+            ..fuzz::passthrough::Sweep::default()
+        },
+        &policy,
         &mut || doctor_kit::interrupt::interrupted(),
     ) {
-        Ok(audit) => audit,
+        Ok(report) => report,
         Err(err) => {
             return report_failure(
                 &scan::Failure::new("fuzz-sweep-failed", err.to_string()),
@@ -8010,20 +8084,27 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
             )
         }
     };
-    let findings = fuzz::findings(&audit);
+    let human = report.to_human();
     emit_fuzz_report(
         fuzz::KIND,
         reader.as_str(),
-        Some(&fuzz::class_note(class)),
-        audit.to_json(),
-        &findings,
+        None,
+        serde_json::json!({ "passthrough": report.to_json() }),
+        &[],
         args.safety.json,
+        Some(&human),
     )
 }
 
 /// One `fuzz` report, in both modes: the reader name, the raw audit block
 /// (named `data` under its own key per subcommand) and the findings, through
 /// the same [`rules::Finding::to_json`] contract every other rule uses.
+///
+/// `summary` is the human-only tail a sweep that has something to say about
+/// itself prints: the OTA passthrough sweep (#206) uses it for its one line of
+/// totals and its hits, so that a run which sent 432 envelopes and found none
+/// still says so in words. `None` for the sweeps whose human output is their
+/// findings and nothing else.
 fn emit_fuzz_report(
     kind: &str,
     reader: &str,
@@ -8031,6 +8112,7 @@ fn emit_fuzz_report(
     audit: serde_json::Value,
     findings: &[rules::Finding],
     json: bool,
+    summary: Option<&str>,
 ) -> contract::ExitCode {
     let data = serde_json::json!({
         "reader": reader,
@@ -8066,6 +8148,12 @@ fn emit_fuzz_report(
         }
         for finding in findings {
             text.push_str(&format!("{finding}\n"));
+        }
+        if let Some(summary) = summary {
+            text.push_str(summary);
+            if !summary.ends_with('\n') {
+                text.push('\n');
+            }
         }
         text
     };
@@ -8870,6 +8958,55 @@ mod tests {
             panic!("not a scan")
         };
         assert!(args.walk_limits.break_after_count_match);
+    }
+
+    /// `--quick` means nothing to `--passthrough`: `run_fuzz_ota` reads
+    /// `args.passthrough` first and returns before it ever looks at
+    /// `safety.quick`, so taking the pair used to parse and then drop a flag
+    /// the user typed. clap refuses the combination instead, and each flag on
+    /// its own still parses.
+    #[test]
+    fn fuzz_ota_refuses_quick_with_passthrough() {
+        use clap::Parser;
+        assert!(Cli::try_parse_from([
+            "sim-doctor",
+            "fuzz",
+            "ota",
+            "--passthrough",
+            "default",
+            "--quick",
+        ])
+        .is_err());
+        assert!(
+            Cli::try_parse_from(["sim-doctor", "fuzz", "ota", "--passthrough", "default"]).is_ok()
+        );
+        assert!(Cli::try_parse_from(["sim-doctor", "fuzz", "ota", "--quick"]).is_ok());
+    }
+
+    /// `--passthrough` with `--kic`, `--kid`, `--spi1` or `--spi2` is refused at
+    /// parse time (exit 2, a message naming both flags): the passthrough sweep
+    /// builds its own Command Packet Header and has no header octet to pin.
+    #[test]
+    fn fuzz_ota_refuses_passthrough_with_pinned_header_octets() {
+        use clap::Parser;
+        for flag in ["--kic", "--kid", "--spi1", "--spi2"] {
+            let err = match Cli::try_parse_from([
+                "sim-doctor",
+                "fuzz",
+                "ota",
+                "--passthrough",
+                "default",
+                flag,
+                "21",
+            ]) {
+                Ok(_) => panic!("{flag} with --passthrough parsed"),
+                Err(err) => err,
+            };
+            assert_eq!(err.exit_code(), 2);
+            let msg = err.to_string();
+            assert!(msg.contains("--passthrough") && msg.contains(flag), "{msg}");
+        }
+        assert!(Cli::try_parse_from(["sim-doctor", "fuzz", "ota", "--kic", "21"]).is_ok());
     }
 
     /// `--yes` on a `gp` write needs a key source, or it would send over a

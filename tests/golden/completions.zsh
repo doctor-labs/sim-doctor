@@ -2047,6 +2047,8 @@ _arguments "${_arguments_options[@]}" : \
 '--spi2=[Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it]:HEX:_default' \
 '--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
 gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
+'(--quick --poke --kic --kid --spi1 --spi2)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
+bruteforce\:"SIMTester'\''s -ofbf\: every PID and DCS octet. 786432 envelopes, which do not fit the budget, so this is a capped partial sweep and says so"))' \
 '--i-understand-this-can-brick-the-card[Required. Without it, \`fuzz\` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)]' \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \

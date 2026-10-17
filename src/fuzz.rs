@@ -71,7 +71,16 @@ use crate::apdu::StatusWord;
 use crate::otacrypto;
 use crate::session::Policy;
 use crate::tar::{self, Baseline, Class, Signature};
+
 use crate::transport::CardSession;
+
+/// The OTA passthrough sweep: TP-PID, TP-DCS, the TP-UDHI flag and the Command
+/// Packet Header varied inside one SMS-PP-DOWNLOAD, as SIMTester's
+/// `OTAFuzzer` (`-of` / `-ofbf`) does. A mode of this sweep, not a second
+/// one: it sends through the same [`tar::probe_envelope`], under the same
+/// `--i-understand-this-can-brick-the-card` interlock, capped at the same
+/// [`MAX_PROBES`].
+pub mod passthrough;
 
 /// The most (TAR, keyset, mechanism) triples one sweep may probe.
 ///

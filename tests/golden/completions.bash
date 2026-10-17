@@ -2553,7 +2553,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__fuzz__subcmd__ota)
-            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --kic --kid --spi1 --spi2 --class --help"
+            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --kic --kid --spi1 --spi2 --class --passthrough --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2581,6 +2581,10 @@ _sim__doctor() {
                     ;;
                 --class)
                     COMPREPLY=($(compgen -W "etsi gsm" -- "${cur}"))
+                    return 0
+                    ;;
+                --passthrough)
+                    COMPREPLY=($(compgen -W "default bruteforce" -- "${cur}"))
                     return 0
                     ;;
                 *)

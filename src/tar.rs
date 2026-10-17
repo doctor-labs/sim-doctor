@@ -499,6 +499,49 @@ pub(crate) const COMMAND_HEADER_LEN: u8 = 13;
 /// here.
 const SMS_DELIVER_FIRST_OCTET: u8 = 0x44;
 
+/// The TP-UDHI bit of the SMS-DELIVER first octet, as the reference tool
+/// writes it.
+///
+/// \[V] `SMSDeliverTPDU.setTPUDHI(boolean)` ORs `0x40` into the first octet,
+/// which is the bit [`SMS_DELIVER_FIRST_OCTET`] already carries.
+///
+/// The SMS-DELIVER first octet runs, from bit 8 at the left: bit 8 unused,
+/// TP-RP, TP-UDHI, TP-SRI, then TP-MTI in the low four bits. So `0x40` is
+/// TP-UDHI and TP-MTI is the low nibble, in which SMS-DELIVER is `10b`, which
+/// is `0x04`: a plain SMS-DELIVER starts `0x04`, and the same message with a
+/// user data header starts `0x44`.
+///
+/// That bit is \[V] on two independent sources. TS 23.040 clause 9.1.2.1 lays
+/// the first octet out as above, and `srlabs/SIMTester` at `d197fef`, file
+/// `SIMLibrary/src/de/srlabs/simlib/SMSDeliverTPDU.java`, agrees line for
+/// line: line 120 is `private final static byte TPUDHI_MASK = (byte) 0x40; //
+/// bit no. 6` and line 123 is `return HexToolkit.isBitSet(TPUDHI, 6)`, with
+/// `0x40` ORed into the first octet at line 162 and the reverse read at line
+/// 173. The reference counts bits from the right, so its "bit no. 6" is
+/// `0x40`. That agrees with the \[V] note on [`SMS_DELIVER_FIRST_OCTET`],
+/// which reads `setTPUDHI(true)` as bit 6.
+///
+/// The octets here are reproduced from the reference byte for byte, which is
+/// why [`crate::tar`] cites SIMTester line for line at all. Whether a card is
+/// strict about the user data header the flag promises is a property of that
+/// card, not a second reading of this octet; see [`SMS_DELIVER_FIRST_OCTET`].
+pub const TP_UDHI: u8 = 0x40;
+
+/// The four octets an OTA passthrough sweep varies inside one envelope.
+///
+/// TP-PID, TP-DCS and the TP-UDHI flag live in the SMS-DELIVER TPDU; the
+/// Command Packet Header is the parameter of [`command_packet_with_cph`].
+/// Grouped into one value so a builder takes six arguments rather than eight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Passthrough {
+    /// The TP-PID octet, TPDU octet 7 (1-based).
+    pub pid: u8,
+    /// The TP-DCS octet, TPDU octet 8 (1-based).
+    pub dcs: u8,
+    /// Whether the TP-UDHI bit of the TPDU's first octet is set.
+    pub udhi: bool,
+}
+
 /// TP-Originating-Address the probe sends.
 ///
 /// \[V] `SMSDeliverTPDU.TPOA = {0x05, 0x00, 0x21, 0x43, 0xF5}`.
@@ -657,12 +700,44 @@ pub fn command_packet_octets(
     kid: u8,
     counter: u8,
 ) -> Vec<u8> {
+    command_packet_octets_cph(tar, spi1, spi2, kic, kid, counter, &COMMAND_PACKET_HEADER)
+}
+
+/// The same Command Packet with its Command Packet Header taken as an
+/// argument, for a sweep that varies the header rather than holding it at
+/// `02 70 00`.
+///
+/// **This is what the OTA passthrough sweep is built on**
+/// (\[V] `OTAFuzzer.fuzzOTA` calls `cp.setCPH(HexToolkit.fromString(CPH))` for
+/// every one of its six values before `cp.getBytes()`, i.e. the CPH is the
+/// variable field of the Command Packet, not a second encoding). Only the
+/// leading octets move: CPL stays `1 + CHL + len(UD)`, because 3GPP TS 31.115
+/// clause 7.1 counts the Command Packet Length from CHL onwards and the header
+/// sits in front of CPL \[V].
+///
+/// An empty `cph` is one of the six values the reference probes (no security
+/// header at all) and is not an error: the Command Packet then starts at CPL.
+pub fn command_packet_with_cph(tar: u32, keyset: u8, spi1: u8, spi2: u8, cph: &[u8]) -> Vec<u8> {
+    let key_nibble = keyset << 4;
+    command_packet_octets_cph(tar, spi1, spi2, key_nibble, key_nibble, 1, cph)
+}
+
+fn command_packet_octets_cph(
+    tar: u32,
+    spi1: u8,
+    spi2: u8,
+    kic: u8,
+    kid: u8,
+    counter: u8,
+    cph: &[u8],
+) -> Vec<u8> {
     let ud = PROBE_USER_DATA;
     let cpl = u16::try_from(1 + usize::from(COMMAND_HEADER_LEN) + ud.len())
         .expect("the probe user data is seven octets, so CPL is 21");
 
-    let mut out = Vec::with_capacity(usize::from(cpl) + COMMAND_PACKET_HEADER.len());
-    out.extend_from_slice(&COMMAND_PACKET_HEADER);
+    let mut out =
+        Vec::with_capacity(cph.len() + 2 + 1 + usize::from(COMMAND_HEADER_LEN) + ud.len());
+    out.extend_from_slice(cph);
     out.extend_from_slice(&cpl.to_be_bytes());
     out.push(COMMAND_HEADER_LEN);
     out.push(spi1);
@@ -685,14 +760,50 @@ pub fn command_packet_octets(
 /// Returns `None` for anything TP-UDL's single octet cannot count, written
 /// out rather than assumed so a longer input cannot silently wrap it.
 pub fn sms_deliver_tpdu(user_data: &[u8]) -> Option<Vec<u8>> {
+    sms_deliver_tpdu_with(
+        user_data,
+        SMS_DELIVER_TPPID,
+        SMS_DELIVER_TPDCS,
+        SMS_DELIVER_FIRST_OCTET & TP_UDHI != 0,
+    )
+}
+
+/// The same TPDU with TP-PID, TP-DCS and the TP-UDHI flag as parameters.
+///
+/// **Field positions, checked against 3GPP TS 23.040 clause 9.1.2.1**
+/// (SMS-DELIVER TPDU) rather than against the reference tool \[V]. The octets
+/// are laid out
+///
+/// | index | octet | field |
+/// |---|---|---|
+/// | 0 | 1 | first octet (TP-MTI / TP-RP / TP-UDHI / TP-SRI) |
+/// | 1 | 2 | TP-OA, length in semi-octets |
+/// | 2..=5 | 3..=6 | TP-OA: the 8-bit TON/NPI and the packed digits |
+/// | 6 | 7 | **TP-PID** |
+/// | 7 | 8 | **TP-DCS** |
+/// | 8..=14 | 9..=15 | TP-SCTS, 7 octets |
+/// | 15 | 16 | TP-UDL |
+/// | 16.. | 17.. | TP-UD |
+///
+/// The probe's TP-OA is five semi-octets long ([`SMS_DELIVER_TPOA`]), so an
+/// 8-bit TP-OA is one length octet, one TON/NPI octet and three packed digit
+/// octets, and the two positions above follow from that length rather than
+/// from a constant. **TP-PID and TP-DCS are the two octets between the TP-OA
+/// and the TP-SCTS**, so nothing else in the TPDU can be confused for either.
+pub fn sms_deliver_tpdu_with(user_data: &[u8], pid: u8, dcs: u8, udhi: bool) -> Option<Vec<u8>> {
     let udl = u8::try_from(user_data.len()).ok()?;
+    let first_octet = if udhi {
+        SMS_DELIVER_FIRST_OCTET
+    } else {
+        SMS_DELIVER_FIRST_OCTET & !TP_UDHI
+    };
     let mut out = Vec::with_capacity(
         1 + SMS_DELIVER_TPOA.len() + 2 + SMS_DELIVER_SCTS.len() + 1 + user_data.len(),
     );
-    out.push(SMS_DELIVER_FIRST_OCTET);
+    out.push(first_octet);
     out.extend_from_slice(&SMS_DELIVER_TPOA);
-    out.push(SMS_DELIVER_TPPID);
-    out.push(SMS_DELIVER_TPDCS);
+    out.push(pid);
+    out.push(dcs);
     out.extend_from_slice(&SMS_DELIVER_SCTS);
     out.push(udl);
     out.extend_from_slice(user_data);
@@ -733,6 +844,35 @@ pub fn envelope_data_raw(
     spi2: u8,
 ) -> Option<Vec<u8>> {
     let tpdu = sms_deliver_tpdu(&command_packet_raw(tar, kic, kid, spi1, spi2))?;
+    envelope_data_from_tpdu(class, &tpdu)
+}
+
+/// The envelope data field of an OTA passthrough probe: the same `D1` chain,
+/// with the CPH of the Command Packet and the PID, DCS and UDHI of the TPDU chosen.
+///
+/// `cph` is written straight into the Command Packet header and `passthrough`
+/// into the TPDU; everything else (device identities, originating address,
+/// the other TPDU fields, the user data, the CPL and CHL) is unchanged.
+pub fn envelope_data_passthrough(
+    tar: u32,
+    class: Class,
+    keyset: u8,
+    mechanism: (u8, u8),
+    cph: &[u8],
+    passthrough: Passthrough,
+) -> Option<Vec<u8>> {
+    let (spi1, spi2) = mechanism;
+    let command_packet = command_packet_with_cph(tar, keyset, spi1, spi2, cph);
+    let tpdu = sms_deliver_tpdu_with(
+        &command_packet,
+        passthrough.pid,
+        passthrough.dcs,
+        passthrough.udhi,
+    )?;
+    envelope_data_from_tpdu(class, &tpdu)
+}
+
+fn envelope_data_from_tpdu(class: Class, tpdu: &[u8]) -> Option<Vec<u8>> {
     let (identities, address) = match class {
         Class::Etsi => (&DEVICE_IDENTITIES_3G[..], &ADDRESS_3G[..]),
         Class::Gsm => (&DEVICE_IDENTITIES_GSM[..], &ADDRESS_GSM[..]),
@@ -740,7 +880,7 @@ pub fn envelope_data_raw(
     let mut body = Vec::with_capacity(identities.len() + address.len() + tpdu.len());
     body.extend_from_slice(identities);
     body.extend_from_slice(address);
-    body.extend_from_slice(&tpdu);
+    body.extend_from_slice(tpdu);
     inner_tlv(TAG_SMS_PP_DOWNLOAD, &body)
 }
 
@@ -788,9 +928,31 @@ pub fn envelope_apdu_raw(
     spi2: u8,
 ) -> Option<Vec<u8>> {
     let data = envelope_data_raw(tar, class, kic, kid, spi1, spi2)?;
+    envelope_apdu_from_data(class, &data)
+}
+
+/// The one complete ENVELOPE APDU of an OTA passthrough probe.
+///
+/// `CLA INS P1 P2 Lc <data>`, one `SCardTransmit`, for the same reason
+/// [`envelope_apdu`] is one APDU; [`probe_envelope`] still does the
+/// swicc-pcsc header/data split and the `61 xx` / `91 xx` handling, so this
+/// mode gains no wire mechanics of its own.
+pub fn envelope_apdu_passthrough(
+    tar: u32,
+    class: Class,
+    keyset: u8,
+    mechanism: (u8, u8),
+    cph: &[u8],
+    passthrough: Passthrough,
+) -> Option<Vec<u8>> {
+    let data = envelope_data_passthrough(tar, class, keyset, mechanism, cph, passthrough)?;
+    envelope_apdu_from_data(class, &data)
+}
+
+fn envelope_apdu_from_data(class: Class, data: &[u8]) -> Option<Vec<u8>> {
     let len = u8::try_from(data.len()).ok()?;
     let mut apdu = vec![class.octet(), INS_ENVELOPE, 0x00, 0x00, len];
-    apdu.extend_from_slice(&data);
+    apdu.extend_from_slice(data);
     Some(apdu)
 }
 
@@ -2010,6 +2172,24 @@ pub(crate) struct Reply {
     /// The response as [`spell_response`] spells it, for a `--tar-skip-response` match.
     pub(crate) spelling: String,
     pub(crate) exchanges: usize,
+    /// The response octets verbatim: the data followed by the status word, or
+    /// the data alone for a procedure byte.
+    ///
+    /// [`Signature`] deliberately drops the bytes, because comparing whole
+    /// responses would make every TAR look different on exactly the cards a
+    /// scan is looking for. The OTA passthrough sweep needs them for the
+    /// opposite reason - it reports the card's own answer as hex - so they are
+    /// carried here and used nowhere else.
+    pub(crate) response: Vec<u8>,
+}
+
+/// The response octets a [`Reply`] carries, verbatim.
+fn raw(response: &Response) -> Vec<u8> {
+    let mut out = response.body().to_vec();
+    if let Some(status) = response.status() {
+        out.extend_from_slice(&status.to_bytes());
+    }
+    out
 }
 
 /// Sends one TAR to a card and reads what it says.
@@ -2112,6 +2292,7 @@ pub(crate) fn probe_envelope<S: CardSession + ?Sized>(
         signature: Signature::of(exchange.response()),
         spelling: spell_response(exchange.response()),
         exchanges: exchange.exchange_count(),
+        response: raw(exchange.response()),
     }))
 }
 
@@ -2146,6 +2327,7 @@ fn probe_split<S: CardSession + ?Sized>(
             signature: Signature::of(&first),
             spelling: spell_response(&first),
             exchanges: 1,
+            response: raw(&first),
         }));
     };
 
@@ -2199,6 +2381,7 @@ fn probe_split<S: CardSession + ?Sized>(
         signature: Signature::of(&second),
         spelling: spell_response(&second),
         exchanges,
+        response: raw(&second),
     }))
 }
 
