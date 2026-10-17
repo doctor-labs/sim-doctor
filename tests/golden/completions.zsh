@@ -72,6 +72,7 @@ _arguments "${_arguments_options[@]}" : \
 '--sms-deliver-report[Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT]' \
 '--reserved-file-ids[Scan reserved file identifiers 7FF0-7FFF inside an application]' \
 '--sfrv[Scan reserved file identifiers 7FF0-7FFF inside an application]' \
+'--tar-uncapped[Raise the 4096-probe bound on the TAR audit to a ceiling of 1 000 000 probes (issue #266)]' \
 '(--json --tui --face)--headless[A face in plain text without colour, for CI and pipes]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \

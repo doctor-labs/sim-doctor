@@ -79,6 +79,7 @@ struct Run {
     terminal_profile: bool,
     por: tar::PorMode,
     reserved_file_ids: bool,
+    tar_uncapped: bool,
     severity: Option<rules::Severity>,
     score: bool,
     fail_on: rules::Severity,
@@ -108,6 +109,7 @@ impl Run {
             terminal_profile: false,
             por: tar::PorMode::default(),
             reserved_file_ids: false,
+            tar_uncapped: false,
             severity: None,
             score: false,
             fail_on: rules::Severity::Critical,
@@ -136,6 +138,7 @@ impl Run {
                 tar::PorMode::default()
             },
             reserved_file_ids: args.reserved_file_ids,
+            tar_uncapped: args.tar_uncapped,
             severity: args.severity,
             score: args.score,
             fail_on: args.fail_on,
@@ -251,7 +254,11 @@ impl SimDoctor {
 
         // The TAR audit, over the same live session. It polls doctor_kit::interrupt::interrupted()
         // before every probe: a Ctrl-C during a full sweep is acted on rather than queued.
-        let audit = tar::audit_with_por(
+        let audit = if args.tar_uncapped {
+            tar::audit_uncapped
+        } else {
+            tar::audit_with_por
+        }(
             session,
             &args.tar,
             &session::Policy::default(),
@@ -763,6 +770,10 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
     }
     if args.sms_deliver_report && matches!(args.tar.mode, tar::Mode::Off) {
         eprintln!("sim-doctor: --sms-deliver-report is only meaningful with --tar other than off");
+        return contract::ExitCode::Error;
+    }
+    if args.tar_uncapped && matches!(args.tar.mode, tar::Mode::Off) {
+        eprintln!("sim-doctor: --tar-uncapped is only meaningful with --tar other than off");
         return contract::ExitCode::Error;
     }
     let run = d.run.get_or_init(|| Run::scan(&args));

@@ -716,6 +716,26 @@ fn terminal_profile_without_a_tar_audit_exits_2() {
     }
 }
 
+/// `--tar-uncapped` raises the TAR audit's bound, so it is only accepted with a TAR audit: without
+/// `--tar` (default off) or with `--tar off` it is refused with 2, before any reader is opened and
+/// with nothing on stdout.
+#[test]
+fn tar_uncapped_without_a_tar_audit_exits_2() {
+    for args in [
+        &["scan", "--tar-uncapped", "--json"][..],
+        &["scan", "--tar", "off", "--tar-uncapped", "--json"][..],
+    ] {
+        let run = run_piped(args);
+        assert_eq!(run.code(), 2, "{args:?}: {:?}", run.stderr);
+        assert_eq!(run.stdout, "", "{args:?}");
+        assert!(
+            run.stderr.contains("--tar-uncapped"),
+            "{args:?}: {:?}",
+            run.stderr
+        );
+    }
+}
+
 /// The flag's help says exactly what is sent and what it changes.
 #[test]
 fn scan_help_documents_the_terminal_profile() {

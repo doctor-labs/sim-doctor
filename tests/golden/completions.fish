@@ -86,6 +86,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l score -d 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l terminal-profile -d 'Send a TERMINAL PROFILE to the card before the TAR audit'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l sms-deliver-report -d 'Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l reserved-file-ids -l sfrv -d 'Scan reserved file identifiers 7FF0-7FFF inside an application'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar-uncapped -d 'Raise the 4096-probe bound on the TAR audit to a ceiling of 1 000 000 probes (issue #266)'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l headless -d 'A face in plain text without colour, for CI and pipes'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand profile; and not __fish_seen_subcommand_from list probe match help" -s h -l help -d 'Print help (see more with \'--help\')'
