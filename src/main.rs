@@ -844,6 +844,12 @@ enum GpAction {
         /// Terminate are refused.
         #[arg(long, value_name = "HEX", default_value = "000000")]
         privileges: String,
+        /// Make the applet default selected: sets the Card Reset privilege, 0x04 in
+        /// the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit
+        /// GlobalPlatformPro's --make-default sets). The card then selects this
+        /// applet by default after reset, so it changes what the card runs first.
+        #[arg(long)]
+        make_default: bool,
         #[command(flatten)]
         dap: GpDapArgs,
         #[command(flatten)]
@@ -2019,9 +2025,17 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 app,
                 params,
                 privileges,
+                make_default,
                 dap,
                 write,
-            } => run_gp_install(&load, module, app, &params, &privileges, &dap, &write),
+            } => {
+                // Unparsable hex is left for run_gp_install to refuse.
+                let privileges = match (make_default, hex::decode(&privileges)) {
+                    (true, Ok(p)) => gp::with_default_selected(&p).map_or(privileges, hex::encode),
+                    _ => privileges,
+                };
+                run_gp_install(&load, module, app, &params, &privileges, &dap, &write)
+            }
             GpAction::PutKey {
                 new_key_version,
                 replace_key_version,

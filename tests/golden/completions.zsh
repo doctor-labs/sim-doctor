@@ -468,6 +468,7 @@ _arguments "${_arguments_options[@]}" : \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
 '--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--make-default[Make the applet default selected\: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro'\''s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \

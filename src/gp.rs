@@ -2355,6 +2355,21 @@ pub fn rename_isd_command(new_aid: &[u8]) -> Result<Command, BuildError> {
     Ok(Command::case3(Header::new(0x80, 0xE2, 0x90, 0x00), data))
 }
 
+/// The privileges with Card Reset set, `0x04` in the first byte (GP Card Spec
+/// v2.3.1 table 11-7), which makes the applet default selected. GlobalPlatformPro
+/// sets the same bit with a separate INSTALL [for make selectable]
+/// (`GPSession.makeDefaultSelected`, `GPRegistryEntry` `CardReset = byte_mask(0,
+/// 0x4)`); `gp install --make-default` folds it into this install instead. `None`
+/// when the privileges are not 1 or 3 bytes, which the builder refuses.
+pub fn with_default_selected(privileges: &[u8]) -> Option<Vec<u8>> {
+    if !matches!(privileges.len(), 1 | 3) {
+        return None;
+    }
+    let mut out = privileges.to_vec();
+    out[0] |= 0x04;
+    Some(out)
+}
+
 /// Builds, and does not send, INSTALL [for install] (`make_selectable` false,
 /// P1 `04`) or INSTALL [for install and make selectable] (P1 `0C`): `80 E6 <P1>
 /// 00 Lc <data> 00` with data = `LV(load file AID) LV(module AID) LV(application
@@ -6290,5 +6305,18 @@ mod tests {
         assert_eq!(free.data["warning"], RENAME_ISD_WARNING);
         assert_eq!(sent_ins(&card, "E2"), 0);
         assert_no_key_material(&everything(&free, &keys));
+    }
+
+    #[test]
+    fn make_default_sets_card_reset_in_the_first_privilege_byte() {
+        // GlobalPlatformPro GPRegistryEntry: CardReset = byte_mask(0, 0x4).
+        assert_eq!(with_default_selected(&[0, 0, 0]), Some(vec![0x04, 0, 0]));
+        assert_eq!(with_default_selected(&[0x80]), Some(vec![0x84]));
+        assert_eq!(
+            with_default_selected(&[0x04, 0x80, 0]),
+            Some(vec![0x04, 0x80, 0])
+        );
+        // not 1 or 3 bytes: left to the builder, which refuses them
+        assert_eq!(with_default_selected(&[0, 0]), None);
     }
 }
