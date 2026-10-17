@@ -159,6 +159,16 @@ enum Command {
     #[command(long_about = SCAN_LONG_ABOUT)]
     Scan(ScanArgs),
 
+    /// Print the card-profile database, or probe a card against it.
+    ///
+    /// `list` prints the database pySim selects from with the reference
+    /// line behind every entry, and needs no card at all. `probe` sends the
+    /// same SELECTs pySim sends to decide SIM versus UICC and reports every
+    /// profile the evidence is compatible with, not only a winner. `match`
+    /// checks one named profile, and refuses an unknown name before a reader
+    /// is opened.
+    Profile(ProfileArgs),
+
     /// Compare a card against the public GSMA TS.48 test profile.
     Ts48(Ts48Args),
 
@@ -1807,6 +1817,47 @@ const SCAN_LONG_ABOUT: &str = concat!(
 );
 /// Everything `sim-doctor ts48` takes.
 #[derive(Args)]
+struct ProfileArgs {
+    #[command(subcommand)]
+    action: ProfileAction,
+}
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// Print the card-profile database with its provenance. Needs no card.
+    List(ProfileListArgs),
+    /// Probe a card and report which profiles matched, with the evidence.
+    Probe(ProfileProbeArgs),
+    /// Check one named profile against a card. An unknown name is refused
+    /// before any reader is opened.
+    Match(ProfileMatchArgs),
+}
+#[derive(Args)]
+struct ProfileListArgs {
+    /// Emit one JSON envelope instead of the table.
+    #[arg(long)]
+    json: bool,
+}
+#[derive(Args)]
+struct ProfileProbeArgs {
+    /// Which PC/SC reader to use.
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+    /// Emit one JSON envelope instead of the report.
+    #[arg(long)]
+    json: bool,
+}
+#[derive(Args)]
+struct ProfileMatchArgs {
+    /// The `-t` name, spelled as `sim-doctor profile list` prints it.
+    name: String,
+    /// Which PC/SC reader to use.
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+    /// Emit one JSON envelope instead of the report.
+    #[arg(long)]
+    json: bool,
+}
+#[derive(Args)]
 struct Ts48Args {
     #[command(subcommand)]
     action: Ts48Action,
@@ -2700,6 +2751,13 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         Command::Modules(args) => run_modules(args),
         Command::Readers(args) => run_readers(&args),
         Command::Scan(args) => kit::scan(d, args),
+        Command::Profile(args) => match args.action {
+            ProfileAction::List(args) => run_profile_list(args),
+            ProfileAction::Probe(args) => run_profile_probe(args.reader, args.json, None),
+            ProfileAction::Match(args) => {
+                run_profile_probe(args.reader, args.json, Some(args.name))
+            }
+        },
         Command::Ts48(args) => match args.action {
             Ts48Action::Compare(args) => run_ts48_compare(args),
         },
@@ -5706,10 +5764,239 @@ fn all_specs() -> Vec<rules::RuleSpec> {
     scan::all_specs()
 }
 
-/// Runs `sim-doctor ts48 compare`: the scan's walk, then the diff.
-///
-/// The walk is the one `run_scan` does (same candidates, same status meaning,
-/// same default bounds, same walk-limit flags) and nothing after it touches the card: no TAR audit.
+/// Prints the card-profile database with its provenance. Needs no card.
+#[allow(clippy::print_literal)]
+fn run_profile_list(args: ProfileListArgs) -> contract::ExitCode {
+    guard_exchange(sim_doctor::cardprofile::KIND, args.json);
+    if checkpoint() {
+        return report_interrupted(sim_doctor::cardprofile::KIND, args.json);
+    }
+    let data = sim_doctor::cardprofile::database_json();
+    if args.json {
+        return profile_success(serde_json::json!({ "card_touched": false, "database": data }));
+    }
+    println!(
+        "card profiles from {} ({})",
+        sim_doctor::cardprofile::REFERENCE,
+        sim_doctor::cardprofile::CATALOGUE
+    );
+    println!(
+        "catalogue: {}:{}",
+        sim_doctor::cardprofile::CATALOGUE,
+        sim_doctor::cardprofile::CATALOGUE_LINE
+    );
+    println!(
+        "signals this tool evaluates: file existence only. No ATR is read, because \
+CardSession has no ATR accessor, so no entry per-model signal is evaluated."
+    );
+    println!();
+    println!(
+        "{:<18} {:<5} {:<17} {}",
+        "NAME", "FAMILY", "PROBE", "PROVENANCE (probe file:line / autodetect file:line)"
+    );
+    for entry in sim_doctor::cardprofile::DB {
+        println!(
+            "{:<18} {:<5} {:<17} {}:{} / {}:{}",
+            entry.name,
+            entry.family.as_str(),
+            entry.probe().describe(),
+            entry.probe_source.file,
+            entry.probe_source.line,
+            entry.autodetect_source.file,
+            entry.autodetect_source.line
+        );
+        println!("{:<18} probe: {note}", "", note = entry.probe_source.note);
+        println!(
+            "{:<18} {:<5} model: {} ({})",
+            "",
+            "",
+            entry.autodetect.describe(),
+            entry.autodetect_source.note
+        );
+    }
+    contract::ExitCode::Success
+}
+
+/// Probes a card against the database, or against one named profile.
+#[allow(clippy::print_literal)]
+fn run_profile_probe(
+    reader: Option<String>,
+    json: bool,
+    only: Option<String>,
+) -> contract::ExitCode {
+    let kind = sim_doctor::cardprofile::KIND;
+    guard_exchange(kind, json);
+    // The name is checked before anything is opened, so an unknown -t name
+    // costs no reader, no transaction and no card access.
+    if let Some(name) = only.as_deref() {
+        if !sim_doctor::cardprofile::is_known(name) {
+            let known = sim_doctor::cardprofile::known_names();
+            return report_refusal(
+                kind,
+                &format!(
+                    "`{name}` is not a card profile in this database; known names are {known}"
+                ),
+                serde_json::json!({
+                    "card_touched": false,
+                    "error": { "kind": "unknown-profile" },
+                    "requested": name,
+                    "known": sim_doctor::cardprofile::names().collect::<Vec<_>>(),
+                }),
+                json,
+            );
+        }
+    }
+    if checkpoint() {
+        return report_interrupted(kind, json);
+    }
+    let readers = match Pcsc::readers() {
+        Ok(readers) => readers,
+        Err(err) => {
+            return report_refusal(
+                kind,
+                &format!("cannot list PC/SC readers: {err}"),
+                serde_json::json!({ "error": { "kind": "context-unavailable" } }),
+                json,
+            )
+        }
+    };
+    let reader = match pick_reader(&readers, reader.as_deref()) {
+        Ok(reader) => reader,
+        Err(failure) => return report_refusal(kind, &failure.message, failure.data(), json),
+    };
+    let mut session = match PcscSession::open(reader) {
+        Ok(session) => session,
+        Err(err) => {
+            let error = match err {
+                TransportError::NoCard { .. } => "no-card",
+                _ => "reader-unavailable",
+            };
+            return report_refusal(
+                kind,
+                &format!("cannot open a session on {}: {err}", reader.as_str()),
+                serde_json::json!({ "error": { "kind": error } }),
+                json,
+            );
+        }
+    };
+    let run = match sim_doctor::cardprofile::probe(&mut session) {
+        Ok(run) => run,
+        Err(err) => {
+            return report_refusal(
+                kind,
+                &format!("the probe could not be sent: {err}"),
+                serde_json::json!({ "error": { "kind": "probe-failed" } }),
+                json,
+            )
+        }
+    };
+    if checkpoint() {
+        return report_interrupted(kind, json);
+    }
+    let detection = sim_doctor::cardprofile::detect(&run);
+    let mut data = sim_doctor::cardprofile::run_json(&run, &detection);
+    if let Some(name) = only.as_deref() {
+        let entry = sim_doctor::cardprofile::find(name)
+            .expect("the name was checked before the reader was opened");
+        let compatible = detection
+            .candidates
+            .iter()
+            .any(|c| sim_doctor::cardprofile::DB[c.index].name == entry.name);
+        data["requested"] = serde_json::json!(entry.name);
+        data["requested_matches"] = serde_json::json!(compatible);
+    }
+    if json {
+        return profile_success(data);
+    }
+    println!(
+        "probed: {}",
+        data["probe_description"].as_str().unwrap_or_default()
+    );
+    println!();
+    println!(
+        "{:<10} {:<21} {:<7} {:<32} {}",
+        "FILE", "APDU", "SW", "LIFE CYCLE", "VERDICT"
+    );
+    for step in &run.steps {
+        let apdu: String = step
+            .apdu
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!(
+            "{:<10} {:<21} {:<7} {:<32} {}",
+            format!("{:04X}", step.file_id),
+            apdu,
+            format!("{:02X}{:02X}", step.sw[0], step.sw[1]),
+            step.life_cycle_label().unwrap_or_else(|| "-".to_owned()),
+            if !step.judged {
+                "recorded, not judged (pySim/cards.py:116)"
+            } else if step.present {
+                "present"
+            } else {
+                "absent"
+            }
+        );
+    }
+    if let Some(skip) = run.not_probed {
+        println!();
+        println!("not probed: {} - {}", skip.family.as_str(), skip.reason);
+    }
+    println!();
+    match detection.winner {
+        Some(winner) => {
+            println!(
+                "winner: {winner} ({}; {})",
+                detection.winner_rule, detection.message
+            );
+            println!(
+                "{} candidate(s), resting on {} distinct signal(s):",
+                detection.candidates.len(),
+                detection.distinct_signals
+            );
+            for candidate in &detection.candidates {
+                let entry = &sim_doctor::cardprofile::DB[candidate.index];
+                println!(
+                    "  {:<18} {:<5} model signal: {} [{}:{}]",
+                    entry.name,
+                    entry.family.as_str(),
+                    entry.autodetect.describe(),
+                    entry.autodetect_source.file,
+                    entry.autodetect_source.line
+                );
+            }
+        }
+        None => println!("{}", sim_doctor::cardprofile::NOTHING_MATCHED),
+    }
+    contract::ExitCode::Success
+}
+
+/// Writes one success envelope for a `profile` subcommand.
+fn profile_success(data: serde_json::Value) -> contract::ExitCode {
+    let line = contract::Envelope::new(
+        sim_doctor::cardprofile::KIND,
+        contract::ExitCode::Success,
+        contract::OK_MESSAGE,
+        data,
+    )
+    .to_json()
+    .map_err(|err| err.to_string());
+    match line {
+        Ok(line) => {
+            if let Err(err) = emit_stdout(&line, "the profile envelope") {
+                eprintln!("sim-doctor: {err}");
+                return contract::ExitCode::Findings;
+            }
+            contract::ExitCode::Success
+        }
+        Err(err) => {
+            eprintln!("sim-doctor: {err}");
+            contract::ExitCode::Findings
+        }
+    }
+}
+
 fn run_ts48_compare(args: Ts48CompareArgs) -> contract::ExitCode {
     guard_exchange(ts48::KIND, args.json);
     let fixture = match ts48::Fixture::bundled() {
