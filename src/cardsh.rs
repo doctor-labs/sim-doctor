@@ -7520,6 +7520,102 @@ mod tests {
             assert_eq!(log.borrow().len(), before, "record {n} sent an APDU");
         }
     }
+
+    #[test]
+    fn bip_channel_builders_produce_correct_bytes() {
+        // bip_data_available_envelope: D6 Event Download with EventList, DeviceIdentities,
+        // ChannelStatus, ChannelDataLength. Channel 1, 42 bytes available.
+        // Inner data = 99 01 09 | 82 02 82 81 | B8 02 81 00 | B7 01 2A = 14 bytes
+        let env = bip_data_available_envelope(1, 42).unwrap();
+        assert_eq!(
+            env,
+            vec![
+                0xD6, 0x0E, // D6 Event Download, length 14
+                0x99, 0x01, 0x09, // EventList: data_available (0x09)
+                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
+                0xB8, 0x02, 0x81, 0x00, // ChannelStatus: channel 1, established
+                0xB7, 0x01, 0x2A, // ChannelDataLength: 42 bytes
+            ]
+        );
+        // channel 0 is rejected (channels are 1..=7)
+        assert!(bip_data_available_envelope(0, 1).is_err());
+        assert!(bip_data_available_envelope(8, 1).is_err());
+
+        // bip_terminal_response: TERMINAL RESPONSE body for OPEN CHANNEL.
+        // Command details (81 03 01 40 03) + Device identities (82 02 82 81)
+        // + Result (83 02 00 00) + ChannelStatus (B8 02 81 00)
+        let tr = bip_terminal_response(1, 0x40, 0x03, 0x00, &[vec![0xB8, 0x02, 0x81, 0x00]]);
+        assert_eq!(
+            tr,
+            vec![
+                0x81, 0x03, 0x01, 0x40,
+                0x03, // Command details: cmd 1, OPEN CHANNEL, qualifier 3
+                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
+                0x83, 0x02, 0x00, 0x00, // Result: performed successfully
+                0xB8, 0x02, 0x81, 0x00, // ChannelStatus: channel 1, established
+            ]
+        );
+
+        // bip_local_info_response: TERMINAL RESPONSE answering PROVIDE LOCAL INFO (0x26)
+        // with location information (tag 93).
+        // 81 03 01 26 00 | 82 02 82 81 | 83 02 00 00 | 93 07 <location>
+        let loc = vec![0x62, 0xF2, 0x10, 0x00, 0x01, 0x00, 0x01];
+        let li = bip_local_info_response(2, &loc);
+        assert_eq!(
+            li,
+            vec![
+                0x81, 0x03, 0x02, 0x26,
+                0x00, // Command details: cmd 2, PROVIDE LOCAL INFO, qualifier 0
+                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
+                0x83, 0x02, 0x00, 0x00, // Result: performed successfully
+                0x93, 0x07, // LocationInformation tag + length 7
+                0x62, 0xF2, 0x10, 0x00, 0x01, 0x00, 0x01, // location bytes
+            ]
+        );
+
+        // with empty location, no 93 IE is emitted
+        let li_empty = bip_local_info_response(1, &[]);
+        assert_eq!(
+            li_empty,
+            vec![0x81, 0x03, 0x01, 0x26, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x02, 0x00, 0x00,]
+        );
+
+        // BIP commands all use ENVELOPE or TERMINAL RESPONSE, not read-only INS
+        assert!(!is_read_only(0xC2)); // ENVELOPE
+        assert!(!is_read_only(0x14)); // TERMINAL RESPONSE is not in READ_ONLY_INS by design;
+                                      // actually 0x14 is not in READ_ONLY_INS, but let's check it's gated anyway:
+                                      // the BIP commands are gated by --yes regardless
+    }
+
+    #[test]
+    fn bip_channel_decode_helpers() {
+        // channel_status: 0x81 0x00 => channel 1, established
+        let (chan, est) = crate::cat::decode_channel_status(&[0x81, 0x00]).unwrap();
+        assert_eq!(chan, 1);
+        assert!(est);
+
+        // 0x01 0x00 => channel 1, not established
+        let (chan, est) = crate::cat::decode_channel_status(&[0x01, 0x00]).unwrap();
+        assert_eq!(chan, 1);
+        assert!(!est);
+
+        // channel 3 established: 0x83 0x00
+        let (chan, est) = crate::cat::decode_channel_status(&[0x83, 0x00]).unwrap();
+        assert_eq!(chan, 3);
+        assert!(est);
+
+        // device identity 0x82 -> channel 2: dest = 0x22
+        let n = crate::cat::decode_channel_from_device_id(&[0x81, 0x22]).unwrap();
+        assert_eq!(n, 2);
+
+        // device identity not a channel
+        assert!(crate::cat::decode_channel_from_device_id(&[0x81, 0x82]).is_none());
+
+        // event name
+        assert_eq!(crate::cat::decode_event_name(0x09), Some("data available"));
+        assert_eq!(crate::cat::decode_event_name(0x0A), Some("channel status"));
+        assert_eq!(crate::cat::decode_event_name(0xFF), None);
+    }
 }
 
 #[cfg(test)]
@@ -7636,101 +7732,5 @@ mod file_management_tests {
             !data.is_empty() || r.data["sw"] == "9000",
             "Should have identity data or SW 9000"
         );
-    }
-
-    #[test]
-    fn bip_channel_builders_produce_correct_bytes() {
-        // bip_data_available_envelope: D6 Event Download with EventList, DeviceIdentities,
-        // ChannelStatus, ChannelDataLength. Channel 1, 42 bytes available.
-        // Inner data = 99 01 09 | 82 02 82 81 | B8 02 81 00 | B7 01 2A = 14 bytes
-        let env = bip_data_available_envelope(1, 42).unwrap();
-        assert_eq!(
-            env,
-            vec![
-                0xD6, 0x0E, // D6 Event Download, length 14
-                0x99, 0x01, 0x09, // EventList: data_available (0x09)
-                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
-                0xB8, 0x02, 0x81, 0x00, // ChannelStatus: channel 1, established
-                0xB7, 0x01, 0x2A, // ChannelDataLength: 42 bytes
-            ]
-        );
-        // channel 0 is rejected (channels are 1..=7)
-        assert!(bip_data_available_envelope(0, 1).is_err());
-        assert!(bip_data_available_envelope(8, 1).is_err());
-
-        // bip_terminal_response: TERMINAL RESPONSE body for OPEN CHANNEL.
-        // Command details (81 03 01 40 03) + Device identities (82 02 82 81)
-        // + Result (83 02 00 00) + ChannelStatus (B8 02 81 00)
-        let tr = bip_terminal_response(1, 0x40, 0x03, 0x00, &[vec![0xB8, 0x02, 0x81, 0x00]]);
-        assert_eq!(
-            tr,
-            vec![
-                0x81, 0x03, 0x01, 0x40,
-                0x03, // Command details: cmd 1, OPEN CHANNEL, qualifier 3
-                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
-                0x83, 0x02, 0x00, 0x00, // Result: performed successfully
-                0xB8, 0x02, 0x81, 0x00, // ChannelStatus: channel 1, established
-            ]
-        );
-
-        // bip_local_info_response: TERMINAL RESPONSE answering PROVIDE LOCAL INFO (0x26)
-        // with location information (tag 93).
-        // 81 03 01 26 00 | 82 02 82 81 | 83 02 00 00 | 93 07 <location>
-        let loc = vec![0x62, 0xF2, 0x10, 0x00, 0x01, 0x00, 0x01];
-        let li = bip_local_info_response(2, &loc);
-        assert_eq!(
-            li,
-            vec![
-                0x81, 0x03, 0x02, 0x26,
-                0x00, // Command details: cmd 2, PROVIDE LOCAL INFO, qualifier 0
-                0x82, 0x02, 0x82, 0x81, // DeviceIdentities: terminal -> UICC
-                0x83, 0x02, 0x00, 0x00, // Result: performed successfully
-                0x93, 0x07, // LocationInformation tag + length 7
-                0x62, 0xF2, 0x10, 0x00, 0x01, 0x00, 0x01, // location bytes
-            ]
-        );
-
-        // with empty location, no 93 IE is emitted
-        let li_empty = bip_local_info_response(1, &[]);
-        assert_eq!(
-            li_empty,
-            vec![0x81, 0x03, 0x01, 0x26, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x02, 0x00, 0x00,]
-        );
-
-        // BIP commands all use ENVELOPE or TERMINAL RESPONSE, not read-only INS
-        assert!(!is_read_only(0xC2)); // ENVELOPE
-        assert!(!is_read_only(0x14)); // TERMINAL RESPONSE is not in READ_ONLY_INS by design;
-                                      // actually 0x14 is not in READ_ONLY_INS, but let's check it's gated anyway:
-                                      // the BIP commands are gated by --yes regardless
-    }
-
-    #[test]
-    fn bip_channel_decode_helpers() {
-        // channel_status: 0x81 0x00 => channel 1, established
-        let (chan, est) = crate::cat::decode_channel_status(&[0x81, 0x00]).unwrap();
-        assert_eq!(chan, 1);
-        assert!(est);
-
-        // 0x01 0x00 => channel 1, not established
-        let (chan, est) = crate::cat::decode_channel_status(&[0x01, 0x00]).unwrap();
-        assert_eq!(chan, 1);
-        assert!(!est);
-
-        // channel 3 established: 0x83 0x00
-        let (chan, est) = crate::cat::decode_channel_status(&[0x83, 0x00]).unwrap();
-        assert_eq!(chan, 3);
-        assert!(est);
-
-        // device identity 0x82 -> channel 2: dest = 0x22
-        let n = crate::cat::decode_channel_from_device_id(&[0x81, 0x22]).unwrap();
-        assert_eq!(n, 2);
-
-        // device identity not a channel
-        assert!(crate::cat::decode_channel_from_device_id(&[0x81, 0x82]).is_none());
-
-        // event name
-        assert_eq!(crate::cat::decode_event_name(0x09), Some("data available"));
-        assert_eq!(crate::cat::decode_event_name(0x0A), Some("channel status"));
-        assert_eq!(crate::cat::decode_event_name(0xFF), None);
     }
 }
