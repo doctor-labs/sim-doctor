@@ -513,6 +513,22 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+'--aid=[The application or Security Domain AID, 5 to 16 bytes of hex]:HEX:_default' \
+'--data=[The BER-TLV personalization data, as hex; sent as the STORE DATA body]:HEX:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__gp__subcmd__help_commands" \
@@ -586,6 +602,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (cplc-set)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(personalize)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1506,6 +1526,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -2164,6 +2188,7 @@ _sim-doctor__subcmd__gp_commands() {
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
+'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp commands' commands "$@"
@@ -2240,6 +2265,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
+'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp help commands' commands "$@"
@@ -2297,6 +2323,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__make-default_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help make-default commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help personalize commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__put-key_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__put-key_commands() {
     local commands; commands=()
@@ -2331,6 +2362,11 @@ _sim-doctor__subcmd__gp__subcmd__install_commands() {
 _sim-doctor__subcmd__gp__subcmd__make-default_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp make-default commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp personalize commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__put-key_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__put-key_commands() {
@@ -2554,6 +2590,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
+'personalize:Personalize an application or Security Domain over an SCP03 channel\: INSTALL \[for personalization\] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT' \
     )
     _describe -t commands 'sim-doctor help gp commands' commands "$@"
 }
@@ -2604,6 +2641,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__install_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__make-default_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp make-default commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp personalize commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__put-key_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__put-key_commands() {
