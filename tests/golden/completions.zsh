@@ -973,6 +973,83 @@ esac
     ;;
 esac
 ;;
+(ota-expanded)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__ota-expanded_commands" \
+"*::: :->ota-expanded" \
+&& ret=0
+
+    case $state in
+    (ota-expanded)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-ota-expanded-command-$line[1]:"
+        case $line[1] in
+            (encode)
+_arguments "${_arguments_options[@]}" : \
+'--indefinite[Use the indefinite length coding (tag AE 80 ... 00 00, TS 102 226 table 5.2a) instead of the default definite one (tag AA, table 5.2). TS 102 226 recommends the indefinite coding only for HTTPS and CoAP, not for SMS]' \
+'--json[Emit one JSON envelope of kind "ota-expanded" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'*::c_apdu -- The C-APDUs to script, hex (spaces and `0x` allowed), one per argument:_default' \
+&& ret=0
+;;
+(decode)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope of kind "ota-expanded" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::hex -- Hex of the template (spaces and `0x` allowed); stdin when omitted or "-":_default' \
+&& ret=0
+;;
+(por)
+_arguments "${_arguments_options[@]}" : \
+'--remote-format=[Read the secure data as a compact (TS 102 226 5.1.2) or expanded (5.2.2) Remote Application response]:REMOTE_FORMAT:((compact\:"TS 102 226 clause 5.1.2"
+expanded\:"TS 102 226 clause 5.2.2, a Response Scripting template"))' \
+'--json[Emit one JSON envelope of kind "ota-expanded" on stdout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+'::hex -- Hex of the Response Packet, or of `02 71 00` followed by it; stdin when omitted or "-":_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__ota-expanded__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-ota-expanded-help-command-$line[1]:"
+        case $line[1] in
+            (encode)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(decode)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(por)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -1689,6 +1766,34 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(ota-expanded)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__ota-expanded_commands" \
+"*::: :->ota-expanded" \
+&& ret=0
+
+    case $state in
+    (ota-expanded)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-ota-expanded-command-$line[1]:"
+        case $line[1] in
+            (encode)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(decode)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(por)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (fuzz)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__fuzz_commands" \
@@ -1835,6 +1940,7 @@ _sim-doctor_commands() {
 'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
+'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -2460,6 +2566,7 @@ _sim-doctor__subcmd__help_commands() {
 'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
+'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
@@ -2774,6 +2881,30 @@ _sim-doctor__subcmd__help__subcmd__ota-crypto__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help ota-crypto sign commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-expanded_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-expanded_commands() {
+    local commands; commands=(
+'encode:Wrap one or more C-APDUs (hex each) in a Command Scripting template' \
+'decode:Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite' \
+'por:Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS \`02 71 00\` user data header' \
+    )
+    _describe -t commands 'sim-doctor help ota-expanded commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__decode_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__decode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-expanded decode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__encode_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__encode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-expanded encode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__por_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__ota-expanded__subcmd__por_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help ota-expanded por commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__readers_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__readers_commands() {
     local commands; commands=()
@@ -2929,6 +3060,61 @@ _sim-doctor__subcmd__ota-crypto__subcmd__help__subcmd__sign_commands() {
 _sim-doctor__subcmd__ota-crypto__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor ota-crypto sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded_commands] )) ||
+_sim-doctor__subcmd__ota-expanded_commands() {
+    local commands; commands=(
+'encode:Wrap one or more C-APDUs (hex each) in a Command Scripting template' \
+'decode:Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite' \
+'por:Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS \`02 71 00\` user data header' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor ota-expanded commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__decode_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__decode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded decode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__encode_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__encode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded encode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__help_commands() {
+    local commands; commands=(
+'encode:Wrap one or more C-APDUs (hex each) in a Command Scripting template' \
+'decode:Decode a Response Scripting template (TS 102 226 5.2.2), definite or indefinite' \
+'por:Decode a Proof-of-Response Response Packet (TS 102 225 table 5, TS 31.115), with or without the SMS \`02 71 00\` user data header' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor ota-expanded help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__decode_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__decode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded help decode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__encode_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__encode_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded help encode commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__por_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__help__subcmd__por_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded help por commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__ota-expanded__subcmd__por_commands] )) ||
+_sim-doctor__subcmd__ota-expanded__subcmd__por_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor ota-expanded por commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__readers_commands] )) ||
 _sim-doctor__subcmd__readers_commands() {

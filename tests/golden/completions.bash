@@ -58,6 +58,9 @@ _sim__doctor() {
             sim__doctor,ota-crypto)
                 cmd="sim__doctor__subcmd__ota__subcmd__crypto"
                 ;;
+            sim__doctor,ota-expanded)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded"
+                ;;
             sim__doctor,readers)
                 cmd="sim__doctor__subcmd__readers"
                 ;;
@@ -391,6 +394,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,ota-crypto)
                 cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto"
                 ;;
+            sim__doctor__subcmd__help,ota-expanded)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded"
+                ;;
             sim__doctor__subcmd__help,readers)
                 cmd="sim__doctor__subcmd__help__subcmd__readers"
                 ;;
@@ -529,6 +535,15 @@ _sim__doctor() {
             sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto,sign)
                 cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__crypto__subcmd__sign"
                 ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded,decode)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded__subcmd__decode"
+                ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded,encode)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded__subcmd__encode"
+                ;;
+            sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded,por)
+                cmd="sim__doctor__subcmd__help__subcmd__ota__subcmd__expanded__subcmd__por"
+                ;;
             sim__doctor__subcmd__help__subcmd__rules,explain)
                 cmd="sim__doctor__subcmd__help__subcmd__rules__subcmd__explain"
                 ;;
@@ -573,6 +588,30 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help,sign)
                 cmd="sim__doctor__subcmd__ota__subcmd__crypto__subcmd__help__subcmd__sign"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded,decode)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__decode"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded,encode)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__encode"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded,help)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded,por)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__por"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help,decode)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__decode"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help,encode)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__encode"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help,help)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help,por)
+                cmd="sim__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__por"
                 ;;
             sim__doctor__subcmd__rules,explain)
                 cmd="sim__doctor__subcmd__rules__subcmd__explain"
@@ -635,7 +674,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
+            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2601,7 +2640,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert fuzz euicc card help"
+            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded fuzz euicc card help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3342,6 +3381,62 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__expanded)
+            opts="encode decode por"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__expanded__subcmd__decode)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__expanded__subcmd__encode)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__ota__subcmd__expanded__subcmd__por)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__help__subcmd__readers)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -3767,6 +3862,136 @@ _sim__doctor() {
                     ;;
                 --mac-len)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded)
+            opts="-h --help encode decode por help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__decode)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__encode)
+            opts="-h --indefinite --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__help)
+            opts="encode decode por help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__decode)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__encode)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__help__subcmd__por)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__ota__subcmd__expanded__subcmd__por)
+            opts="-h --remote-format --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --remote-format)
+                    COMPREPLY=($(compgen -W "compact expanded" -- "${cur}"))
                     return 0
                     ;;
                 *)
