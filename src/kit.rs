@@ -959,9 +959,27 @@ fn run_cli(d: &SimDoctor, own: &ArgMatches) -> Result<u8, String> {
                 .cloned()
         });
     if let Some(spec) = spec {
+        // PC/SC share mode has no meaning on a socket. Refused here, the one
+        // place every command routes through, instead of being ignored.
+        if flag_given(&d.root, "exclusive") || flag_given(own, "exclusive") {
+            eprintln!(
+                "sim-doctor: -X/--exclusive cannot be used with --simulator: PC/SC share mode has no meaning on a simulator socket"
+            );
+            return Ok(contract::ExitCode::Error.process_code());
+        }
         let _ = crate::SIMULATOR.set(spec);
     }
     Ok(dispatch(d, cli.command).process_code())
+}
+
+/// Whether the boolean flag `id` was given on `m` or on any subcommand under it.
+fn flag_given(m: &ArgMatches, id: &str) -> bool {
+    m.try_get_one::<bool>(id)
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or(false)
+        || m.subcommand().is_some_and(|(_, sub)| flag_given(sub, id))
 }
 
 /// Exit code of a command line clap refused. Help and version are not failures (0); `scan` is a

@@ -4365,7 +4365,7 @@ fn open_transport(
                 "--simulator and --reader/--reader-index cannot both be given: the simulator is the reader",
             )));
         }
-        // `exclusive` (PC/SC share mode) has no meaning on a socket and is ignored.
+        // `-X/--exclusive` with --simulator is refused earlier, in kit::run_cli.
         let session = SimulatorSession::connect(spec).map_err(|err| {
             OpenFailure::Card(scan::Failure::new("reader-unavailable", err.to_string()))
         })?;
