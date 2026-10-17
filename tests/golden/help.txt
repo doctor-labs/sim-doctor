@@ -78,6 +78,7 @@ Options:
       --tar <SELECTION>      Which TARs to probe for MSL 0, and how many [default: off]
       --terminal-profile     Send a TERMINAL PROFILE to the card before the TAR audit
       --sms-deliver-report   Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT
+      --reserved-file-ids    Scan reserved file identifiers 7FF0-7FFF inside an application [alias: --sfrv]
       --face <FACE>          The human report: a doctor-kit face (rich, plain or compact), or the full legacy report [possible values: rich, plain, compact, legacy]
       --theme <THEME>        The face's colours: mono, clinical or contrast (default: the tool's own)
       --color <COLOR>        Colour the face: auto (a terminal and no NO_COLOR), always or never [possible values: auto, always, never]
