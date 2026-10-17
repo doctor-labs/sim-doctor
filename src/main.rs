@@ -1101,6 +1101,38 @@ enum GpAction {
         #[command(subcommand)]
         action: AramAction,
     },
+    /// Move an object (an application, a load file or a key object) from one
+    /// Security Domain to another: INSTALL [for extradition], P1 10 (GlobalPlatform
+    /// Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed
+    /// by an INSTALL. CHANGES CARD CONTENT.
+    ///
+    /// The object is named with --aid, the domain it is in now with --from and the
+    /// destination with --to; both domains are named in the dry run so the plan
+    /// reads without a card. Same safeguards as delete and install: a dry run
+    /// unless --yes (offline without keys), one SCP03 authentication attempt, a
+    /// registry pre-read that refuses an object that is not in the source domain,
+    /// an object that already belongs to the destination, a destination the
+    /// registry does not list as a Security Domain and a source equal to the
+    /// destination, all with nothing sent, the command sent once and never retried,
+    /// and a registry re-read that must show the object owned by the destination
+    /// else verify-failed. Keys come from a file or an environment variable, never
+    /// the command line. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or a verified move, 1 otherwise.
+    Move {
+        /// The AID of the object to move, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        aid: String,
+        /// The AID of the Security Domain the object is in now, 5 to 16 bytes of
+        /// hex. Checked against the object in the registry before anything is sent.
+        #[arg(long, value_name = "HEX")]
+        from: String,
+        /// The AID of the destination Security Domain, 5 to 16 bytes of hex.
+        #[arg(long, value_name = "HEX")]
+        to: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1164,38 +1196,6 @@ enum CrsAction {
         /// The application AID, 5 to 16 bytes of hex.
         #[arg(value_name = "AID")]
         aid: String,
-        #[command(flatten)]
-        write: GpWriteFlags,
-    },
-    /// Move an object (an application, a load file or a key object) from one
-    /// Security Domain to another: INSTALL [for extradition], P1 10 (GlobalPlatform
-    /// Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed
-    /// by an INSTALL. CHANGES CARD CONTENT.
-    ///
-    /// The object is named with --aid, the domain it is in now with --from and the
-    /// destination with --to; both domains are named in the dry run so the plan
-    /// reads without a card. Same safeguards as delete and install: a dry run
-    /// unless --yes (offline without keys), one SCP03 authentication attempt, a
-    /// registry pre-read that refuses an object that is not in the source domain,
-    /// an object that already belongs to the destination, a destination the
-    /// registry does not list as a Security Domain and a source equal to the
-    /// destination, all with nothing sent, the command sent once and never retried,
-    /// and a registry re-read that must show the object owned by the destination
-    /// else verify-failed. Keys come from a file or an environment variable, never
-    /// the command line. Not available over MCP.
-    ///
-    /// Exit 0 for a dry run or a verified move, 1 otherwise.
-    Move {
-        /// The AID of the object to move, 5 to 16 bytes of hex.
-        #[arg(long, value_name = "HEX")]
-        aid: String,
-        /// The AID of the Security Domain the object is in now, 5 to 16 bytes of
-        /// hex. Checked against the object in the registry before anything is sent.
-        #[arg(long, value_name = "HEX")]
-        from: String,
-        /// The AID of the destination Security Domain, 5 to 16 bytes of hex.
-        #[arg(long, value_name = "HEX")]
-        to: String,
         #[command(flatten)]
         write: GpWriteFlags,
     },
