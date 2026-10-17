@@ -2208,13 +2208,29 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__fuzz__subcmd__ota)
-            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --help"
+            opts="-h --i-understand-this-can-brick-the-card --allow-real-hardware --reader --json --quick --poke --kic --kid --spi1 --spi2 --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
                 --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --kic)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --kid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --spi1)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --spi2)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

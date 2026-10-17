@@ -517,6 +517,51 @@ pub fn tars(quick: bool) -> Vec<u32> {
     }
 }
 
+/// Octets a sweep pins instead of sweeping (SIMTester's `-kic`, `-kid`,
+/// `-spi1`, `-spi2`).
+///
+/// A pinned KIC or KID replaces the keyset-derived octet (`keyset << 4`) for
+/// every probe; the keyset axis still varies the other one. With both pinned
+/// the keyset axis has nothing left to vary and collapses to one probe per
+/// mechanism. A pinned SPI1 or SPI2 replaces that octet in every mechanism
+/// and duplicates are dropped, so the sweep never probes the same triple
+/// twice. The octets are header bytes, not key material.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Overrides {
+    /// The KIC octet to send for every probe, if pinned.
+    pub kic: Option<u8>,
+    /// The KID octet to send for every probe, if pinned.
+    pub kid: Option<u8>,
+    /// The SPI1 octet to send for every probe, if pinned.
+    pub spi1: Option<u8>,
+    /// The SPI2 octet to send for every probe, if pinned.
+    pub spi2: Option<u8>,
+}
+
+impl Overrides {
+    /// The keyset axis after pinning: one placeholder keyset when both KIC and
+    /// KID are pinned, the given list otherwise.
+    fn keysets(self, keysets: &[u8]) -> Vec<u8> {
+        if self.kic.is_some() && self.kid.is_some() {
+            vec![0]
+        } else {
+            keysets.to_vec()
+        }
+    }
+
+    /// The mechanism axis after pinning SPI1 and SPI2, first occurrence kept.
+    fn mechanisms(self, mechanisms: &[(u8, u8)]) -> Vec<(u8, u8)> {
+        let mut out: Vec<(u8, u8)> = Vec::with_capacity(mechanisms.len());
+        for &(spi1, spi2) in mechanisms {
+            let pinned = (self.spi1.unwrap_or(spi1), self.spi2.unwrap_or(spi2));
+            if !out.contains(&pinned) {
+                out.push(pinned);
+            }
+        }
+        out
+    }
+}
+
 /// One sweep's selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sweep {
@@ -636,10 +681,16 @@ fn probe_triple<S: CardSession + ?Sized>(
     keyset: u8,
     mechanism: (u8, u8),
     class: Class,
+    overrides: Overrides,
     policy: &Policy,
 ) -> Result<Result<(Signature, usize), String>, tar::Error> {
     let (spi1, spi2) = mechanism;
-    let Some(apdu) = tar::envelope_apdu_with(tar, class, keyset, spi1, spi2) else {
+    let key_nibble = keyset << 4;
+    let kic = overrides.kic.unwrap_or(key_nibble);
+    let kid = overrides.kid.unwrap_or(key_nibble);
+    let spi1 = overrides.spi1.unwrap_or(spi1);
+    let spi2 = overrides.spi2.unwrap_or(spi2);
+    let Some(apdu) = tar::envelope_apdu_raw(tar, class, kic, kid, spi1, spi2) else {
         return Err(tar::Error::UnbuildableEnvelope(
             "the SMS-PP-DOWNLOAD envelope for this triple does not fit a short APDU data field",
         ));
@@ -662,18 +713,41 @@ pub fn audit<S: CardSession + ?Sized>(
     policy: &Policy,
     interrupt: &mut dyn FnMut() -> bool,
 ) -> Result<Audit, tar::Error> {
+    audit_with(session, sweep, Overrides::default(), policy, interrupt)
+}
+
+/// [`audit`] with KIC, KID, SPI1 and SPI2 pinned as `overrides` says instead
+/// of swept. `Overrides::default()` is exactly [`audit`].
+pub fn audit_with<S: CardSession + ?Sized>(
+    session: &mut S,
+    sweep: Sweep,
+    overrides: Overrides,
+    policy: &Policy,
+    interrupt: &mut dyn FnMut() -> bool,
+) -> Result<Audit, tar::Error> {
     let tar_list: Vec<u32> = if sweep.poke {
         POKE_TARS.to_vec()
     } else {
         tars(sweep.quick)
     };
     let (keysets, mechanisms) = keysets_and_mechanisms(sweep);
+    let keysets = overrides.keysets(keysets);
+    let mechanisms = overrides.mechanisms(mechanisms);
+    let keysets = keysets.as_slice();
+    let mechanisms = mechanisms.as_slice();
 
     // 1. Calibration: the TAR audit's own baseline TARs, at keyset 0 and the
     // first mechanism, which is enough to tell "this card answers everything
     // alike" apart from "this card has an opinion" before the sweep spends
     // its budget finding out triple by triple.
-    let mut calibration = calibrate(session, sweep.class, mechanisms[0], policy, interrupt)?;
+    let mut calibration = calibrate(
+        session,
+        sweep.class,
+        mechanisms[0],
+        overrides,
+        policy,
+        interrupt,
+    )?;
     let mut baseline = Baseline::of(&calibration);
 
     // 1b. Issue #211: a generic error (`6F 00` and kin) is a blind spot, the
@@ -684,7 +758,14 @@ pub fn audit<S: CardSession + ?Sized>(
     let mut terminal_profile = None;
     if baseline.generic_error().is_some() {
         terminal_profile = Some(tar::send_terminal_profile(session, policy)?);
-        calibration = calibrate(session, sweep.class, mechanisms[0], policy, interrupt)?;
+        calibration = calibrate(
+            session,
+            sweep.class,
+            mechanisms[0],
+            overrides,
+            policy,
+            interrupt,
+        )?;
         baseline = Baseline::of(&calibration);
     }
 
@@ -708,7 +789,15 @@ pub fn audit<S: CardSession + ?Sized>(
                     stopped = Some("the sweep was interrupted".to_owned());
                     break 'sweep;
                 }
-                match probe_triple(session, tar_value, keyset, mechanism, sweep.class, policy) {
+                match probe_triple(
+                    session,
+                    tar_value,
+                    keyset,
+                    mechanism,
+                    sweep.class,
+                    overrides,
+                    policy,
+                ) {
                     Ok(Ok((signature, _))) => {
                         let accepted = !baseline.refuses(&signature);
                         probes.push(Probe {
@@ -754,6 +843,7 @@ fn calibrate<S: CardSession + ?Sized>(
     session: &mut S,
     class: Class,
     mechanism: (u8, u8),
+    overrides: Overrides,
     policy: &Policy,
     interrupt: &mut dyn FnMut() -> bool,
 ) -> Result<Vec<Option<Signature>>, tar::Error> {
@@ -762,7 +852,7 @@ fn calibrate<S: CardSession + ?Sized>(
         if interrupt() {
             break;
         }
-        match probe_triple(session, tar_value, 0, mechanism, class, policy) {
+        match probe_triple(session, tar_value, 0, mechanism, class, overrides, policy) {
             Ok(Ok((signature, _))) => calibration.push(Some(signature)),
             Ok(Err(_)) => break,
             Err(tar::Error::Transport(_)) => break,
@@ -1502,6 +1592,85 @@ mod tests {
                 "{apdu:?}"
             );
         }
+    }
+
+    #[test]
+    fn pinned_octets_reach_every_envelope_and_collapse_the_axes() {
+        let mut card = swsim_like();
+        let overrides = Overrides {
+            kic: Some(0x21),
+            kid: Some(0x31),
+            spi1: Some(0x01),
+            spi2: Some(0x09),
+        };
+        let audit = audit_with(
+            &mut card,
+            Sweep {
+                quick: true,
+                poke: false,
+                class: Class::Etsi,
+            },
+            overrides,
+            &Policy::default(),
+            &mut || false,
+        )
+        .unwrap();
+        // Both KIC and KID pinned and both SPIs pinned leave one keyset
+        // placeholder and one mechanism, so one probe per quick TAR.
+        assert_eq!(audit.probes.len(), tars(true).len());
+        assert!(audit
+            .probes
+            .iter()
+            .all(|probe| probe.keyset == 0 && probe.mechanism == (0x01, 0x09)));
+        let sent = card.sent.borrow();
+        let envelopes: Vec<_> = sent.iter().filter(|command| command.len() > 5).collect();
+        assert!(!envelopes.is_empty());
+        for envelope in envelopes {
+            assert!(
+                envelope.windows(4).any(|w| w == [0x01, 0x09, 0x21, 0x31]),
+                "{envelope:02X?}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_overrides_are_exactly_the_plain_sweep() {
+        let mut plain = swsim_like();
+        let mut pinned = swsim_like();
+        let quick = Sweep {
+            quick: true,
+            poke: false,
+            class: Class::Etsi,
+        };
+        let a = audit(&mut plain, quick, &Policy::default(), &mut || false).unwrap();
+        let b = audit_with(
+            &mut pinned,
+            quick,
+            Overrides::default(),
+            &Policy::default(),
+            &mut || false,
+        )
+        .unwrap();
+        assert_eq!(a.probes.len(), b.probes.len());
+        assert_eq!(*plain.sent.borrow(), *pinned.sent.borrow());
+    }
+
+    #[test]
+    fn a_pinned_spi_collapses_duplicate_mechanisms_and_keeps_order() {
+        let pinned = Overrides {
+            spi1: Some(0x00),
+            ..Overrides::default()
+        };
+        // The eight SPI1 = 0x01 rows fold onto the eight SPI1 = 0x00 rows.
+        let folded = pinned.mechanisms(&MECHANISMS);
+        assert_eq!(folded.len(), 8);
+        assert_eq!(folded[0], (0x00, 0x00));
+        assert!(folded.iter().all(|&(spi1, _)| spi1 == 0x00));
+        // With nothing pinned the axis is untouched.
+        assert_eq!(
+            Overrides::default().mechanisms(&MECHANISMS),
+            MECHANISMS.to_vec()
+        );
     }
 }
 

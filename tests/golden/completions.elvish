@@ -1097,6 +1097,10 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;fuzz;ota'= {
             cand --reader 'The reader to use, matched against the driver''s own name'
+            cand --kic 'Pin the KIC octet (one hex byte, like 21) for every probe instead of sweeping it from the keyset. Header octet, not key material'
+            cand --kid 'Pin the KID octet (one hex byte, like 31) for every probe instead of sweeping it from the keyset. Header octet, not key material'
+            cand --spi1 'Pin the SPI1 octet (one hex byte, like 01) in every probe instead of sweeping it'
+            cand --spi2 'Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it'
             cand --i-understand-this-can-brick-the-card 'Required. Without it, `fuzz` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)'
             cand --allow-real-hardware 'Required in addition to the opt-in above when the reader''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, `fuzz` refuses to run against anything that is not recognisably the software card'
             cand --json 'Emit one JSON envelope on stdout, and nothing else'

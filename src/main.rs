@@ -878,6 +878,26 @@ struct FuzzOtaArgs {
     /// still apply, so a run finishes in milliseconds.
     #[arg(long, conflicts_with = "quick")]
     poke: bool,
+
+    /// Pin the KIC octet (one hex byte, like 21) for every probe instead of
+    /// sweeping it from the keyset. Header octet, not key material.
+    #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
+    kic: Option<u8>,
+
+    /// Pin the KID octet (one hex byte, like 31) for every probe instead of
+    /// sweeping it from the keyset. Header octet, not key material.
+    #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
+    kid: Option<u8>,
+
+    /// Pin the SPI1 octet (one hex byte, like 01) in every probe instead of
+    /// sweeping it.
+    #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
+    spi1: Option<u8>,
+
+    /// Pin the SPI2 octet (one hex byte, like 29) in every probe instead of
+    /// sweeping it.
+    #[arg(long, value_name = "HEX", value_parser = parse_hex_byte)]
+    spi2: Option<u8>,
 }
 
 /// Everything `sim-doctor gp` takes.
@@ -6852,9 +6872,16 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
         poke: args.poke,
         class: tar::Class::Etsi,
     };
-    let audit = match fuzz::audit(
+    let overrides = fuzz::Overrides {
+        kic: args.kic,
+        kid: args.kid,
+        spi1: args.spi1,
+        spi2: args.spi2,
+    };
+    let audit = match fuzz::audit_with(
         &mut session,
         sweep,
+        overrides,
         &session::Policy::default(),
         &mut || doctor_kit::interrupt::interrupted(),
     ) {
