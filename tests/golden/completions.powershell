@@ -76,6 +76,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--baseline', '--baseline', [CompletionResultType]::ParameterName, 'Compare this run against a previous `scan --json` envelope (doctor/1)')
             [CompletionResult]::new('--fail-on', '--fail-on', [CompletionResultType]::ParameterName, 'Exit 1 (3 under --baseline) when a finding is at or above this severity')
             [CompletionResult]::new('--sarif', '--sarif', [CompletionResultType]::ParameterName, 'Also write the findings to FILE as SARIF 2.1.0')
+            [CompletionResult]::new('--csv', '--csv', [CompletionResultType]::ParameterName, 'The same results as a CSV log, in the layout SIMTester writes')
             [CompletionResult]::new('--tar', '--tar', [CompletionResultType]::ParameterName, 'Which TARs to probe for MSL 0, and how many')
             [CompletionResult]::new('--tar-filter', '--tar-filter', [CompletionResultType]::ParameterName, 'SIMTester''s `-stre`: skip TAR probes whose response matches this regex')
             [CompletionResult]::new('--face', '--face', [CompletionResultType]::ParameterName, 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report')

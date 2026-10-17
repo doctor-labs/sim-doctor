@@ -66,6 +66,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l severity 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l baseline -d 'Compare this run against a previous `scan --json` envelope (doctor/1)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l fail-on -d 'Exit 1 (3 under --baseline) when a finding is at or above this severity' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l sarif -d 'Also write the findings to FILE as SARIF 2.1.0' -r -F
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l csv -d 'The same results as a CSV log, in the layout SIMTester writes' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar -d 'Which TARs to probe for MSL 0, and how many' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar-filter -d 'SIMTester\'s `-stre`: skip TAR probes whose response matches this regex' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l face -d 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report' -r -f -a "rich\t''
