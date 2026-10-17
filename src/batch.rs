@@ -1955,6 +1955,8 @@ mod tests {
                         yes: true,
                         dialect: crate::scan::Dialect::Ts102221.tag_set(),
                         secrets: None,
+                        card_key: None,
+                        card_keys: None,
                     },
                 )
             });
