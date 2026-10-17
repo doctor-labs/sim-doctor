@@ -1035,13 +1035,6 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
-}
-
-/// Which CPLC block `gp cplc-set` writes.
-#[derive(clap::ValueEnum, Clone, Copy)]
-enum GpCplcKind {
-    PrePerso,
-    Perso,
     /// Add, delete or lock the secure element access rules the ARA-M holds:
     /// STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork's
     /// lock, all over an SCP03 channel. CHANGES THE CARD'S ACCESS RULES.
@@ -1062,6 +1055,13 @@ enum GpCplcKind {
         #[command(subcommand)]
         action: AramAction,
     },
+}
+
+/// Which CPLC block `gp cplc-set` writes.
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum GpCplcKind {
+    PrePerso,
+    Perso,
 }
 
 #[derive(Subcommand)]
