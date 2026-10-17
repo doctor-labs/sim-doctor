@@ -74,6 +74,7 @@ always\t''
 never\t''"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l json -d 'Emit one JSON envelope on stdout, and nothing else'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tui -d 'Show the findings in an interactive terminal view instead of the report'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l sffs -d 'Follow standard identifiers only (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011). When set, the walk probes only the file identifiers defined in the ETSI and 3GPP specifications, plus the files pySim can decode with standard names. This is stricter than the default (SimFamilies), which probes the broader GSM 11.11 family ranges (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx). Corresponds to SIMTester\'s `-sffs` flag'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l score -d 'Add one quality score for this card, for CI gating'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l terminal-profile -d 'Send a TERMINAL PROFILE to the card before the TAR audit'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l sms-deliver-report -d 'Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT'

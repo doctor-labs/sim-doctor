@@ -1335,6 +1335,17 @@ struct ScanArgs {
     #[command(flatten)]
     walk_limits: WalkLimitArgs,
 
+    /// Follow standard identifiers only (ETSI TS 102 221 / 3GPP TS 31.102 / 31.103 / 31.104 / 51.011).
+
+    /// When set, the walk probes only the file identifiers defined in the
+    /// ETSI and 3GPP specifications, plus the files pySim can decode with
+    /// standard names. This is stricter than the default (SimFamilies), which
+    /// probes the broader GSM 11.11 family ranges (2Fxx, 4Fxx, 5Fxx, 6Fxx, 7Fxx).
+
+    /// Corresponds to SIMTester's `-sffs` flag.
+    #[arg(long)]
+    sffs: bool,
+
     /// Add one quality score for this card, for CI gating.
     ///
     /// Implemented. The score is an INTEGER from 0 to 100, and it is
@@ -5128,5 +5139,27 @@ mod tests {
     fn scan_has_no_diff_flag() {
         use clap::Parser;
         assert!(Cli::try_parse_from(["sim-doctor", "scan", "--diff"]).is_err());
+    }
+
+    /// `--sffs` parses correctly and sets the flag.
+    #[test]
+    fn sffs_flag_parses_correctly() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["sim-doctor", "scan", "--sffs"]).expect("parses");
+        let Command::Scan(args) = cli.command else {
+            panic!("not a scan")
+        };
+        assert!(args.sffs);
+    }
+
+    /// `--sffs` is not set by default.
+    #[test]
+    fn sffs_defaults_to_false() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["sim-doctor", "scan"]).expect("parses");
+        let Command::Scan(args) = cli.command else {
+            panic!("not a scan")
+        };
+        assert!(!args.sffs);
     }
 }

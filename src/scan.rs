@@ -181,6 +181,7 @@ pub const fn candidate_name(candidates: &Candidates) -> &'static str {
         Candidates::Range { .. } => "range",
         Candidates::SimFamilies => "sim-families",
         Candidates::List(_) => "list",
+        Candidates::StandardIds => "standard-ids",
     }
 }
 
@@ -196,7 +197,7 @@ pub const fn candidates_exhaustive(candidates: &Candidates) -> bool {
             u16::from_be_bytes(first.to_bytes()) == 0
                 && u16::from_be_bytes(last.to_bytes()) == 0xFFFF
         }
-        Candidates::SimFamilies | Candidates::List(_) => false,
+        Candidates::SimFamilies | Candidates::List(_) | Candidates::StandardIds => false,
     }
 }
 
