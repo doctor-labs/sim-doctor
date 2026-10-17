@@ -595,6 +595,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('apdu', 'apdu', [CompletionResultType]::ParameterValue, 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session')
             [CompletionResult]::new('ota', 'ota', [CompletionResultType]::ParameterValue, 'The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner''s ENVELOPE builder')
             [CompletionResult]::new('mutate', 'mutate', [CompletionResultType]::ParameterValue, 'Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)')
+            [CompletionResult]::new('compare', 'compare', [CompletionResultType]::ParameterValue, 'Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -633,10 +634,17 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
+        'sim-doctor;fuzz;compare' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'sim-doctor;fuzz;help' {
             [CompletionResult]::new('apdu', 'apdu', [CompletionResultType]::ParameterValue, 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session')
             [CompletionResult]::new('ota', 'ota', [CompletionResultType]::ParameterValue, 'The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner''s ENVELOPE builder')
             [CompletionResult]::new('mutate', 'mutate', [CompletionResultType]::ParameterValue, 'Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)')
+            [CompletionResult]::new('compare', 'compare', [CompletionResultType]::ParameterValue, 'Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -647,6 +655,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;fuzz;help;mutate' {
+            break
+        }
+        'sim-doctor;fuzz;help;compare' {
             break
         }
         'sim-doctor;fuzz;help;help' {
@@ -1056,6 +1067,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('apdu', 'apdu', [CompletionResultType]::ParameterValue, 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session')
             [CompletionResult]::new('ota', 'ota', [CompletionResultType]::ParameterValue, 'The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner''s ENVELOPE builder')
             [CompletionResult]::new('mutate', 'mutate', [CompletionResultType]::ParameterValue, 'Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)')
+            [CompletionResult]::new('compare', 'compare', [CompletionResultType]::ParameterValue, 'Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared')
             break
         }
         'sim-doctor;help;fuzz;apdu' {
@@ -1065,6 +1077,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;fuzz;mutate' {
+            break
+        }
+        'sim-doctor;help;fuzz;compare' {
             break
         }
         'sim-doctor;help;euicc' {

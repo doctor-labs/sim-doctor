@@ -507,6 +507,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand apdu 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session'
             cand ota 'The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner''s ENVELOPE builder'
             cand mutate 'Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)'
+            cand compare 'Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;fuzz;apdu'= {
@@ -541,10 +542,16 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
         }
+        &'sim-doctor;fuzz;compare'= {
+            cand --json 'Emit one JSON envelope on stdout, and nothing else'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
         &'sim-doctor;fuzz;help'= {
             cand apdu 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session'
             cand ota 'The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner''s ENVELOPE builder'
             cand mutate 'Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)'
+            cand compare 'Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;fuzz;help;apdu'= {
@@ -552,6 +559,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;fuzz;help;ota'= {
         }
         &'sim-doctor;fuzz;help;mutate'= {
+        }
+        &'sim-doctor;fuzz;help;compare'= {
         }
         &'sim-doctor;fuzz;help;help'= {
         }
@@ -885,12 +894,15 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand apdu 'CLA discovery (level 1) or CLA+INS discovery (level 2) over a session'
             cand ota 'The OTA/SMS fuzz sweep: TAR x keyset x mechanism, built on the TAR scanner''s ENVELOPE builder'
             cand mutate 'Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)'
+            cand compare 'Compares two or more `fuzz ota` JSON results: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only: it reads result files and sends nothing. Only triples every run probed are compared'
         }
         &'sim-doctor;help;fuzz;apdu'= {
         }
         &'sim-doctor;help;fuzz;ota'= {
         }
         &'sim-doctor;help;fuzz;mutate'= {
+        }
+        &'sim-doctor;help;fuzz;compare'= {
         }
         &'sim-doctor;help;euicc'= {
             cand info 'EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)'

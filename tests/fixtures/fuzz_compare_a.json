@@ -1,0 +1,5 @@
+{"type":"fuzz","payload":{"code":0,"message":"ok","data":{"reader":"swICC","audit":{"quick":true,"class":"etsi","probed":3,"complete":true,"probes":[
+{"tar":"000001","tar_decimal":1,"keyset":0,"mechanism":{"spi1":"00","spi2":"00"},"outcome":"accepted","status":"9000"},
+{"tar":"000001","tar_decimal":1,"keyset":1,"mechanism":{"spi1":"00","spi2":"00"},"outcome":"refused","status":"6F00"},
+{"tar":"000002","tar_decimal":2,"keyset":1,"mechanism":{"spi1":"00","spi2":"01"},"outcome":"accepted","status":"9000"}
+]}}}}

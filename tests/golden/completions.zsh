@@ -911,6 +911,14 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(compare)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'*::files -- Two or more `fuzz ota --json` result files, each at most 8 MiB:_files' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__fuzz__subcmd__help_commands" \
@@ -932,6 +940,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (mutate)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(compare)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1564,6 +1576,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(compare)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -1999,6 +2015,7 @@ _sim-doctor__subcmd__fuzz_commands() {
 'apdu:CLA discovery (level 1) or CLA+INS discovery (level 2) over a session' \
 'ota:The OTA/SMS fuzz sweep\: TAR x keyset x mechanism, built on the TAR scanner'\''s ENVELOPE builder' \
 'mutate:Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)' \
+'compare:Compares two or more \`fuzz ota\` JSON results\: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only\: it reads result files and sends nothing. Only triples every run probed are compared' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor fuzz commands' commands "$@"
@@ -2008,12 +2025,18 @@ _sim-doctor__subcmd__fuzz__subcmd__apdu_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor fuzz apdu commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__fuzz__subcmd__compare_commands] )) ||
+_sim-doctor__subcmd__fuzz__subcmd__compare_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor fuzz compare commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__fuzz__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__fuzz__subcmd__help_commands() {
     local commands; commands=(
 'apdu:CLA discovery (level 1) or CLA+INS discovery (level 2) over a session' \
 'ota:The OTA/SMS fuzz sweep\: TAR x keyset x mechanism, built on the TAR scanner'\''s ENVELOPE builder' \
 'mutate:Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)' \
+'compare:Compares two or more \`fuzz ota\` JSON results\: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only\: it reads result files and sends nothing. Only triples every run probed are compared' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor fuzz help commands' commands "$@"
@@ -2022,6 +2045,11 @@ _sim-doctor__subcmd__fuzz__subcmd__help_commands() {
 _sim-doctor__subcmd__fuzz__subcmd__help__subcmd__apdu_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor fuzz help apdu commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__fuzz__subcmd__help__subcmd__compare_commands] )) ||
+_sim-doctor__subcmd__fuzz__subcmd__help__subcmd__compare_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor fuzz help compare commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__fuzz__subcmd__help__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__fuzz__subcmd__help__subcmd__help_commands() {
@@ -2378,6 +2406,7 @@ _sim-doctor__subcmd__help__subcmd__fuzz_commands() {
 'apdu:CLA discovery (level 1) or CLA+INS discovery (level 2) over a session' \
 'ota:The OTA/SMS fuzz sweep\: TAR x keyset x mechanism, built on the TAR scanner'\''s ENVELOPE builder' \
 'mutate:Allowlist-only APDU mutation fuzzer, against a replay log or the built-in mock card only (no reader)' \
+'compare:Compares two or more \`fuzz ota\` JSON results\: keysets ranked by how often the card accepted under them, and the (TAR, keyset, mechanism) triples the runs disagree on. Offline and read-only\: it reads result files and sends nothing. Only triples every run probed are compared' \
     )
     _describe -t commands 'sim-doctor help fuzz commands' commands "$@"
 }
@@ -2385,6 +2414,11 @@ _sim-doctor__subcmd__help__subcmd__fuzz_commands() {
 _sim-doctor__subcmd__help__subcmd__fuzz__subcmd__apdu_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help fuzz apdu commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__fuzz__subcmd__compare_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__fuzz__subcmd__compare_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help fuzz compare commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__fuzz__subcmd__mutate_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__fuzz__subcmd__mutate_commands() {
