@@ -77,6 +77,7 @@ struct Run {
     tar: tar::Selection,
     terminal_profile: bool,
     por: tar::PorMode,
+    reserved_file_ids: bool,
     severity: Option<rules::Severity>,
     score: bool,
     fail_on: rules::Severity,
@@ -103,6 +104,7 @@ impl Run {
             tar: card.tar.clone(),
             terminal_profile: false,
             por: tar::PorMode::default(),
+            reserved_file_ids: false,
             severity: None,
             score: false,
             fail_on: rules::Severity::Critical,
@@ -128,6 +130,7 @@ impl Run {
             } else {
                 tar::PorMode::default()
             },
+            reserved_file_ids: args.reserved_file_ids,
             severity: args.severity,
             score: args.score,
             fail_on: args.fail_on,
@@ -218,6 +221,7 @@ impl SimDoctor {
             // read no other table; see walk::StatusMeaning and CONTEXT.md section 3.
             meaning: walk::StatusMeaning::default(),
             limits: args.limits,
+            reserved_file_ids: args.reserved_file_ids,
             ..walk::Options::default()
         };
         let mut tree = walk::walk(session, &args.dialect.tag_set(), &options)

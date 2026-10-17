@@ -77,6 +77,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --score 'Add one quality score for this card, for CI gating'
             cand --terminal-profile 'Send a TERMINAL PROFILE to the card before the TAR audit'
             cand --sms-deliver-report 'Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT'
+            cand --reserved-file-ids 'Scan reserved file identifiers 7FF0-7FFF inside an application'
+            cand --sfrv 'Scan reserved file identifiers 7FF0-7FFF inside an application'
             cand --headless 'A face in plain text without colour, for CI and pipes'
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
