@@ -152,6 +152,78 @@ esac
     ;;
 esac
 ;;
+(cards)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__cards_commands" \
+"*::: :->cards" \
+&& ret=0
+
+    case $state in
+    (cards)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-cards-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope (type "cards") on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit one JSON envelope (type "cards") on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':name -- The profile name, exactly as `cards list` prints it:_default' \
+&& ret=0
+;;
+(fixture)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':name -- The profile name, exactly as `cards list` prints it:_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__cards__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-cards-help-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(fixture)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (ts48)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
@@ -2348,6 +2420,34 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(cards)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__cards_commands" \
+"*::: :->cards" \
+&& ret=0
+
+    case $state in
+    (cards)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-cards-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(fixture)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (ts48)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help__subcmd__ts48_commands" \
@@ -2936,6 +3036,7 @@ _sim-doctor_commands() {
 'readers:List the PC/SC readers by name and index, for --reader or --reader-index' \
 'scan:Select a card'\''s master file, walk everything under it, and report' \
 'profile:Print the card-profile database, or probe a card against it' \
+'cards:List known card profiles, show one, or write its fixture document' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
 'batch:Program a batch of cards, one at a time, with a crash-safe state file' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
@@ -2971,6 +3072,61 @@ _sim-doctor__subcmd__batch_commands() {
 _sim-doctor__subcmd__card_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor card commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards_commands] )) ||
+_sim-doctor__subcmd__cards_commands() {
+    local commands; commands=(
+'list:Print the card table\: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it' \
+'show:Print one card profile in full, with every note and every provenance record' \
+'fixture:Write one card profile'\''s fixture document to stdout' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor cards commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__fixture_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__fixture_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards fixture commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__help_commands() {
+    local commands; commands=(
+'list:Print the card table\: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it' \
+'show:Print one card profile in full, with every note and every provenance record' \
+'fixture:Write one card profile'\''s fixture document to stdout' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor cards help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__help__subcmd__fixture_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__help__subcmd__fixture_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards help fixture commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__help__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__help__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards help list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__help__subcmd__show_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__help__subcmd__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards help show commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__cards__subcmd__show_commands] )) ||
+_sim-doctor__subcmd__cards__subcmd__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor cards show commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__cat_commands] )) ||
 _sim-doctor__subcmd__cat_commands() {
@@ -3963,6 +4119,7 @@ _sim-doctor__subcmd__help_commands() {
 'readers:List the PC/SC readers by name and index, for --reader or --reader-index' \
 'scan:Select a card'\''s master file, walk everything under it, and report' \
 'profile:Print the card-profile database, or probe a card against it' \
+'cards:List known card profiles, show one, or write its fixture document' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
 'batch:Program a batch of cards, one at a time, with a crash-safe state file' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
@@ -3998,6 +4155,30 @@ _sim-doctor__subcmd__help__subcmd__batch_commands() {
 _sim-doctor__subcmd__help__subcmd__card_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help card commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__cards_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__cards_commands() {
+    local commands; commands=(
+'list:Print the card table\: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it' \
+'show:Print one card profile in full, with every note and every provenance record' \
+'fixture:Write one card profile'\''s fixture document to stdout' \
+    )
+    _describe -t commands 'sim-doctor help cards commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__cards__subcmd__fixture_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__cards__subcmd__fixture_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help cards fixture commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__cards__subcmd__list_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__cards__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help cards list commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__cards__subcmd__show_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__cards__subcmd__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help cards show commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__cat_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__cat_commands() {

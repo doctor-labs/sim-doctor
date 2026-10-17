@@ -29,6 +29,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('readers', 'readers', [CompletionResultType]::ParameterValue, 'List the PC/SC readers by name and index, for --reader or --reader-index')
             [CompletionResult]::new('scan', 'scan', [CompletionResultType]::ParameterValue, 'Select a card''s master file, walk everything under it, and report')
             [CompletionResult]::new('profile', 'profile', [CompletionResultType]::ParameterValue, 'Print the card-profile database, or probe a card against it')
+            [CompletionResult]::new('cards', 'cards', [CompletionResultType]::ParameterValue, 'List known card profiles, show one, or write its fixture document')
             [CompletionResult]::new('ts48', 'ts48', [CompletionResultType]::ParameterValue, 'Compare a card against the public GSMA TS.48 test profile')
             [CompletionResult]::new('batch', 'batch', [CompletionResultType]::ParameterValue, 'Program a batch of cards, one at a time, with a crash-safe state file')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project')
@@ -147,6 +148,51 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;profile;help;help' {
+            break
+        }
+        'sim-doctor;cards' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it')
+            [CompletionResult]::new('show', 'show', [CompletionResultType]::ParameterValue, 'Print one card profile in full, with every note and every provenance record')
+            [CompletionResult]::new('fixture', 'fixture', [CompletionResultType]::ParameterValue, 'Write one card profile''s fixture document to stdout')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;cards;list' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope (type "cards") on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;cards;show' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope (type "cards") on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;cards;fixture' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
+        'sim-doctor;cards;help' {
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it')
+            [CompletionResult]::new('show', 'show', [CompletionResultType]::ParameterValue, 'Print one card profile in full, with every note and every provenance record')
+            [CompletionResult]::new('fixture', 'fixture', [CompletionResultType]::ParameterValue, 'Write one card profile''s fixture document to stdout')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;cards;help;list' {
+            break
+        }
+        'sim-doctor;cards;help;show' {
+            break
+        }
+        'sim-doctor;cards;help;fixture' {
+            break
+        }
+        'sim-doctor;cards;help;help' {
             break
         }
         'sim-doctor;ts48' {
@@ -1700,6 +1746,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('readers', 'readers', [CompletionResultType]::ParameterValue, 'List the PC/SC readers by name and index, for --reader or --reader-index')
             [CompletionResult]::new('scan', 'scan', [CompletionResultType]::ParameterValue, 'Select a card''s master file, walk everything under it, and report')
             [CompletionResult]::new('profile', 'profile', [CompletionResultType]::ParameterValue, 'Print the card-profile database, or probe a card against it')
+            [CompletionResult]::new('cards', 'cards', [CompletionResultType]::ParameterValue, 'List known card profiles, show one, or write its fixture document')
             [CompletionResult]::new('ts48', 'ts48', [CompletionResultType]::ParameterValue, 'Compare a card against the public GSMA TS.48 test profile')
             [CompletionResult]::new('batch', 'batch', [CompletionResultType]::ParameterValue, 'Program a batch of cards, one at a time, with a crash-safe state file')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project')
@@ -1747,6 +1794,21 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;profile;match' {
+            break
+        }
+        'sim-doctor;help;cards' {
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it')
+            [CompletionResult]::new('show', 'show', [CompletionResultType]::ParameterValue, 'Print one card profile in full, with every note and every provenance record')
+            [CompletionResult]::new('fixture', 'fixture', [CompletionResultType]::ParameterValue, 'Write one card profile''s fixture document to stdout')
+            break
+        }
+        'sim-doctor;help;cards;list' {
+            break
+        }
+        'sim-doctor;help;cards;show' {
+            break
+        }
+        'sim-doctor;help;cards;fixture' {
             break
         }
         'sim-doctor;help;ts48' {

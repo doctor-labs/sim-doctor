@@ -26,6 +26,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand readers 'List the PC/SC readers by name and index, for --reader or --reader-index'
             cand scan 'Select a card''s master file, walk everything under it, and report'
             cand profile 'Print the card-profile database, or probe a card against it'
+            cand cards 'List known card profiles, show one, or write its fixture document'
             cand ts48 'Compare a card against the public GSMA TS.48 test profile'
             cand batch 'Program a batch of cards, one at a time, with a crash-safe state file'
             cand install 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project'
@@ -132,6 +133,42 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;profile;help;match'= {
         }
         &'sim-doctor;profile;help;help'= {
+        }
+        &'sim-doctor;cards'= {
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+            cand list 'Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it'
+            cand show 'Print one card profile in full, with every note and every provenance record'
+            cand fixture 'Write one card profile''s fixture document to stdout'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;cards;list'= {
+            cand --json 'Emit one JSON envelope (type "cards") on stdout, and nothing else'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;cards;show'= {
+            cand --json 'Emit one JSON envelope (type "cards") on stdout, and nothing else'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;cards;fixture'= {
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
+        &'sim-doctor;cards;help'= {
+            cand list 'Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it'
+            cand show 'Print one card profile in full, with every note and every provenance record'
+            cand fixture 'Write one card profile''s fixture document to stdout'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;cards;help;list'= {
+        }
+        &'sim-doctor;cards;help;show'= {
+        }
+        &'sim-doctor;cards;help;fixture'= {
+        }
+        &'sim-doctor;cards;help;help'= {
         }
         &'sim-doctor;ts48'= {
             cand -h 'Print help'
@@ -1474,6 +1511,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand readers 'List the PC/SC readers by name and index, for --reader or --reader-index'
             cand scan 'Select a card''s master file, walk everything under it, and report'
             cand profile 'Print the card-profile database, or probe a card against it'
+            cand cards 'List known card profiles, show one, or write its fixture document'
             cand ts48 'Compare a card against the public GSMA TS.48 test profile'
             cand batch 'Program a batch of cards, one at a time, with a crash-safe state file'
             cand install 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project'
@@ -1514,6 +1552,17 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;help;profile;probe'= {
         }
         &'sim-doctor;help;profile;match'= {
+        }
+        &'sim-doctor;help;cards'= {
+            cand list 'Print the card table: name, stated JavaCard and GlobalPlatform versions, stated EEPROM size, and which heading of the reference lists it'
+            cand show 'Print one card profile in full, with every note and every provenance record'
+            cand fixture 'Write one card profile''s fixture document to stdout'
+        }
+        &'sim-doctor;help;cards;list'= {
+        }
+        &'sim-doctor;help;cards;show'= {
+        }
+        &'sim-doctor;help;cards;fixture'= {
         }
         &'sim-doctor;help;ts48'= {
             cand compare 'Walk the card and diff its file system against the GSMA TS.48 test profile'
