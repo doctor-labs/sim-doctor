@@ -31,7 +31,7 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, cert, ci, contract, euicc, fix, fuzz, gp, keygen, notif,
+    apdu_fuzz, apdu_scan, cat, cert, ci, contract, erase, euicc, fix, fuzz, gp, keygen, notif,
     ota_expanded, otacrypto, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
@@ -335,7 +335,153 @@ enum Command {
     /// Exit codes: 0 every command worked, 1 at least one failed, 2 the card could not be opened,
     /// 129 for a bad command line.
     Card(card_cmd::CardShellArgs),
+
+    /// Erase the provisioning records before programming: the reference
+    /// programming tool's -e/--erase, as a command of its own.
+    ///
+    /// pySim hangs -e/--erase on prog.py, the script that writes a card. sim-doctor
+    /// has no programming command and neither of its two is an honest host for
+    /// this: the top-level install is the doctor-kit agent-config installer and
+    /// never opens a card, and gp install is a GlobalPlatform LOAD/INSTALL of a
+    /// CAP file, which this is not. The erase is UPDATE RECORD (INS DC) against
+    /// the provisioning EFs under DF 3f00/7f4d, and no GlobalPlatform DELETE
+    /// (INS E0/E2) appears anywhere in it. So it is a top-level verb beside gp,
+    /// euicc and card, carrying its own name for the same reason gp does not
+    /// carry euicc.
+    ///
+    /// Run `sim-doctor erase --help` for the whole contract, including the
+    /// WARNING this operation always carries.
+    #[command(long_about = erase_help())]
+    Erase(EraseArgs),
 }
+
+/// Everything `sim-doctor erase` takes.
+///
+/// Two of these have no default on purpose: `--class` and `--records` are the
+/// two facts the reference reads from the card being programmed, and this
+/// command has no card to read them from until it is already erasing one. A run
+/// without them is refused and names the missing fact, because an erase that
+/// silently guessed a record count is an erase of a number of records nobody
+/// chose.
+#[derive(Args)]
+struct EraseArgs {
+    /// The pySim card class being erased: it decides which provisioning EFs are
+    /// written and their record lengths (18/130/102 for magicsim, 18/74/50 for
+    /// supersim, one EF of 18 for fakemagicsim). Required.
+    #[arg(long, value_name = "CLASS")]
+    class: Option<EraseClass>,
+    /// How many record slots of each file to erase. Required, and never
+    /// defaulted: the reference derives it from the card.
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = clap::value_parser!(u8).range(1..=254)
+    )]
+    records: Option<u8>,
+    /// Print the plan and send nothing. This is already what happens without
+    /// --yes; asking for it explicitly is still refused beside --yes, because
+    /// one of the two asks for a send and the other asks for no send.
+    #[arg(long)]
+    dry_run: bool,
+    /// The ICCID of the card to erase, as the reports print it. Read from
+    /// EF.ICCID and compared before the first write; a card that is not this one
+    /// is refused and nothing is erased.
+    #[arg(long, value_name = "ICCID")]
+    confirm_iccid: Option<String>,
+    /// Send the erase. Needs --class, --records, --confirm-iccid and a key
+    /// source.
+    #[arg(long, requires = "key_source")]
+    yes: bool,
+    /// The reader to use, matched against the driver's own name.
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+    /// Emit one JSON envelope of kind "program-erase" on stdout.
+    #[arg(long)]
+    json: bool,
+    #[command(flatten)]
+    keys: GpKeyArgs,
+    #[command(flatten)]
+    channel: GpChannelArg,
+}
+
+/// The `--class` spelling of [`erase::CardClass`].
+///
+/// clap has no `ValueEnum` on the enum itself and none is added here: the names
+/// are the ones `erase::CardClass::id` already prints, so the flag and the
+/// envelope agree. `tests/erase_cli.rs` asserts every class the enum knows is
+/// offered here, so the two lists cannot drift apart without a red test.
+// The three variants share a suffix because the three classes do: these are the
+// reference's own class names (pySim/legacy/cards.py:620-643) and shortening
+// them to satisfy a lint would make the flag say something the card does not.
+#[allow(clippy::enum_variant_names)]
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum EraseClass {
+    #[value(name = "magicsim")]
+    MagicSim,
+    #[value(name = "supersim")]
+    SuperSim,
+    #[value(name = "fakemagicsim")]
+    FakeMagicSim,
+}
+
+impl EraseClass {
+    /// The class this spelling names.
+    fn class(self) -> erase::CardClass {
+        match self {
+            Self::MagicSim => erase::CardClass::MagicSim,
+            Self::SuperSim => erase::CardClass::SuperSim,
+            Self::FakeMagicSim => erase::CardClass::FakeMagicSim,
+        }
+    }
+}
+
+/// The long help of `sim-doctor erase`: the prose, then the erase module's own
+/// [`erase::WARNING`].
+///
+/// Appended rather than copied, because two copies of that sentence would
+/// drift and the dry run prints the same constant; the sentence is the one thing
+/// an operator has to read before running this, and there is one of it.
+fn erase_help() -> &'static str {
+    static ONCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| format!("{}\n\n{}", ERASE_HELP, erase::WARNING))
+        .as_str()
+}
+
+/// The prose half of `erase --help`.
+const ERASE_HELP: &str = r"Erase before programming: the reference programming tool's -e/--erase,
+as a command of its own.
+
+WHAT IT ERASES, AND WHAT IT DOES NOT. The per-record provisioning records of the
+card, overwritten with 0xFF through UPDATE RECORD (INS DC) on DF 3f00/7f4d. No
+application, ISD, load file or filesystem entry is deleted, and a card whose
+provisioning records are erased has to be programmed again before it identifies
+itself. Every APDU the dry run prints is in the reference's order: the record
+index is the outer loop and MF is re-selected before every file.
+
+TWO FACTS ARE ASKED FOR RATHER THAN GUESSED. --class picks the provisioning EFs
+and their record lengths, and --records says how many record slots per file. The
+reference reads the first from the _files table of the class being programmed
+(pySim/legacy/cards.py:620-643) and the second from the card itself (the file
+size in the FCP of EF 8F0C, or of EF 000C on FakeMagicSim, over the record
+length; legacy/cards.py:533-545). This command cannot read either without a
+card, so neither has a default and a run without them is refused, naming the
+fact that is missing.
+
+DRY RUN UNLESS --yes. The dry run prints every APDU in the order it would be
+sent, the instruction and record range of every file, card_touched false, and
+sends nothing: it opens no reader at all. --yes sends, and needs --class,
+--records, --confirm-iccid and --keys-file or --keys-env. Over SCP03 there is
+exactly ONE authentication attempt, the card cryptogram is checked locally
+first, and EXTERNAL AUTHENTICATE is not sent when it does not verify. Keys come
+from a file or the environment, never the command line, and are never printed.
+EF.ICCID is read and compared with --confirm-iccid before the first write. Every
+accepted write is re-read with READ RECORD and compared with the image the plan
+asked for, so a card that acknowledged a write it did not perform is reported
+rather than counted as erased. Nothing is retried and nothing is sent after a
+failed step, because the card is then half erased. Not available over MCP.
+
+Exit 0 for a dry run or a verified erase, 1 for a refusal, a card error or an
+erase that stopped, 129 for a bad command line, 130 if interrupted.";
 
 /// Everything `sim-doctor euicc` takes.
 #[derive(Args)]
@@ -2537,6 +2683,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Install(args) => kit::install(d, args),
         Command::Card(args) => card_cmd::run(args),
+        Command::Erase(args) => run_erase(&args),
         Command::Cat(args) => match args.action {
             CatAction::Decode { hex, json } => run_cat_decode(&hex, json),
         },
@@ -4144,6 +4291,177 @@ fn run_gp_install(
         w.channel.channel,
         |s, t| gp::install(s, t, &req, &auth, w.yes),
     )
+}
+
+/// `sim-doctor erase`.
+///
+/// The refusals that can be made without a card are made before one is listed:
+/// the two facts the reference reads off the card, then the acknowledgements.
+/// Only a run that has been asked for, named and acknowledged opens a reader,
+/// and the dry run never does - which is why a dry run works on a machine with
+/// no reader attached, and how the CLI test knows nothing was sent.
+fn run_erase(args: &EraseArgs) -> contract::ExitCode {
+    let refuse = |kind: &str, message: String| {
+        let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
+        report_refusal(erase::KIND, &message, data, args.json)
+    };
+    let Some(class) = args.class.map(EraseClass::class) else {
+        return refuse(
+            "class-unknown",
+            "--class is required and has no default: the card class decides which provisioning \
+             EFs are written and their record lengths (18/130/102 for magicsim, 18/74/50 for \
+             supersim, one 18-octet EF for fakemagicsim), and the reference reads that table from \
+             the card it is programming (pySim/legacy/cards.py:620-643). Guessing it would write \
+             records of the wrong length, so name one: magicsim, supersim, fakemagicsim."
+                .to_owned(),
+        );
+    };
+    let Some(records) = args.records else {
+        return refuse(
+            "records-unknown",
+            "--records is required and has no default: the reference derives the record count \
+             from the card (the total file size in the FCP of EF 8F0C, or of EF 000C on \
+             FakeMagicSim, divided by the record length; pySim/legacy/cards.py:533-545), and \
+             there is no card to read here. Erasing a number of records nobody named is how a \
+             card loses more than was intended, so read the count off the FCP and pass it, or \
+             dry-run the count you intend to erase and read what it would overwrite."
+                .to_owned(),
+        );
+    };
+    let options = erase::Options {
+        yes: args.yes,
+        confirm_iccid: args.confirm_iccid.clone(),
+        dry_run: args.dry_run,
+    };
+    match erase::validate(class, records, &options) {
+        Err((kind, message)) => refuse(&kind, message),
+        Ok(erase::Request::DryRun(plan)) => emit_erase(
+            args.json,
+            &erase::dry_run_text(&plan),
+            erase::dry_run_json(&plan),
+        ),
+        Ok(erase::Request::Apply {
+            plan,
+            confirm_iccid,
+        }) => {
+            // --yes cannot reach here without a key source: clap refuses the
+            // combination, which is the same refusal gp delete and gp install
+            // make. The branch is kept honest rather than assumed.
+            let keys = match load_gp_keys(&args.keys, args.json) {
+                Ok(Some(keys)) => keys,
+                Ok(None) => {
+                    return refuse(
+                        "keys-unusable",
+                        "--yes needs --keys-file or --keys-env: the provisioning records are \
+                         written on an SCP03 channel and there are no keys on the command line."
+                            .to_owned(),
+                    )
+                }
+                Err(code) => return code,
+            };
+            let auth = gp_auth(&keys, &args.keys, args.channel.channel);
+            run_erase_on_card(args, &plan, &auth, &confirm_iccid)
+        }
+    }
+}
+
+/// Prints a `program-erase` report, human or JSON, and returns success.
+fn emit_erase(json: bool, human: &str, data: serde_json::Value) -> contract::ExitCode {
+    let rendered = if json {
+        match contract::Envelope::new(
+            erase::KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            data,
+        )
+        .to_json()
+        {
+            Ok(line) => line,
+            Err(err) => {
+                eprintln!("sim-doctor: {err}");
+                return contract::ExitCode::Findings;
+            }
+        }
+    } else {
+        human.to_owned()
+    };
+    if let Err(err) = emit_stdout(&rendered, "the erase report") {
+        eprintln!("sim-doctor: {err}");
+        return contract::ExitCode::Findings;
+    }
+    contract::ExitCode::Success
+}
+
+/// `sim-doctor erase --yes`: one authentication attempt, one ICCID check, then
+/// the plan, over the reader and the channel the operator named.
+fn run_erase_on_card(
+    args: &EraseArgs,
+    plan: &erase::ErasePlan,
+    auth: &gp::Auth<'_>,
+    confirm_iccid: &str,
+) -> contract::ExitCode {
+    guard_exchange(erase::KIND, args.json);
+    let refuse = |kind: &str, message: String| {
+        let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
+        report_refusal(erase::KIND, &message, data, args.json)
+    };
+    let readers = match Pcsc::readers() {
+        Ok(readers) => readers,
+        Err(err) => return refuse("context-unavailable", err.to_string()),
+    };
+    let reader = match pick_reader(&readers, args.reader.as_deref()) {
+        Ok(reader) => reader,
+        Err(failure) => {
+            return report_refusal(erase::KIND, &failure.message, failure.data(), args.json)
+        }
+    };
+    let mut session = match PcscSession::open(reader) {
+        Ok(session) => session,
+        Err(err) => {
+            let kind = match err {
+                TransportError::NoCard { .. } => "no-card",
+                _ => "reader-unavailable",
+            };
+            return refuse(kind, err.to_string());
+        }
+    };
+    let channel = args.channel.channel;
+    let ran = {
+        let card: &mut dyn CardSession = &mut session;
+        if channel == 0 {
+            erase::erase_authenticated(card, plan, auth, confirm_iccid, &mut || checkpoint())
+        } else {
+            erase::erase_authenticated(
+                &mut gp::OnChannel::new(card, channel),
+                plan,
+                auth,
+                confirm_iccid,
+                &mut || checkpoint(),
+            )
+        }
+    };
+    let ran = match ran {
+        Ok(ran) => ran,
+        Err(stop) => return refuse(stop.kind, stop.message),
+    };
+    let mut data = erase::applied_json(plan, &ran.applied, &ran.iccid);
+    data["reader"] = serde_json::json!(reader.as_str());
+    if channel != 0 {
+        data["logical_channel"] = serde_json::json!(channel);
+    }
+    let human = format!(
+        "sim-doctor: erase on reader {} over {} channel(s)\n{}",
+        reader.as_str(),
+        channel,
+        erase::applied_human(plan, &ran.applied, &ran.iccid)
+    );
+    // A run that stopped has erased part of the card and not the rest. That is a
+    // failed run whatever the status word of the step that stopped it said, so it
+    // is reported as a refusal and the WARNING goes with it.
+    if ran.applied.stopped_at != plan.steps.len() {
+        return report_refusal(erase::KIND, &ran.applied.response, data, args.json);
+    }
+    emit_erase(args.json, &human, data)
 }
 
 /// Reads and checks the DAP key and Security Domain of `gp install`, before a
