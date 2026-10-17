@@ -380,7 +380,105 @@ _arguments "${_arguments_options[@]}" : \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:sim-doctor-gp-command-$line[1]:"
         case $line[1] in
-            (info)
+            (cert)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__gp__subcmd__cert_commands" \
+"*::: :->cert" \
+&& ret=0
+
+    case $state in
+    (cert)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-cert-command-$line[1]:"
+        case $line[1] in
+            (read)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(construct)
+_arguments "${_arguments_options[@]}" : \
+'--cert-serial=[Certificate Serial Number, tag 93, as hex]:HEX:_default' \
+'--cert-ca=[CA Identifier, tag 42, as hex\: which issuer'\''s key signs this]:HEX:_default' \
+'--cert-subject=[Subject Identifier, tag 5F20, as hex\: the security domain this certificate names]:HEX:_default' \
+'--cert-usage=[Key Usage, tag 95\: \`verification\` (82 00) or \`agreement\` (00). GPC v2.3.1 11.1.9 defines no other value]:USAGE:_default' \
+'--cert-effective=[Effective Date, tag 5F25, as YYYYMMDD]:YYYYMMDD:_default' \
+'--cert-expires=[Expiration Date, tag 5F24, as YYYYMMDD. Mandatory in every profile of the format]:YYYYMMDD:_default' \
+'--cert-image-number=[Security Domain Image Number, tag 45, as hex]:HEX:_default' \
+'--cert-discretionary=[Discretionary Data, tag 53, as hex\: a field of unspecified format, passed through as given]:HEX:_default' \
+'--cert-authorizations=[Authorization rules, tag BF20, as hex, per Amendment F v1.4 Table B-1. Passed through as given\: this tool does not interpret them]:HEX:_default' \
+'--cert-pubkey=[Subject public key, tag 7F49\: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y). \`gp cert sign\` derives it from the signing key and does not need this; \`gp cert construct\` does, and has no key to derive it from]:HEX:_default' \
+'--cert-out=[Where to write the certificate\: the whole 7F21 TLV. Nothing is written without it]:PATH:_files' \
+'--json[Print the certificate as one JSON object instead of the table]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+'--cert-serial=[Certificate Serial Number, tag 93, as hex]:HEX:_default' \
+'--cert-ca=[CA Identifier, tag 42, as hex\: which issuer'\''s key signs this]:HEX:_default' \
+'--cert-subject=[Subject Identifier, tag 5F20, as hex\: the security domain this certificate names]:HEX:_default' \
+'--cert-usage=[Key Usage, tag 95\: \`verification\` (82 00) or \`agreement\` (00). GPC v2.3.1 11.1.9 defines no other value]:USAGE:_default' \
+'--cert-effective=[Effective Date, tag 5F25, as YYYYMMDD]:YYYYMMDD:_default' \
+'--cert-expires=[Expiration Date, tag 5F24, as YYYYMMDD. Mandatory in every profile of the format]:YYYYMMDD:_default' \
+'--cert-image-number=[Security Domain Image Number, tag 45, as hex]:HEX:_default' \
+'--cert-discretionary=[Discretionary Data, tag 53, as hex\: a field of unspecified format, passed through as given]:HEX:_default' \
+'--cert-authorizations=[Authorization rules, tag BF20, as hex, per Amendment F v1.4 Table B-1. Passed through as given\: this tool does not interpret them]:HEX:_default' \
+'--cert-pubkey=[Subject public key, tag 7F49\: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y). \`gp cert sign\` derives it from the signing key and does not need this; \`gp cert construct\` does, and has no key to derive it from]:HEX:_default' \
+'--cert-out=[Where to write the certificate\: the whole 7F21 TLV. Nothing is written without it]:PATH:_files' \
+'--cert-key-file=[File holding the P-256 signing key (chmod 600)]:PATH:_files' \
+'--cert-key-env=[Environment variable holding the P-256 signing key]:VAR:_default' \
+'--json[Print the certificate as one JSON object instead of the table]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-cert-help-command-$line[1]:"
+        case $line[1] in
+            (read)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(construct)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(info)
 _arguments "${_arguments_options[@]}" : \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
@@ -992,7 +1090,35 @@ _arguments "${_arguments_options[@]}" : \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:sim-doctor-gp-help-command-$line[1]:"
         case $line[1] in
-            (info)
+            (cert)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert_commands" \
+"*::: :->cert" \
+&& ret=0
+
+    case $state in
+    (cert)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-gp-help-cert-command-$line[1]:"
+        case $line[1] in
+            (read)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(construct)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(info)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2168,7 +2294,35 @@ _arguments "${_arguments_options[@]}" : \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:sim-doctor-help-gp-command-$line[1]:"
         case $line[1] in
-            (info)
+            (cert)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert_commands" \
+"*::: :->cert" \
+&& ret=0
+
+    case $state in
+    (cert)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-gp-cert-command-$line[1]:"
+        case $line[1] in
+            (read)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(construct)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(info)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -3036,6 +3190,7 @@ _sim-doctor__subcmd__fuzz__subcmd__ota_commands() {
 (( $+functions[_sim-doctor__subcmd__gp_commands] )) ||
 _sim-doctor__subcmd__gp_commands() {
     local commands; commands=(
+'cert:\`gp cert\`\: the GlobalPlatform card certificate of tag 7F21 (SCP11)' \
 'info:Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA' \
 'ara:Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA \[all\], decoded (read-only, no keys)' \
 'status:GlobalPlatform registry inventory\: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication' \
@@ -3128,6 +3283,61 @@ _sim-doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__lock_commands() {
 _sim-doctor__subcmd__gp__subcmd__aram__subcmd__lock_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp aram lock commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert_commands() {
+    local commands; commands=(
+'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
+'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
+'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor gp cert commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__construct_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__construct_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert construct commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help_commands() {
+    local commands; commands=(
+'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
+'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
+'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor gp cert help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__construct_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__construct_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert help construct commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__read_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__read_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert help read commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert help sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__read_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__read_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert read commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert sign commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__channel_commands() {
@@ -3257,6 +3467,7 @@ _sim-doctor__subcmd__gp__subcmd__delete-key_commands() {
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help_commands() {
     local commands; commands=(
+'cert:\`gp cert\`\: the GlobalPlatform card certificate of tag 7F21 (SCP11)' \
 'info:Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA' \
 'ara:Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA \[all\], decoded (read-only, no keys)' \
 'status:GlobalPlatform registry inventory\: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication' \
@@ -3312,6 +3523,30 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__delete-all_commands
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help aram lock commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert_commands() {
+    local commands; commands=(
+'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
+'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
+'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+    )
+    _describe -t commands 'sim-doctor gp help cert commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__construct_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__construct_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help cert construct commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__read_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__read_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help cert read commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help cert sign commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel_commands() {
@@ -3693,6 +3928,7 @@ _sim-doctor__subcmd__help__subcmd__fuzz__subcmd__ota_commands() {
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp_commands() {
     local commands; commands=(
+'cert:\`gp cert\`\: the GlobalPlatform card certificate of tag 7F21 (SCP11)' \
 'info:Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA' \
 'ara:Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA \[all\], decoded (read-only, no keys)' \
 'status:GlobalPlatform registry inventory\: GET STATUS for the ISD, applications and load files, plus Card Recognition Data (read-only). A scope the card only gives over a secure channel is reported as requiring authentication' \
@@ -3747,6 +3983,30 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__delete-all_commands
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp aram lock commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert_commands() {
+    local commands; commands=(
+'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
+'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
+'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+    )
+    _describe -t commands 'sim-doctor help gp cert commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__construct_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__construct_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp cert construct commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__read_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__read_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp cert read commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp cert sign commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands() {
