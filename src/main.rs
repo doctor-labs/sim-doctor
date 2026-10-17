@@ -1558,6 +1558,38 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Send ONE raw APDU you wrote over the SCP03 secure channel and report the
+    /// card's answer verbatim. This is the raw escape hatch of the GP tool
+    /// (`gp -s`), not a new kind of command. CAN WRITE TO THE CARD.
+    ///
+    /// WARNING: this sends an ARBITRARY APDU you wrote, over an authenticated
+    /// channel, without a second look. It can write to the card, change or
+    /// delete its content, or leave it in a state you cannot undo, and a wrong
+    /// APDU is sent just the same.
+    ///
+    /// A dry run unless --yes: it prints the APDU and sends nothing. With
+    /// --keys-file/--keys-env the dry run still makes the one SCP03
+    /// authentication attempt and opens no write. --yes needs keys. The ISD keys
+    /// are read from a file or environment variable, never the command line,
+    /// and are never printed. One authentication attempt, never retried: failed
+    /// attempts count toward locking the ISD, and wrong keys are caught by a
+    /// local card-cryptogram check before EXTERNAL AUTHENTICATE is sent. Not
+    /// available over MCP.
+    ///
+    /// The response is reported VERBATIM and is NOT unwrapped: R-MAC
+    /// verification and R-ENC decryption are not implemented (#256), so the
+    /// bytes shown are the card's secure-messaging response, not plaintext.
+    ///
+    /// Exit 0 for a dry run or a 90 00 answer, 1 for a refusal or any other
+    /// status word.
+    SecureApdu {
+        /// The APDU as hex: CLA INS P1 P2, then Lc and the data, then Le, as
+        /// the card would receive it (for example 00A40000023F00).
+        #[arg(value_name = "HEX")]
+        apdu: String,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
 }
 
 /// Where `gp store-data` gets its data field. Exactly one form; the group is
@@ -3527,6 +3559,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             } => run_gp_store_data(
                 &payload, structure, encryption, response, block_size, &write,
             ),
+            GpAction::SecureApdu { apdu, write } => run_gp_secure_apdu(&apdu, &write),
         },
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
@@ -4923,6 +4956,54 @@ fn run_gp_crs_set(aid: &str, activate: bool, w: &GpWriteFlags) -> contract::Exit
         w.channel.channel,
         |s, t| gp::crs_set_status(s, t, &req, &auth, w.yes),
     )
+}
+
+/// `sim-doctor gp secure-apdu <HEX>`: a dry run unless `--yes`, and with no
+/// keys at all fully offline (`card_touched: false`, no reader opened, and the
+/// offline dry run takes no session to open one with).
+fn run_gp_secure_apdu(apdu: &str, w: &GpWriteFlags) -> contract::ExitCode {
+    let Some(bytes) = parse_apdu(apdu) else {
+        return report_refusal(
+            "gp",
+            "the APDU must be 4 or more bytes of hex: CLA INS P1 P2, then Lc and the data, then Le",
+            serde_json::json!({ "error": { "kind": "bad-apdu" } }),
+            w.json,
+        );
+    };
+    let req = gp::SecureApduRequest { apdu: bytes };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::secure_apdu_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp secure-apdu", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp secure-apdu",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::secure_apdu(s, t, &req, &auth, w.yes),
+    )
+}
+
+/// A raw APDU as hex: whitespace is ignored, and at least a four-octet header
+/// is required (ISO/IEC 7816-3 5.1).
+fn parse_apdu(text: &str) -> Option<Vec<u8>> {
+    let hex: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = hex::decode(hex).ok()?;
+    (bytes.len() >= 4).then_some(bytes)
 }
 
 fn bad_gp_request(e: &gp::BuildError, json: bool) -> contract::ExitCode {
@@ -8421,6 +8502,43 @@ mod tests {
             panic!("not a scan")
         };
         assert!(args.walk_limits.break_after_count_match);
+    }
+
+    /// `--yes` on a `gp` write needs a key source, or it would send over a
+    /// channel it cannot open: clap's `requires = "key_source"`, the same
+    /// interlock `gp delete`, `gp install` and `gp put-key` carry (issue #224).
+    #[test]
+    fn secure_apdu_yes_needs_a_key_source() {
+        use clap::Parser;
+        assert!(Cli::try_parse_from([
+            "sim-doctor",
+            "gp",
+            "secure-apdu",
+            "00A40000023F00",
+            "--yes"
+        ])
+        .is_err());
+        for source in [
+            ["--keys-file", "/dev/null"],
+            ["--keys-env", "SIM_DOCTOR_TEST_KEYS"],
+        ] {
+            let mut argv = vec!["sim-doctor", "gp", "secure-apdu", "00A40000023F00", "--yes"];
+            argv.extend_from_slice(&source);
+            assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?}");
+        }
+        // A dry run needs no keys at all, and both key sources are exclusive.
+        assert!(Cli::try_parse_from(["sim-doctor", "gp", "secure-apdu", "00A40000023F00"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "sim-doctor",
+            "gp",
+            "secure-apdu",
+            "00A40000023F00",
+            "--keys-file",
+            "/dev/null",
+            "--keys-env",
+            "X"
+        ])
+        .is_err());
     }
 }
 

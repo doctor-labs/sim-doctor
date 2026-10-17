@@ -4,6 +4,7 @@
 
 ### Added
 
+- `sim-doctor gp secure-apdu <HEX>`: send one raw APDU you wrote over the established SCP03 channel and report the card answer verbatim (#224). The raw escape hatch GlobalPlatformPro exposes as `gp -s`. Dry run by default (`--yes` sends and needs `--keys-file`/`--keys-env`), one authentication attempt with the card cryptogram checked locally before EXTERNAL AUTHENTICATE, keys never on the command line and never printed, not exposed over MCP. Only the command is wrapped: R-MAC/R-ENC response unwrapping is #256, so the response is reported as received and says so.
 - `gp create-sd`: create a supplementary Security Domain over an SCP03 channel
   (`--domain`, `--allow-to`, `--allow-from`), dry run unless `--yes`, with the
   registry pre-read refusals and the post-write re-read the other gp writes
