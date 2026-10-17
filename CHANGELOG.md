@@ -10,6 +10,7 @@
   registry pre-read refusals and the post-write re-read the other gp writes
   have. (#244)
 - GP STORE DATA request builders: `store_data_commands` cuts one payload into blocks (P1 b8 on the last block only, P2 from 0, never padded), `dgi` / `emv_perso_data` / `emv_pre_perso_data` build the DGI payload including the EMV 9F66 / 9F67 form, and `max_block_data` sizes a block so secure-channel padding and the C-MAC still fit 255 (#234).
+- `gp install` extended DAP: a DES DAP key (the retail MAC, B.1.2.2), an ECC DAP key (ECDSA over P-256, plain `r || s`, B.4.3), several DAP blocks in one Load File (Table 11-58), `--dap-domain` to name the Security Domain that verifies each block, and `--dap-alg` to choose the scheme. RSA is not offered: this crate cannot sign RSASSA-PKCS1-v1_5 or RSASSA-PSS (#251).
 
 
 All notable changes to this project are documented here. The format follows
