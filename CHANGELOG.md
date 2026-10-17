@@ -55,6 +55,10 @@ All notable changes to this project are documented here. The format follows
 - SCP03 C-ENC, R-MAC, R-ENC and C-DECRYPTION, with `--mode` on the commands that take ISD keys to pick the secure-channel security level (#256).
 - sim-doctor gp release-scp: release the SCP03 secure channel by closing its logical channel (MANAGE CHANNEL close, the same APDU gp channel close sends), dry run unless --yes, no keys taken (#261).
 - `gp install -F` / `--no-felix`: refuse to guess the Install Parameters field, so `--params` becomes required (`params-required`, nothing sent); with no flag the default is unchanged (`C900`). GlobalPlatformPro DWIM switch, issue #253.
+- `src/scp02.rs`: the SCP02 core, pySim-pinned: 3DES
+  session key derivation, the card and host cryptograms under S-ENC, the B.1.2.2 C-MAC
+  with its 8-byte ICV, the INITIALIZE UPDATE / EXTERNAL AUTHENTICATE builders, the
+  response parser and the MANAGE CHANNEL release. Sends nothing; no `gp` subcommand (#255).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).
