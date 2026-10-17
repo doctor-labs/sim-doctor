@@ -2,49 +2,49 @@
 exit 1
 --- stderr
 
---- stdout: 153382 bytes, sha256 871d6b7950b53f4a3ecd925d18c44e517e17186a397d9b1d31c085daec000419
+--- stdout: 153480 bytes, sha256 59fb71b09915bf370d05e69b72644ca4901270f0637ca046441d19548dd9b246
 # clean card: sim-doctor scan --json --tar focused
 exit 0
 --- stderr
 
---- stdout: 151577 bytes, sha256 02c8dce6478bf65cfd9ad062cca3e2723f5f627bbad77cedb69adb524efff672
+--- stdout: 151675 bytes, sha256 22afde470d37935ac9470a567e41dd6a12d9a689fedf17fe73d8b2c476d57c55
 # TAR audit off (the default): sim-doctor scan --json
 exit 0
 --- stderr
 sim-doctor: warning: the TAR scan did not finish, so its findings are partial: the operator asked for no TAR probing
 
---- stdout: 146018 bytes, sha256 c6be2fdf62af46dcb2f6676fea475b7603a2b2ca6fea7cc1ade645af02c02380
+--- stdout: 146116 bytes, sha256 e1323aeb0d06b38f3f3f188da449dff45258df1befe1a8e5213c7d773c3a3cbf
 # --fail-on info: sim-doctor scan --json --tar focused --fail-on info
 exit 1
 --- stderr
 
---- stdout: 153382 bytes, sha256 871d6b7950b53f4a3ecd925d18c44e517e17186a397d9b1d31c085daec000419
+--- stdout: 153480 bytes, sha256 59fb71b09915bf370d05e69b72644ca4901270f0637ca046441d19548dd9b246
 # --fail-on high: sim-doctor scan --json --tar focused --fail-on high
 exit 1
 --- stderr
 
---- stdout: 153382 bytes, sha256 871d6b7950b53f4a3ecd925d18c44e517e17186a397d9b1d31c085daec000419
+--- stdout: 153480 bytes, sha256 59fb71b09915bf370d05e69b72644ca4901270f0637ca046441d19548dd9b246
 # --severity high: sim-doctor scan --json --tar focused --severity high
 exit 1
 --- stderr
 
---- stdout: 153386 bytes, sha256 05e2f632af4b5afaa96b34d83cf9e7ddf86cf09e94fd9cb745f6f5de824164d4
+--- stdout: 153484 bytes, sha256 6ff583ee90df02e74a11ad6462497b04efd6954f9331a64f1d20070b151da1df
 # --severity critical --fail-on info: sim-doctor scan --json --tar focused --severity critical --fail-on info
 exit 1
 --- stderr
 
---- stdout: 153394 bytes, sha256 04f55451b7bc87b9068559aad2fb22d99d363b5d1032ddb7fea5bd8e5be70b7b
+--- stdout: 153492 bytes, sha256 6895b471e776b69b2fd1fde262c05bc302bac428e3281a1272144507351caf86
 # --score with --json: sim-doctor scan --json --tar focused --score
 exit 1
 --- stderr
 
---- stdout: 153382 bytes, sha256 871d6b7950b53f4a3ecd925d18c44e517e17186a397d9b1d31c085daec000419
+--- stdout: 153480 bytes, sha256 59fb71b09915bf370d05e69b72644ca4901270f0637ca046441d19548dd9b246
 # truncated walk (--max-nodes 2): sim-doctor scan --json --tar focused --max-nodes 2
 exit 1
 --- stderr
 sim-doctor: warning: the walk stopped early, so this is not the whole card; bounds hit: maximum number of files
 
---- stdout: 22993 bytes, sha256 fced58a9196be9db9767d17d360bade27283143d462b3fc9bf1be70bcdb1e498
+--- stdout: 23091 bytes, sha256 3f59b1b1588af1fea369c87a7b2a1e7af4b228237fb709ef51fd47f64ead4649
 # --terminal-profile needs --tar: sim-doctor scan --json --terminal-profile
 exit 2
 --- stderr
@@ -83,33 +83,33 @@ sim-doctor: --tui needs a terminal; showing the plain report
 exit 1
 --- stderr
 
---- stdout: 153382 bytes, sha256 871d6b7950b53f4a3ecd925d18c44e517e17186a397d9b1d31c085daec000419
+--- stdout: 153480 bytes, sha256 59fb71b09915bf370d05e69b72644ca4901270f0637ca046441d19548dd9b246
 --- file out.sarif: 9867 bytes, sha256 ea9be6bb81e81038f560242b37355f9e5bd079c309c35f8d46d3744ed5d0c09c
 # --sarif to an unwritable path: sim-doctor scan --json --tar focused --sarif <TMP>/no-such-dir/out.sarif
 exit 2
 --- stderr
 error: <TMP>/no-such-dir/out.sarif: No such file or directory (os error 2)
 
---- stdout: 153382 bytes, sha256 5fe1110beafd744b2e6291846c16ec98433836f097e3a8b4b2842614c62a7ee4
+--- stdout: 153480 bytes, sha256 31a0ec8fa1903f6bff35bf8ae4ec2beb86443714a444f6e7a718da0b7c79af87
 --- file out.sarif: absent
 # baseline: same findings: sim-doctor scan --json --tar focused --baseline <TMP>/msl0.json
 exit 0
 --- stderr
 sim-doctor: compared against the baseline: 0 new, 0 fixed, 1 persisting
 
---- stdout: 154341 bytes, sha256 cb012c624ec38841e67abab1aca18818561828cfbed554b6a55cc86022cecc05
+--- stdout: 154439 bytes, sha256 6f9f4dc8ca168b99f9ddac2a6e5d4dbc8e8c4046665f9f8d569f899d6e59a828
 # baseline: a new finding gates (exit 3): sim-doctor scan --json --tar focused --baseline <TMP>/clean.json
 exit 3
 --- stderr
 sim-doctor: compared against the baseline: 1 new, 0 fixed, 0 persisting
 
---- stdout: 154334 bytes, sha256 d743f15ba7e75ab804c149a1754f27147d63ca01e7763f945644727845338077
+--- stdout: 154432 bytes, sha256 5e3c214da0a0bbfecaf8ab62b2c81c259d5d7e702b59ad8ee083890994615a88
 # baseline: the finding is fixed: sim-doctor scan --json --tar focused --baseline <TMP>/msl0.json
 exit 0
 --- stderr
 sim-doctor: compared against the baseline: 0 new, 1 fixed, 0 persisting
 
---- stdout: 151940 bytes, sha256 a950689794d4889a2253396086fb5aca3c6c87f48626c60df3d760081c9e3ec2
+--- stdout: 152038 bytes, sha256 a666d54c9a5188d7494cbf0b222236c67c5611c9bfa0f64493478f4aed978759
 # baseline from a truncated walk is refused: sim-doctor scan --json --tar focused --baseline <TMP>/small.json
 exit 2
 --- stderr
@@ -123,7 +123,7 @@ exit 3
 --- stderr
 sim-doctor: compared against the baseline: 1 new, 0 fixed, 0 persisting
 
---- stdout: 154334 bytes, sha256 d743f15ba7e75ab804c149a1754f27147d63ca01e7763f945644727845338077
+--- stdout: 154432 bytes, sha256 5e3c214da0a0bbfecaf8ab62b2c81c259d5d7e702b59ad8ee083890994615a88
 # baseline with --severity high: sim-doctor scan --json --tar focused --baseline <TMP>/clean.json --severity high
 exit 2
 --- stderr

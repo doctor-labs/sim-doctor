@@ -787,6 +787,17 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
         eprintln!("sim-doctor: --tar-uncapped is only meaningful with --tar other than off");
         return contract::ExitCode::Error;
     }
+    // The dry run: an uncapped sweep sends one ENVELOPE per TAR, so the count is shown and nothing
+    // is sent, and no reader is opened, until --yes is given.
+    if args.tar_uncapped && !args.yes {
+        eprintln!(
+            "sim-doctor: --tar-uncapped would send {} ENVELOPEs for TAR selection {} (the full TAR space is {}). Dry run: nothing was sent. Add --yes to send them.",
+            tar::uncapped_probe_count(&args.tar),
+            args.tar,
+            tar::TAR_SPACE
+        );
+        return contract::ExitCode::Error;
+    }
     // Refused rather than ignored: a --class beside `--tar off` sends no
     // ENVELOPE at all, so honouring it silently would report a class in force
     // that nothing was sent at.

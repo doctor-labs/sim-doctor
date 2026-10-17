@@ -179,6 +179,12 @@ fn build_argv(scan: &Command, name: &str, args: &Value) -> Result<Vec<String>, S
             let flags = scan_flags(scan);
             let mut argv = vec!["scan".to_string(), "--json".to_string()];
             for (key, value) in obj {
+                if key.as_str() == "yes" {
+                    return Err(
+                        "\"yes\" is not available over MCP: start an uncapped sweep from the CLI"
+                            .to_string(),
+                    );
+                }
                 let (_, _, kind) = flags
                     .iter()
                     .find(|(n, _, _)| n == key)

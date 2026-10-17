@@ -2376,10 +2376,12 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "  card. A selection larger than the cap stops at it; data.tar.stopped says\n",
     "  so, and any finding it carries is marked partial rather than read as an\n",
     "  exhaustive audit of the card's TAR accept-list.\n",
-    "  --tar-uncapped raises that bound to a ceiling of 1 000 000 probes (issue #266),\n",
-    "  not the full 16 777 216-value space: every probe is held in memory and emitted\n",
-    "  to JSON, so the full space needs a streaming follow-up. A sweep stopped at the\n",
-    "  ceiling is reported as not exhausted, with a WARNING. Each probe is one ENVELOPE\n",
+    "  --tar-uncapped raises that bound to the full TAR space (issue #266): the TARs are\n",
+    "  streamed, so `full` is reachable, and memory stays bounded: at most 10 000 plain\n",
+    "  refused rows and 10 000 other rows are kept, the rest are counted per outcome\n",
+    "  (data.tar.rows_summarised, data.tar.rows_omitted).\n",
+    "  It is a dry run unless --yes: the probe count is printed and nothing is sent.\n",
+    "  A sweep stopped at the bound is reported as not exhausted. Each probe is one ENVELOPE\n",
     "  sent to the card: hours of traffic, and each may act on the card.\n",
     "  A TAR is reported as ACCEPTED when the card answers it DIFFERENTLY from\n",
     "  the way it answers TARs it has no opinion about. That is a measurement,\n",
@@ -2905,17 +2907,25 @@ struct ScanArgs {
     #[arg(long, visible_alias = "sfrv")]
     reserved_file_ids: bool,
 
-    /// Raise the 4096-probe bound on the TAR audit to a ceiling of 1 000 000 probes (issue #266).
+    /// Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266).
     ///
-    /// It does NOT lift the bound to the full 16 777 216-value TAR space: every probe is held in
-    /// memory and emitted to JSON, so the full space needs a streaming follow-up. A sweep that
-    /// reaches the ceiling stops, is reported as not exhausted, and prints a WARNING.
+    /// The TARs are streamed, so `full` is reachable, and memory stays bounded: at most 10 000 plain
+    /// `refused` rows and 10 000 other rows are kept, the rest are counted per outcome and the JSON
+    /// says so (`data.tar.rows_summarised`, `data.tar.rows_omitted`). This is a dry run unless --yes
+    /// is given: the probe count is printed, nothing is sent and the exit is 2.
     ///
-    /// WARNING: this sends one ENVELOPE per TAR, up to a million, which is hours of card traffic,
-    /// and each one is an SMS-PP download the card may act on. Use it only on a card you are
-    /// allowed to exercise. Only meaningful with --tar other than `off` (else exit 2).
+    /// WARNING: a full sweep sends one ENVELOPE per TAR, up to 16 777 216, which can take hours to
+    /// days of card traffic, and each one is an SMS-PP download the card may act on. Use it only on a
+    /// card you are allowed to exercise. Only meaningful with --tar other than `off` (else exit 2).
     #[arg(long)]
     tar_uncapped: bool,
+
+    /// Send the uncapped TAR sweep. Required with --tar-uncapped.
+    ///
+    /// Without it, --tar-uncapped is a dry run: it prints how many ENVELOPEs the sweep would send,
+    /// opens no reader, sends nothing and exits 2. Ignored without --tar-uncapped.
+    #[arg(long)]
+    yes: bool,
 
     /// The human report: a doctor-kit face (rich, plain or compact), or the full legacy report.
     ///
