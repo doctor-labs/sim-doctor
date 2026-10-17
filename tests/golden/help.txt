@@ -30,6 +30,7 @@ Commands:
   fuzz          APDU discovery and the OTA/SMS fuzz sweep
   euicc         eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
   card          A pySim-shell style shell over the card: select files, read them, send APDUs
+  erase         Erase the provisioning records before programming: the reference programming tool's -e/--erase, as a command of its own
   shell         The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift
   explore       The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift
   help          Print this message or the help of the given subcommand(s)
@@ -1353,6 +1354,27 @@ Options:
       --force              Let --dump overwrite an existing regular file
       --dump-secrets       Record PINs and keys in plain text: the data field of VERIFY, CHANGE, ENABLE/DISABLE, RESET RETRY COUNTER and AUTHENTICATE, and the response data of AUTHENTICATE (RES, CK, IK, Kc), is written raw. Keep the file private. Needs --dump
   -h, --help               Print help (see more with '--help')
+
+$ sim-doctor erase -h [exit 0]
+Erase the provisioning records before programming: the reference programming tool's -e/--erase, as a command of its own
+
+Usage: sim-doctor erase [OPTIONS]
+
+Options:
+      --class <CLASS>          The pySim card class being erased: it decides which provisioning EFs are written and their record lengths (18/130/102 for magicsim, 18/74/50 for supersim, one EF of 18 for fakemagicsim). Required [possible values: magicsim, supersim, fakemagicsim]
+      --records <N>            How many record slots of each file to erase. Required, and never defaulted: the reference derives it from the card
+      --dry-run                Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send
+      --confirm-iccid <ICCID>  The ICCID of the card to erase, as the reports print it. Read from EF.ICCID and compared before the first write; a card that is not this one is refused and nothing is erased
+      --yes                    Send the erase. Needs --class, --records, --confirm-iccid and a key source
+      --reader <NAME>          The reader to use, matched against the driver's own name
+      --json                   Emit one JSON envelope of kind "program-erase" on stdout
+      --keys-file <PATH>       File holding the keys (keep it chmod 600)
+      --keys-env <VAR>         Environment variable holding the keys
+      --key-version <HEX>      Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>            SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>     Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>            Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help                   Print help (see more with '--help')
 
 $ sim-doctor shell -h [exit 0]
 The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift

@@ -28,6 +28,9 @@ _sim__doctor() {
             sim__doctor,completions)
                 cmd="sim__doctor__subcmd__completions"
                 ;;
+            sim__doctor,erase)
+                cmd="sim__doctor__subcmd__erase"
+                ;;
             sim__doctor,esim-cert)
                 cmd="sim__doctor__subcmd__esim__subcmd__cert"
                 ;;
@@ -487,6 +490,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help,completions)
                 cmd="sim__doctor__subcmd__help__subcmd__completions"
                 ;;
+            sim__doctor__subcmd__help,erase)
+                cmd="sim__doctor__subcmd__help__subcmd__erase"
+                ;;
             sim__doctor__subcmd__help,esim-cert)
                 cmd="sim__doctor__subcmd__help__subcmd__esim__subcmd__cert"
                 ;;
@@ -842,7 +848,7 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card help"
+            opts="-h -V --help --version modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1084,6 +1090,60 @@ _sim__doctor() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__erase)
+            opts="-h --class --records --dry-run --confirm-iccid --yes --reader --json --keys-file --keys-env --key-version --mode --key-kdf --channel --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --class)
+                    COMPREPLY=($(compgen -W "magicsim supersim fakemagicsim" -- "${cur}"))
+                    return 0
+                    ;;
+                --records)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --confirm-iccid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mode)
+                    COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -3728,7 +3788,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card help"
+            opts="modules readers scan ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3812,6 +3872,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__completions)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__erase)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
