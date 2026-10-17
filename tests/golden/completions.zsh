@@ -1135,6 +1135,35 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(store-data)
+_arguments "${_arguments_options[@]}" : \
+'--data=[The data field as hex, sent exactly as given]:HEX:_default' \
+'--dgi-tag=[A DGI tag, 1 to 4 hex digits, e.g. 0036, 8137 or 9F66]:HEX:_default' \
+'--dgi-value=[That DGI'\''s value as hex\: the BER-TLVs it carries]:HEX:_default' \
+'--emv-perso=[EMV PersoData (DGI 9F66)\: exactly 8 bytes of hex]:HEX:_default' \
+'--emv-pre-perso=[EMV PrePersoData (DGI 9F67)\: exactly 8 bytes of hex]:HEX:_default' \
+'--structure=[P1 b5-b4\: none (00), dgi (01), ber-tlv (10). Defaults to dgi for a --dgi-tag, --emv-perso or --emv-pre-perso payload, none otherwise]:STRUCTURE:(none dgi ber-tlv)' \
+'--encryption=[P1 b7-b6\: none (00), app (01), encrypted (11)]:PROTECTION:(none app encrypted)' \
+'--block-size=[Data field bytes per block, 1 to 255]:BYTES:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--response[P1 b1\: let the card answer each block]' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__gp__subcmd__help_commands" \
@@ -1324,6 +1353,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (receipt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(store-data)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2571,6 +2604,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(store-data)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3347,6 +3384,7 @@ _sim-doctor__subcmd__gp_commands() {
 'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'move:Move an object (an application, a load file or a key object) from one Security Domain to another\: INSTALL \[for extradition\], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT' \
 'receipt:Verify a GlobalPlatform receipt\: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response'\''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY\: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself' \
+'store-data:Write data to the selected Application or issuer security domain with STORE DATA (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp commands' commands "$@"
@@ -3631,6 +3669,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'move:Move an object (an application, a load file or a key object) from one Security Domain to another\: INSTALL \[for extradition\], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT' \
 'receipt:Verify a GlobalPlatform receipt\: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response'\''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY\: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself' \
+'store-data:Write data to the selected Application or issuer security domain with STORE DATA (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp help commands' commands "$@"
@@ -3822,6 +3861,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__status_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help status commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__store-data_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__store-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help store-data commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__info_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__info_commands() {
     local commands; commands=()
@@ -3876,6 +3920,11 @@ _sim-doctor__subcmd__gp__subcmd__select_commands() {
 _sim-doctor__subcmd__gp__subcmd__status_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp status commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__store-data_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__store-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp store-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__help_commands() {
@@ -4121,6 +4170,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'aram:Add, delete or lock the secure element access rules the ARA-M holds\: STORE DATA \[Command-Store-REF-AR-DO\], \[Command-Delete\] and the fork'\''s lock, all over an SCP03 channel. CHANGES THE CARD'\''S ACCESS RULES' \
 'move:Move an object (an application, a load file or a key object) from one Security Domain to another\: INSTALL \[for extradition\], P1 10 (GlobalPlatform Card Spec v2.3.1 11.5.2.3.4), which is ONE command and not a DELETE followed by an INSTALL. CHANGES CARD CONTENT' \
 'receipt:Verify a GlobalPlatform receipt\: check that the receipt a Security Domain returned is the signature its receipt generation key makes over the response'\''s Confirmation Data and the AIDs the operation named (GlobalPlatform Card Specification v2.3.1 C.5, Tables C-11 to C-16; Confirmation Data is Table 11-14). READ-ONLY\: no card is opened and nothing is sent, so the receipt may come from a response you captured yourself' \
+'store-data:Write data to the selected Application or issuer security domain with STORE DATA (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
     )
     _describe -t commands 'sim-doctor help gp commands' commands "$@"
 }
@@ -4305,6 +4355,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__select_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__status_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp status commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__store-data_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__store-data_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp store-data commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__help_commands() {
