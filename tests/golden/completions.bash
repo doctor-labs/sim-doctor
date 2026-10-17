@@ -253,6 +253,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp,ara)
                 cmd="sim__doctor__subcmd__gp__subcmd__ara"
                 ;;
+            sim__doctor__subcmd__gp,aram)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram"
+                ;;
             sim__doctor__subcmd__gp,channel)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel"
                 ;;
@@ -292,6 +295,36 @@ _sim__doctor() {
             sim__doctor__subcmd__gp,status)
                 cmd="sim__doctor__subcmd__gp__subcmd__status"
                 ;;
+            sim__doctor__subcmd__gp__subcmd__aram,add)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__add"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram,config)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__config"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram,delete-all)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram,help)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram,lock)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__lock"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram__subcmd__help,add)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__add"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram__subcmd__help,config)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__config"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram__subcmd__help,delete-all)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__delete__subcmd__all"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram__subcmd__help,help)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__help"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__aram__subcmd__help,lock)
+                cmd="sim__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__lock"
+                ;;
             sim__doctor__subcmd__gp__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel__subcmd__close"
                 ;;
@@ -312,6 +345,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,ara)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__ara"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help,aram)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,channel)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel"
@@ -351,6 +387,18 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,status)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__status"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__aram,add)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__add"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__aram,config)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__config"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__aram,delete-all)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__delete__subcmd__all"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__aram,lock)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__close"
@@ -490,6 +538,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help__subcmd__gp,ara)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__ara"
                 ;;
+            sim__doctor__subcmd__help__subcmd__gp,aram)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram"
+                ;;
             sim__doctor__subcmd__help__subcmd__gp,channel)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel"
                 ;;
@@ -525,6 +576,18 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__gp,status)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__status"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__aram,add)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__add"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__aram,config)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__config"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__aram,delete-all)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__aram,lock)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock"
                 ;;
             sim__doctor__subcmd__help__subcmd__gp__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__close"
@@ -1859,7 +1922,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp)
-            opts="-h --help info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize help"
+            opts="-h --help info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1880,6 +1943,276 @@ _sim__doctor() {
             fi
             case "${prev}" in
                 --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram)
+            opts="-h --help add delete-all lock config help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__add)
+            opts="-h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --aid)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --device-app-id)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --pkg-ref)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --apdu-filter)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --android-permissions)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__config)
+            opts="-h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --channel --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --major)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --minor)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --patch)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all)
+            opts="-h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --confirm-delete-all)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__help)
+            opts="add delete-all lock config help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__add)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__config)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__delete__subcmd__all)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__help__subcmd__lock)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__lock)
+            opts="-h --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2123,7 +2456,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help)
-            opts="info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize help"
+            opts="info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2139,6 +2472,76 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__ara)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__aram)
+            opts="add delete-all lock config"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__add)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__config)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__delete__subcmd__all)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__aram__subcmd__lock)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -3095,7 +3498,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp)
-            opts="info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize"
+            opts="info ara status select channel delete make-default rename-isd delete-key install put-key cplc-set personalize aram"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3111,6 +3514,76 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__ara)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__aram)
+            opts="add delete-all lock config"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__add)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__config)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__aram__subcmd__lock)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi

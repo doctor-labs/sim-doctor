@@ -262,6 +262,7 @@ Commands:
   put-key       Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'S ADMINISTRATIVE ACCESS
   cplc-set      Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC
   personalize   Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT
+  aram          Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork's lock, all over an SCP03 channel. CHANGES THE CARD'S ACCESS RULES
   help          Print this message or the help of the given subcommand(s)
 
 Options:
@@ -513,6 +514,98 @@ Options:
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
+
+$ sim-doctor gp aram -h [exit 0]
+Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork's lock, all over an SCP03 channel. CHANGES THE CARD'S ACCESS RULES
+
+Usage: sim-doctor gp aram <COMMAND>
+
+Commands:
+  add         Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`
+  delete-all  Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)
+  lock        Lock the ARA-M's STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim's sysmocom ARA-M fork only
+  config      The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device's interface version. Read-only, no --yes
+  help        Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help (see more with '--help')
+
+$ sim-doctor gp aram add -h [exit 0]
+Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`
+
+Usage: sim-doctor gp aram add [OPTIONS]
+
+Options:
+      --aid <HEX>                  The application the rule is for: 5 to 16 bytes of hex, or the empty string for the empty AID-REF-DO that names every application
+      --aid-empty                  No specific application: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)
+      --device-app-id <HEX>        The device application's certificate hash or UUID, 20 or 32 bytes of hex. Empty (the default) matches any device application [default: ""]
+      --pkg-ref <NAME>             The Android package name (PKG-REF-DO, an AOSP extension)
+      --apdu-never                 Never allow the application's APDUs (APDU-AR-DO D0 01 00)
+      --apdu-always                Always allow the application's APDUs (APDU-AR-DO D0 01 01)
+      --apdu-filter <HEX>          An APDU filter: groups of 16 hex digits, 4 for CLA INS P1 P2 then 4 for the mask, repeated
+      --nfc-never                  Never deliver the application's NFC events (NFC-AR-DO D1 01 00)
+      --nfc-always                 Always deliver the application's NFC events (NFC-AR-DO D1 01 01)
+      --android-permissions <HEX>  The eight Android UICC Carrier Privilege permission bytes (PERM-AR-DO, an AOSP extension)
+      --reader <NAME>              The reader to use, matched against the driver's own name
+      --json                       Emit one JSON envelope of kind "gp" on stdout
+      --trace                      Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>           File holding the keys (keep it chmod 600)
+      --keys-env <VAR>             Environment variable holding the keys
+      --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                       Print help
+
+$ sim-doctor gp aram delete-all -h [exit 0]
+Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)
+
+Usage: sim-doctor gp aram delete-all [OPTIONS]
+
+Options:
+      --confirm-delete-all <TEXT>  Required acknowledgement beyond --yes: the literal DELETE-ALL
+      --reader <NAME>              The reader to use, matched against the driver's own name
+      --json                       Emit one JSON envelope of kind "gp" on stdout
+      --trace                      Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>           File holding the keys (keep it chmod 600)
+      --keys-env <VAR>             Environment variable holding the keys
+      --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                       Print help
+
+$ sim-doctor gp aram lock -h [exit 0]
+Lock the ARA-M's STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim's sysmocom ARA-M fork only
+
+Usage: sim-doctor gp aram lock [OPTIONS]
+
+Options:
+      --reader <NAME>      The reader to use, matched against the driver's own name
+      --json               Emit one JSON envelope of kind "gp" on stdout
+      --trace              Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>   File holding the keys (keep it chmod 600)
+      --keys-env <VAR>     Environment variable holding the keys
+      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help               Print help
+
+$ sim-doctor gp aram config -h [exit 0]
+The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device's interface version. Read-only, no --yes
+
+Usage: sim-doctor gp aram config [OPTIONS]
+
+Options:
+      --major <MAJOR>      The major part of the device interface version to offer [default: 0]
+      --minor <MINOR>      The minor part of the device interface version to offer [default: 0]
+      --patch <PATCH>      The patch part of the device interface version to offer [default: 1]
+      --reader <NAME>      The reader to use, matched against the driver's own name
+      --json               Emit one JSON envelope of kind "gp" on stdout
+      --trace              Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>   File holding the keys (keep it chmod 600)
+      --keys-env <VAR>     Environment variable holding the keys
+      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help               Print help
 
 $ sim-doctor trace -h [exit 0]
 Decode a captured APDU trace offline (no card, no reader)

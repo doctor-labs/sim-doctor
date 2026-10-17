@@ -242,6 +242,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('put-key', 'put-key', [CompletionResultType]::ParameterValue, 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS')
             [CompletionResult]::new('cplc-set', 'cplc-set', [CompletionResultType]::ParameterValue, 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC')
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
+            [CompletionResult]::new('aram', 'aram', [CompletionResultType]::ParameterValue, 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -460,6 +461,104 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
+        'sim-doctor;gp;aram' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`')
+            [CompletionResult]::new('delete-all', 'delete-all', [CompletionResultType]::ParameterValue, 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)')
+            [CompletionResult]::new('lock', 'lock', [CompletionResultType]::ParameterValue, 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only')
+            [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;gp;aram;add' {
+            [CompletionResult]::new('--aid', '--aid', [CompletionResultType]::ParameterName, 'The application the rule is for: 5 to 16 bytes of hex, or the empty string for the empty AID-REF-DO that names every application')
+            [CompletionResult]::new('--device-app-id', '--device-app-id', [CompletionResultType]::ParameterName, 'The device application''s certificate hash or UUID, 20 or 32 bytes of hex. Empty (the default) matches any device application')
+            [CompletionResult]::new('--pkg-ref', '--pkg-ref', [CompletionResultType]::ParameterName, 'The Android package name (PKG-REF-DO, an AOSP extension)')
+            [CompletionResult]::new('--apdu-filter', '--apdu-filter', [CompletionResultType]::ParameterName, 'An APDU filter: groups of 16 hex digits, 4 for CLA INS P1 P2 then 4 for the mask, repeated')
+            [CompletionResult]::new('--android-permissions', '--android-permissions', [CompletionResultType]::ParameterName, 'The eight Android UICC Carrier Privilege permission bytes (PERM-AR-DO, an AOSP extension)')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
+            [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')
+            [CompletionResult]::new('--key-version', '--key-version', [CompletionResultType]::ParameterName, 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set')
+            [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it')
+            [CompletionResult]::new('--aid-empty', '--aid-empty', [CompletionResultType]::ParameterName, 'No specific application: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)')
+            [CompletionResult]::new('--apdu-never', '--apdu-never', [CompletionResultType]::ParameterName, 'Never allow the application''s APDUs (APDU-AR-DO D0 01 00)')
+            [CompletionResult]::new('--apdu-always', '--apdu-always', [CompletionResultType]::ParameterName, 'Always allow the application''s APDUs (APDU-AR-DO D0 01 01)')
+            [CompletionResult]::new('--nfc-never', '--nfc-never', [CompletionResultType]::ParameterName, 'Never deliver the application''s NFC events (NFC-AR-DO D1 01 00)')
+            [CompletionResult]::new('--nfc-always', '--nfc-always', [CompletionResultType]::ParameterName, 'Always deliver the application''s NFC events (NFC-AR-DO D1 01 01)')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('--trace', '--trace', [CompletionResultType]::ParameterName, 'Add every APDU exchange (command and response hex) as data.trace')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;gp;aram;delete-all' {
+            [CompletionResult]::new('--confirm-delete-all', '--confirm-delete-all', [CompletionResultType]::ParameterName, 'Required acknowledgement beyond --yes: the literal DELETE-ALL')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
+            [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')
+            [CompletionResult]::new('--key-version', '--key-version', [CompletionResultType]::ParameterName, 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set')
+            [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('--trace', '--trace', [CompletionResultType]::ParameterName, 'Add every APDU exchange (command and response hex) as data.trace')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;gp;aram;lock' {
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
+            [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')
+            [CompletionResult]::new('--key-version', '--key-version', [CompletionResultType]::ParameterName, 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set')
+            [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('--trace', '--trace', [CompletionResultType]::ParameterName, 'Add every APDU exchange (command and response hex) as data.trace')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;gp;aram;config' {
+            [CompletionResult]::new('--major', '--major', [CompletionResultType]::ParameterName, 'The major part of the device interface version to offer')
+            [CompletionResult]::new('--minor', '--minor', [CompletionResultType]::ParameterName, 'The minor part of the device interface version to offer')
+            [CompletionResult]::new('--patch', '--patch', [CompletionResultType]::ParameterName, 'The patch part of the device interface version to offer')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
+            [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')
+            [CompletionResult]::new('--key-version', '--key-version', [CompletionResultType]::ParameterName, 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set')
+            [CompletionResult]::new('--channel', '--channel', [CompletionResultType]::ParameterName, 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "gp" on stdout')
+            [CompletionResult]::new('--trace', '--trace', [CompletionResultType]::ParameterName, 'Add every APDU exchange (command and response hex) as data.trace')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;gp;aram;help' {
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`')
+            [CompletionResult]::new('delete-all', 'delete-all', [CompletionResultType]::ParameterValue, 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)')
+            [CompletionResult]::new('lock', 'lock', [CompletionResultType]::ParameterValue, 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only')
+            [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;gp;aram;help;add' {
+            break
+        }
+        'sim-doctor;gp;aram;help;delete-all' {
+            break
+        }
+        'sim-doctor;gp;aram;help;lock' {
+            break
+        }
+        'sim-doctor;gp;aram;help;config' {
+            break
+        }
+        'sim-doctor;gp;aram;help;help' {
+            break
+        }
         'sim-doctor;gp;help' {
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA')
             [CompletionResult]::new('ara', 'ara', [CompletionResultType]::ParameterValue, 'Select the ARA-M (Access Rule Application Master) and read every access rule with GET DATA [all], decoded (read-only, no keys)')
@@ -474,6 +573,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('put-key', 'put-key', [CompletionResultType]::ParameterValue, 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS')
             [CompletionResult]::new('cplc-set', 'cplc-set', [CompletionResultType]::ParameterValue, 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC')
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
+            [CompletionResult]::new('aram', 'aram', [CompletionResultType]::ParameterValue, 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -522,6 +622,25 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;gp;help;personalize' {
+            break
+        }
+        'sim-doctor;gp;help;aram' {
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`')
+            [CompletionResult]::new('delete-all', 'delete-all', [CompletionResultType]::ParameterValue, 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)')
+            [CompletionResult]::new('lock', 'lock', [CompletionResultType]::ParameterValue, 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only')
+            [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes')
+            break
+        }
+        'sim-doctor;gp;help;aram;add' {
+            break
+        }
+        'sim-doctor;gp;help;aram;delete-all' {
+            break
+        }
+        'sim-doctor;gp;help;aram;lock' {
+            break
+        }
+        'sim-doctor;gp;help;aram;config' {
             break
         }
         'sim-doctor;gp;help;help' {
@@ -1166,6 +1285,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('put-key', 'put-key', [CompletionResultType]::ParameterValue, 'Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD''S ADMINISTRATIVE ACCESS')
             [CompletionResult]::new('cplc-set', 'cplc-set', [CompletionResultType]::ParameterValue, 'Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC')
             [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT')
+            [CompletionResult]::new('aram', 'aram', [CompletionResultType]::ParameterValue, 'Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork''s lock, all over an SCP03 channel. CHANGES THE CARD''S ACCESS RULES')
             break
         }
         'sim-doctor;help;gp;info' {
@@ -1213,6 +1333,25 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;gp;personalize' {
+            break
+        }
+        'sim-doctor;help;gp;aram' {
+            [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add or replace one access rule: STORE DATA [Command-Store-REF-AR-DO], `F0 { E2 { E1 { 4F|C0, C1, CA }, E3 { D0, D1, DB } } }`')
+            [CompletionResult]::new('delete-all', 'delete-all', [CompletionResultType]::ParameterValue, 'Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)')
+            [CompletionResult]::new('lock', 'lock', [CompletionResultType]::ParameterValue, 'Lock the ARA-M''s STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim''s sysmocom ARA-M fork only')
+            [CompletionResult]::new('config', 'config', [CompletionResultType]::ParameterValue, 'The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device''s interface version. Read-only, no --yes')
+            break
+        }
+        'sim-doctor;help;gp;aram;add' {
+            break
+        }
+        'sim-doctor;help;gp;aram;delete-all' {
+            break
+        }
+        'sim-doctor;help;gp;aram;lock' {
+            break
+        }
+        'sim-doctor;help;gp;aram;config' {
             break
         }
         'sim-doctor;help;trace' {
