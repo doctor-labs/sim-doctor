@@ -586,6 +586,59 @@ impl Channel {
             None => Command::case3(header, body),
         })
     }
+
+    /// [`Self::wrap`] for a command that carries a data field with NO Lc octet
+    /// in front of it, given as the parts rather than as a [`Command`].
+    ///
+    /// Only one command in this crate is of that shape: the reference's SELECT
+    /// by FID, `00 A4 00 02 <FID> 00`, which puts the file identifier where a
+    /// data field would be and sends no P3 length for it
+    /// (`cla + a4 + sel_ctrl + 02 + fid + 00`, pySim/commands.py:284).
+    /// [`apdu::Command`] has one case-4 shape and `case4` always emits an Lc, so
+    /// re-assembling those bytes into a [`Command`] would insert an octet the
+    /// reference does not send - and a plan that is bytes precisely because the
+    /// dry run and the run must not disagree cannot afford that.
+    ///
+    /// Same MAC input as [`Self::wrap`] (Amendment D 6.2.4) with the Lc octet
+    /// left out, because there is none on the wire: `chain || CLA' INS P1 P2 ||
+    /// data`. The MAC goes after the data and before the Le, the chaining value
+    /// is the full 16-octet CMAC, and it happens once per command actually
+    /// sent, in send order.
+    ///
+    /// `le` is a short-form Le only, because that is the only form the commands
+    /// this exists for use.
+    ///
+    /// # Errors
+    ///
+    /// Never in this version: the output is a byte vector with no Lc octet to
+    /// overflow. The `Result` is kept so this and [`Self::wrap`] can be swapped
+    /// without a signature change.
+    pub fn wrap_bytes(
+        &mut self,
+        header: Header,
+        data: &[u8],
+        le: Option<u8>,
+    ) -> Result<Vec<u8>, Error> {
+        let class = crate::apdu::class_on_channel(header.class(), self.logical)
+            .map_or(header.class() | 0x04, |c| {
+                c | if c & 0x40 != 0 { 0x20 } else { 0x04 }
+            });
+        let header = Header::new(
+            class,
+            header.instruction(),
+            header.parameter_1(),
+            header.parameter_2(),
+        );
+        let full = cmac(&self.s_mac, &[&self.chain, &header.to_bytes(), data]);
+        self.chain = full;
+        let mut command = header.to_bytes().to_vec();
+        command.extend_from_slice(data);
+        command.extend_from_slice(&full[..MAC_LEN]);
+        if let Some(le) = le {
+            command.push(le);
+        }
+        Ok(command)
+    }
 }
 
 /// INITIALIZE UPDATE (`80 50 <key version> 00 08 <host challenge> 00`).

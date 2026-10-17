@@ -1922,6 +1922,29 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(erase)
+_arguments "${_arguments_options[@]}" : \
+'--class=[The pySim card class being erased\: it decides which provisioning EFs are written and their record lengths (18/130/102 for magicsim, 18/74/50 for supersim, one EF of 18 for fakemagicsim). Required]:CLASS:(magicsim supersim fakemagicsim)' \
+'--records=[How many record slots of each file to erase. Required, and never defaulted\: the reference derives it from the card]:N:_default' \
+'--confirm-iccid=[The ICCID of the card to erase, as the reports print it. Read from EF.ICCID and compared before the first write; a card that is not this one is refused and nothing is erased]:ICCID:_default' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set]:HEX:_default' \
+'--mode=[SCP03 security level of the secure channel\: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened]:MODE:((mac\:"01\: C-MAC only"
+enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
+rmac\:"11\: C-MAC and R-MAC"
+renc\:"31\: C-MAC, R-MAC and R-ENC"
+all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--dry-run[Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send]' \
+'--yes[Send the erase. Needs --class, --records, --confirm-iccid and a key source]' \
+'--json[Emit one JSON envelope of kind "program-erase" on stdout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__help_commands" \
@@ -2458,6 +2481,10 @@ esac
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(erase)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -2497,6 +2524,7 @@ _sim-doctor_commands() {
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
+'erase:Erase the provisioning records before programming\: the reference programming tool'\''s -e/--erase, as a command of its own' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor commands' commands "$@"
@@ -2572,6 +2600,11 @@ _sim-doctor__subcmd__ci__subcmd__install_commands() {
 _sim-doctor__subcmd__completions_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor completions commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__erase_commands] )) ||
+_sim-doctor__subcmd__erase_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor erase commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__esim-cert_commands] )) ||
 _sim-doctor__subcmd__esim-cert_commands() {
@@ -3370,6 +3403,7 @@ _sim-doctor__subcmd__help_commands() {
 'fuzz:APDU discovery and the OTA/SMS fuzz sweep' \
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
+'erase:Erase the provisioning records before programming\: the reference programming tool'\''s -e/--erase, as a command of its own' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor help commands' commands "$@"
@@ -3407,6 +3441,11 @@ _sim-doctor__subcmd__help__subcmd__ci__subcmd__install_commands() {
 _sim-doctor__subcmd__help__subcmd__completions_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help completions commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__erase_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__erase_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help erase commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__esim-cert_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__esim-cert_commands() {

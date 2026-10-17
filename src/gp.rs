@@ -1167,14 +1167,14 @@ pub struct Auth<'a> {
 }
 
 /// Why the run stopped before a secure channel existed.
-struct Stop {
-    kind: &'static str,
-    message: String,
-    key_version: Option<u8>,
+pub(crate) struct Stop {
+    pub(crate) kind: &'static str,
+    pub(crate) message: String,
+    pub(crate) key_version: Option<u8>,
 }
 
-struct Established {
-    channel: scp03::Channel,
+pub(crate) struct Established {
+    pub(crate) channel: scp03::Channel,
     iur: scp03::InitializeUpdateResponse,
     /// The keys the channel was actually established with, when `--key-kdf`
     /// diversified a master key. The reported key check values are these, not
@@ -1214,7 +1214,12 @@ fn diversified_keys(master: &Keys, name: &str, kdd: &[u8; 10]) -> Result<Keys, k
     })
 }
 
-fn authenticate<S: CardSession + ?Sized>(
+///
+///
+/// Crate-visible because the program-erase command authenticates the same way
+/// before it writes (`erase::erase_authenticated`): ONE attempt, one set of keys
+/// and one place that checks the card cryptogram before EXTERNAL AUTHENTICATE.
+pub(crate) fn authenticate<S: CardSession + ?Sized>(
     session: &mut S,
     steps: &mut Vec<Value>,
     auth: &Auth<'_>,

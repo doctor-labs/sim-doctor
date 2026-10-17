@@ -119,6 +119,7 @@ pub mod ci;
 pub mod contract;
 pub mod der;
 pub mod ef;
+pub mod erase;
 pub mod es10;
 pub mod es9;
 pub mod es9_https;
