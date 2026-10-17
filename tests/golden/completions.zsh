@@ -210,6 +210,23 @@ esac
     ;;
 esac
 ;;
+(batch)
+_arguments "${_arguments_options[@]}" : \
+'--plan=[The plan\: a \`sim-doctor-batch-plan/1\` JSON document naming every card, its ICCID and the commands to send it. Read and checked in full before any card is touched]:PATH:_files' \
+'--state=[The state file. The only record of which cards are programmed and verified; its absence means the batch has not started, and an unreadable one stops the run rather than restarting it]:PATH:_files' \
+'--reader=[The reader to use, matched against the driver'\''s own name (default\: the first reader)]:NAME:_default' \
+'--on-failure=[Whether a card that failed lets the run go on to the next one. \`stop\` (the default) ends the run at the first failure; \`continue\` goes on and the report says which card was left behind and why. A swapped card stops the run either way]:WHAT:(stop continue)' \
+'--batch-name=[The batch'\''s name, recorded in the state file (default\: the plan'\''s \`batch\`, or \`batch\`)]:NAME:_default' \
+'--handler=[A feeder instead of a person\: \`get = command\`, \`done = command\` and \`error = command\`, one per line (\`#\` starts a comment). The command is run directly, not through a shell]:PATH:_files' \
+'(--chv-env)--chv-file=[File holding PINs, PUKs and ADM keys for plan commands that need them (\`pin1=1234\` per line; keep it chmod 600). Never a value on the command line\: it would land in shell history]:PATH:_files' \
+'--chv-env=[Environment variable holding the same text (entries separated by \`;\` or newlines)]:VAR:_default' \
+'--yes[Send the batch. Without it, every card'\''s plan is printed and not one byte is sent]' \
+'--retry-failed[Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this]' \
+'--json[Print one JSON envelope on stdout, and nothing else]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (install)
 _arguments "${_arguments_options[@]}" : \
 '--agent=[Install for one agent only; omit for all of them]:AGENT:(claude cursor codex opencode)' \
@@ -2351,6 +2368,10 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(batch)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (install)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -2916,6 +2937,7 @@ _sim-doctor_commands() {
 'scan:Select a card'\''s master file, walk everything under it, and report' \
 'profile:Print the card-profile database, or probe a card against it' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
+'batch:Program a batch of cards, one at a time, with a crash-safe state file' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
 'ci:Write the GitHub Actions workflow that runs this repo'\''s action on pull requests' \
 'completions:Write a shell completion script to stdout' \
@@ -2939,6 +2961,11 @@ _sim-doctor_commands() {
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__batch_commands] )) ||
+_sim-doctor__subcmd__batch_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor batch commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__card_commands] )) ||
 _sim-doctor__subcmd__card_commands() {
@@ -3937,6 +3964,7 @@ _sim-doctor__subcmd__help_commands() {
 'scan:Select a card'\''s master file, walk everything under it, and report' \
 'profile:Print the card-profile database, or probe a card against it' \
 'ts48:Compare a card against the public GSMA TS.48 test profile' \
+'batch:Program a batch of cards, one at a time, with a crash-safe state file' \
 'install:Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project' \
 'ci:Write the GitHub Actions workflow that runs this repo'\''s action on pull requests' \
 'completions:Write a shell completion script to stdout' \
@@ -3960,6 +3988,11 @@ _sim-doctor__subcmd__help_commands() {
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__batch_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__batch_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help batch commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__card_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__card_commands() {

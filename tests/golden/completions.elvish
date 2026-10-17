@@ -27,6 +27,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand scan 'Select a card''s master file, walk everything under it, and report'
             cand profile 'Print the card-profile database, or probe a card against it'
             cand ts48 'Compare a card against the public GSMA TS.48 test profile'
+            cand batch 'Program a batch of cards, one at a time, with a crash-safe state file'
             cand install 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project'
             cand ci 'Write the GitHub Actions workflow that runs this repo''s action on pull requests'
             cand completions 'Write a shell completion script to stdout'
@@ -159,6 +160,21 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;ts48;help;compare'= {
         }
         &'sim-doctor;ts48;help;help'= {
+        }
+        &'sim-doctor;batch'= {
+            cand --plan 'The plan: a `sim-doctor-batch-plan/1` JSON document naming every card, its ICCID and the commands to send it. Read and checked in full before any card is touched'
+            cand --state 'The state file. The only record of which cards are programmed and verified; its absence means the batch has not started, and an unreadable one stops the run rather than restarting it'
+            cand --reader 'The reader to use, matched against the driver''s own name (default: the first reader)'
+            cand --on-failure 'Whether a card that failed lets the run go on to the next one. `stop` (the default) ends the run at the first failure; `continue` goes on and the report says which card was left behind and why. A swapped card stops the run either way'
+            cand --batch-name 'The batch''s name, recorded in the state file (default: the plan''s `batch`, or `batch`)'
+            cand --handler 'A feeder instead of a person: `get = command`, `done = command` and `error = command`, one per line (`#` starts a comment). The command is run directly, not through a shell'
+            cand --chv-file 'File holding PINs, PUKs and ADM keys for plan commands that need them (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history'
+            cand --chv-env 'Environment variable holding the same text (entries separated by `;` or newlines)'
+            cand --yes 'Send the batch. Without it, every card''s plan is printed and not one byte is sent'
+            cand --retry-failed 'Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this'
+            cand --json 'Print one JSON envelope on stdout, and nothing else'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
         }
         &'sim-doctor;install'= {
             cand --agent 'Install for one agent only; omit for all of them'
@@ -1459,6 +1475,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand scan 'Select a card''s master file, walk everything under it, and report'
             cand profile 'Print the card-profile database, or probe a card against it'
             cand ts48 'Compare a card against the public GSMA TS.48 test profile'
+            cand batch 'Program a batch of cards, one at a time, with a crash-safe state file'
             cand install 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project'
             cand ci 'Write the GitHub Actions workflow that runs this repo''s action on pull requests'
             cand completions 'Write a shell completion script to stdout'
@@ -1502,6 +1519,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand compare 'Walk the card and diff its file system against the GSMA TS.48 test profile'
         }
         &'sim-doctor;help;ts48;compare'= {
+        }
+        &'sim-doctor;help;batch'= {
         }
         &'sim-doctor;help;install'= {
         }
