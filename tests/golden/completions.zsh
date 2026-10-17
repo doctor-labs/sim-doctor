@@ -337,6 +337,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '(--list --info)--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '(--info)--list[Print the registry as a table\: scope, AID, lifecycle, privileges]' \
 '--info[Print each registry entry in detail, with its raw lifecycle and privilege bytes]' \
@@ -402,6 +403,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -422,6 +424,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -559,6 +562,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--related[Also delete related objects (P2 80)\: for a load file, its applications]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -580,6 +584,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -600,6 +605,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -646,6 +652,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '-F[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
 '--no-felix[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
@@ -673,6 +680,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--replace-current-keyset[Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -695,6 +703,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--today[Write today'\''s date (UTC) into the date bytes, overriding those in --data]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
@@ -717,6 +726,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -755,6 +765,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '(--aid)--aid-empty[No specific application\: the implicitly selected one on every channel (AID-REF-EMPTY-DO, C0)]' \
 '(--apdu-always --apdu-filter)--apdu-never[Never allow the application'\''s APDUs (APDU-AR-DO D0 01 00)]' \
@@ -780,6 +791,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -799,6 +811,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
@@ -821,6 +834,7 @@ enc\:"03\: C-MAC and command encryption (the card decrypts\: C-DECRYPTION)"
 rmac\:"11\: C-MAC and R-MAC"
 renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
+'--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \

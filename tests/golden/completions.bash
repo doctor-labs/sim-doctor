@@ -2044,7 +2044,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__add)
-            opts="-h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --aid --aid-empty --device-app-id --pkg-ref --apdu-never --apdu-always --apdu-filter --nfc-never --nfc-always --android-permissions --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2090,6 +2090,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -2102,7 +2106,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__config)
-            opts="-h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --mode --channel --help"
+            opts="-h --major --minor --patch --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2140,6 +2144,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -2152,7 +2160,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__delete__subcmd__all)
-            opts="-h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --confirm-delete-all --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2180,6 +2188,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --channel)
@@ -2278,7 +2290,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__aram__subcmd__lock)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2302,6 +2314,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --channel)
@@ -2426,7 +2442,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cplc__subcmd__set)
-            opts="-h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2460,6 +2476,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -2486,7 +2506,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__activate)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2510,6 +2530,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --channel)
@@ -2524,7 +2548,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__crs__subcmd__deactivate)
-            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2548,6 +2572,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --channel)
@@ -2694,7 +2722,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__delete)
-            opts="-h --aid --related --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --aid --related --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2722,6 +2750,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --channel)
@@ -3188,7 +3220,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__install)
-            opts="-F -h --load --module --app --params --no-felix --privileges --make-default --bs --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-F -h --load --module --app --params --no-felix --privileges --make-default --bs --dap-key-file --dap-key-env --dap-sd --dap-hash --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3254,6 +3286,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -3266,7 +3302,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__make__subcmd__default)
-            opts="-h --aid --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3296,6 +3332,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -3308,7 +3348,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__personalize)
-            opts="-h --aid --data --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --aid --data --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3342,6 +3382,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -3354,7 +3398,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__put__subcmd__key)
-            opts="-h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3400,6 +3444,10 @@ _sim__doctor() {
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
                     return 0
                     ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --channel)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -3434,7 +3482,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__rename__subcmd__isd)
-            opts="-h --new-aid --reader --json --trace --keys-file --keys-env --key-version --mode --channel --yes --help"
+            opts="-h --new-aid --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3462,6 +3510,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --channel)
@@ -3502,7 +3554,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__status)
-            opts="-h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --mode --help"
+            opts="-h --reader --json --list --info --trace --channel --keys-file --keys-env --key-version --mode --key-kdf --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3530,6 +3582,10 @@ _sim__doctor() {
                     ;;
                 --mode)
                     COMPREPLY=($(compgen -W "mac enc rmac renc all" -- "${cur}"))
+                    return 0
+                    ;;
+                --key-kdf)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 *)

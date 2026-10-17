@@ -180,6 +180,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l list -d 'Print the registry as a table: scope, AID, lifecycle, privileges'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l info -d 'Print each registry entry in detail, with its raw lifecycle and privilege bytes'
@@ -217,6 +218,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l related -d 'Also delete related objects (P2 80): for a load file, its applications'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -233,6 +235,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
@@ -248,6 +251,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
@@ -286,6 +290,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -s F -l no-felix -d 'Refuse to guess the install parameters: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l make-default -d 'Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro\'s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first'
@@ -307,6 +312,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l replace-current-keyset -d 'Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -325,6 +331,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l today -d 'Write today\'s date (UTC) into the date bytes, overriding those in --data'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -342,6 +349,7 @@ enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
 rmac\t'11: C-MAC and R-MAC'
 renc\t'31: C-MAC, R-MAC and R-ENC'
 all\t'33: all four protections'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l key-kdf -d 'Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro\'s own vectors. The keys stay in the file or the environment variable: a template name is not key material' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'

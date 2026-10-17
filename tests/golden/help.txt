@@ -300,17 +300,18 @@ GlobalPlatform registry inventory: GET STATUS for the ISD, applications and load
 Usage: sim-doctor gp status [OPTIONS]
 
 Options:
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --list               Print the registry as a table: scope, AID, lifecycle, privileges
-      --info               Print each registry entry in detail, with its raw lifecycle and privilege bytes
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-  -h, --help               Print help (see more with '--help')
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --list                Print the registry as a table: scope, AID, lifecycle, privileges
+      --info                Print each registry entry in detail, with its raw lifecycle and privilege bytes
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp select -h [exit 0]
 SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card's current selection
@@ -374,16 +375,17 @@ Arguments:
   <AID>  The application AID, 5 to 16 bytes of hex
 
 Options:
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp crs deactivate -h [exit 0]
 Deactivate one application for contactless (CRS SET STATUS with P2 00). CHANGES CARD STATE
@@ -394,16 +396,17 @@ Arguments:
   <AID>  The application AID, 5 to 16 bytes of hex
 
 Options:
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp channel -h [exit 0]
 Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N
@@ -460,18 +463,19 @@ Delete an application or an executable load file over an SCP03 channel (DELETE, 
 Usage: sim-doctor gp delete [OPTIONS] --aid <HEX>
 
 Options:
-      --aid <HEX>          The AID to delete, 5 to 16 bytes of hex
-      --related            Also delete related objects (P2 80): for a load file, its applications
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --aid <HEX>           The AID to delete, 5 to 16 bytes of hex
+      --related             Also delete related objects (P2 80): for a load file, its applications
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp make-default -h [exit 0]
 Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT
@@ -479,17 +483,18 @@ Make an installed application Default Selected over an SCP03 channel: INSTALL [f
 Usage: sim-doctor gp make-default [OPTIONS] --aid <HEX>
 
 Options:
-      --aid <HEX>          The application AID, 5 to 16 bytes of hex
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --aid <HEX>           The application AID, 5 to 16 bytes of hex
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp rename-isd -h [exit 0]
 Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT
@@ -497,17 +502,18 @@ Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID`
 Usage: sim-doctor gp rename-isd [OPTIONS] --new-aid <HEX>
 
 Options:
-      --new-aid <HEX>      The new ISD AID, 5 to 16 bytes of hex
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --new-aid <HEX>       The new ISD AID, 5 to 16 bytes of hex
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp delete-key -h [exit 0]
 Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE
@@ -553,6 +559,7 @@ Options:
       --keys-env <VAR>       Environment variable holding the keys
       --key-version <HEX>    Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>          SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>   Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
       --channel <N>          Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                  Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                 Print help (see more with '--help')
@@ -576,6 +583,7 @@ Options:
       --keys-env <VAR>             Environment variable holding the keys
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>         Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -586,19 +594,20 @@ Write the CPLC pre-personalization or personalization block (STORE DATA with DGI
 Usage: sim-doctor gp cplc-set [OPTIONS] --kind <KIND> --data <HEX>
 
 Options:
-      --kind <KIND>        pre-perso (DGI 9F67) or perso (DGI 9F66) [possible values: pre-perso, perso]
-      --data <HEX>         The eight data bytes of the block as 16 hex digits
-      --today              Write today's date (UTC) into the date bytes, overriding those in --data
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --kind <KIND>         pre-perso (DGI 9F67) or perso (DGI 9F66) [possible values: pre-perso, perso]
+      --data <HEX>          The eight data bytes of the block as 16 hex digits
+      --today               Write today's date (UTC) into the date bytes, overriding those in --data
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp personalize -h [exit 0]
 Personalize an application or Security Domain over an SCP03 channel: INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified against the spec text, see the source). CHANGES CARD CONTENT
@@ -606,18 +615,19 @@ Personalize an application or Security Domain over an SCP03 channel: INSTALL [fo
 Usage: sim-doctor gp personalize [OPTIONS] --aid <HEX> --data <HEX>
 
 Options:
-      --aid <HEX>          The application or Security Domain AID, 5 to 16 bytes of hex
-      --data <HEX>         The BER-TLV personalization data, as hex; sent as the STORE DATA body
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --aid <HEX>           The application or Security Domain AID, 5 to 16 bytes of hex
+      --data <HEX>          The BER-TLV personalization data, as hex; sent as the STORE DATA body
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp aram -h [exit 0]
 Add, delete or lock the secure element access rules the ARA-M holds: STORE DATA [Command-Store-REF-AR-DO], [Command-Delete] and the fork's lock, all over an SCP03 channel. CHANGES THE CARD'S ACCESS RULES
@@ -657,6 +667,7 @@ Options:
       --keys-env <VAR>             Environment variable holding the keys
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>         Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -675,6 +686,7 @@ Options:
       --keys-env <VAR>             Environment variable holding the keys
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>         Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -685,16 +697,17 @@ Lock the ARA-M's STORE DATA (the single byte A1), so no rule can ever be added, 
 Usage: sim-doctor gp aram lock [OPTIONS]
 
 Options:
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-      --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help (see more with '--help')
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+      --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp aram config -h [exit 0]
 The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device's interface version. Read-only, no --yes
@@ -702,18 +715,19 @@ The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device
 Usage: sim-doctor gp aram config [OPTIONS]
 
 Options:
-      --major <MAJOR>      The major part of the device interface version to offer [default: 0]
-      --minor <MINOR>      The minor part of the device interface version to offer [default: 0]
-      --patch <PATCH>      The patch part of the device interface version to offer [default: 1]
-      --reader <NAME>      The reader to use, matched against the driver's own name
-      --json               Emit one JSON envelope of kind "gp" on stdout
-      --trace              Add every APDU exchange (command and response hex) as data.trace
-      --keys-file <PATH>   File holding the keys (keep it chmod 600)
-      --keys-env <VAR>     Environment variable holding the keys
-      --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
-      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
-      --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help               Print help (see more with '--help')
+      --major <MAJOR>       The major part of the device interface version to offer [default: 0]
+      --minor <MINOR>       The minor part of the device interface version to offer [default: 0]
+      --patch <PATCH>       The patch part of the device interface version to offer [default: 1]
+      --reader <NAME>       The reader to use, matched against the driver's own name
+      --json                Emit one JSON envelope of kind "gp" on stdout
+      --trace               Add every APDU exchange (command and response hex) as data.trace
+      --keys-file <PATH>    File holding the keys (keep it chmod 600)
+      --keys-env <VAR>      Environment variable holding the keys
+      --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
+      --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
+  -h, --help                Print help (see more with '--help')
 
 $ sim-doctor trace -h [exit 0]
 Decode a captured APDU trace offline (no card, no reader)
