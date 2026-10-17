@@ -33,7 +33,6 @@
 //! layer 1  backend     SIM_DOCTOR_HTTP / SIM_DOCTOR_CA_BUNDLE selection, after lpac
 //! layer 1  notif      dumped eUICC notifications read back from a file and replayed over ES9+ HandleNotification (dry run unless told to send)
 //! layer 1  sysmocom     AT-command drivers for the sysmocom SJA2, SJA5 and SJS1 over the transport seam
-//! layer 1  sysmocom     AT-command drivers for the sysmocom SJA2, SJA5 and SJS1 over the transport seam
 //! layer 1  legacy       the legacy magic-SIM, OpenCells, GrCard and sysmoSIMgr2 drivers: GSM-SIM APDUs over the sysmocom AT seam
 //! layer 1  tar         TAR scanning: the value space, the bounded ENVELOPE
 //!                probe, and the baseline a TAR is judged against
@@ -285,11 +284,6 @@ pub const MODULES: &[ModuleInfo] = &[
         name: tar::NAME,
         owns: "The TAR value space, the ways to select a subset of it, the bounded ENVELOPE probe that puts a TAR on a card, and the baseline one is judged against.",
         depends_on: &[apdu::NAME, transport::NAME, session::NAME],
-    },
-    ModuleInfo {
-        name: sysmocom::NAME,
-        owns: "The AT-command driver for the sysmocom SJA2, SJA5 and SJS1: the AT lines, the ATR model tables, the probe, and each model's programming surface.",
-        depends_on: &[transport::NAME],
     },
     ModuleInfo {
         name: sysmocom::NAME,
