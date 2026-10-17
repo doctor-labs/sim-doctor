@@ -174,6 +174,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l list -d 'Print the registry as a table: scope, AID, lifecycle, privileges'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l info -d 'Print each registry entry in detail, with its raw lifecycle and privilege bytes'
@@ -200,6 +205,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l related -d 'Also delete related objects (P2 80): for a load file, its applications'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -211,6 +221,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
@@ -221,6 +236,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
@@ -254,6 +274,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l make-default -d 'Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro\'s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -269,6 +294,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l replace-current-keyset -d 'Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -282,6 +312,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l today -d 'Write today\'s date (UTC) into the date bytes, overriding those in --data'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
@@ -294,6 +329,11 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l keys-env -d 'Environment variable holding the keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l key-version -d 'Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l mode -d 'SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened' -r -f -a "mac\t'01: C-MAC only'
+enc\t'03: C-MAC and command encryption (the card decrypts: C-DECRYPTION)'
+rmac\t'11: C-MAC and R-MAC'
+renc\t'31: C-MAC, R-MAC and R-ENC'
+all\t'33: all four protections'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l channel -d 'Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'

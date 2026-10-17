@@ -1104,12 +1104,52 @@ impl DapKey {
     }
 }
 
+/// `--mode`: the SCP03 security level of the secure channel.
+///
+/// One name per level [`scp03::SecurityLevel`] builds; clap refuses anything
+/// else, so the level can never be a byte value this tool does not know.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum Scp03Mode {
+    /// 01: C-MAC only.
+    Mac,
+    /// 03: C-MAC and command encryption (the card decrypts: C-DECRYPTION).
+    Enc,
+    /// 11: C-MAC and R-MAC.
+    Rmac,
+    /// 31: C-MAC, R-MAC and R-ENC.
+    Renc,
+    /// 33: all four protections.
+    All,
+}
+
+impl Scp03Mode {
+    /// The level byte this mode names.
+    pub const fn bits(self) -> u8 {
+        match self {
+            Self::Mac => scp03::LEVEL_C_MAC,
+            Self::Enc => scp03::LEVEL_C_MAC_C_DECRYPTION,
+            Self::Rmac => scp03::LEVEL_C_MAC_R_MAC,
+            Self::Renc => scp03::LEVEL_C_MAC_R_MAC_R_ENC,
+            Self::All => scp03::LEVEL_ALL,
+        }
+    }
+}
+
+impl From<Scp03Mode> for scp03::SecurityLevel {
+    fn from(mode: Scp03Mode) -> Self {
+        scp03::SecurityLevel::from_bits(mode.bits()).expect("every --mode is a level this builds")
+    }
+}
+
 /// What `gp status` needs to authenticate once.
 pub struct Auth<'a> {
     /// The static keys.
     pub keys: &'a Keys,
     /// Key version number for INITIALIZE UPDATE P1; 0 lets the card choose.
     pub key_version: u8,
+    /// The SCP03 security level of the channel (#256): EXTERNAL AUTHENTICATE
+    /// carries it in P1 and every later command is wrapped and checked at it.
+    pub level: scp03::SecurityLevel,
     /// The 8 random bytes of the host challenge. Fresh per run.
     pub host_challenge: [u8; scp03::CHALLENGE_LEN],
     /// The logical channel the secure channel is opened on (0 is the basic
@@ -1211,9 +1251,11 @@ fn authenticate<S: CardSession + ?Sized>(
         &auth.host_challenge,
         &iur.card_challenge,
     );
-    let mut channel = scp03::Channel::new(&session_keys).on_logical_channel(auth.logical_channel);
+    let mut channel = scp03::Channel::new(&session_keys)
+        .with_security_level(auth.level)
+        .on_logical_channel(auth.logical_channel);
     let external =
-        match scp03::external_authenticate(&mut channel, scp03::LEVEL_C_MAC, &host_cryptogram) {
+        match scp03::external_authenticate(&mut channel, auth.level.bits(), &host_cryptogram) {
             Ok(command) => command,
             Err(e) => return stop("external-authenticate-unbuildable", e.to_string(), kvn),
         };
@@ -1408,8 +1450,19 @@ fn read_registry<S: CardSession + ?Sized>(
                 None => read_once(session, steps, name, build)?,
             };
             let sw = sw_hex(&ex);
+            // At a level with R-MAC or R-ENC the response data is the card's
+            // only after `open_response` accepted the MAC and decrypted it; a
+            // refusal leaves no data, because the bytes did not come from a
+            // card holding these session keys.
+            let plain = match channel.as_deref() {
+                Some(ch) => {
+                    let status = hex::decode(sw.as_deref().unwrap_or_default()).unwrap_or_default();
+                    ch.open_response(ex.data(), &status).unwrap_or_default()
+                }
+                None => ex.data().to_vec(),
+            };
             if ex.is_success() || sw.as_deref() == Some("6310") {
-                collected.extend_from_slice(ex.data());
+                collected.extend_from_slice(&plain);
             }
             pages += 1;
             if sw.as_deref() != Some("6310") {
@@ -5910,6 +5963,7 @@ mod tests {
             keys,
             key_version: 0x30,
             host_challenge: HOST_CHALLENGE,
+            level: scp03::SecurityLevel::C_MAC,
             logical_channel: 0,
         }
     }
@@ -9598,6 +9652,7 @@ mod crs_tests {
             key_version: 0x30,
             host_challenge: HOST_CHALLENGE,
             logical_channel: 0,
+            level: scp03::SecurityLevel::C_MAC,
         }
     }
 

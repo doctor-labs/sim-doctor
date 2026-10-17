@@ -308,6 +308,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
   -h, --help               Print help (see more with '--help')
 
 $ sim-doctor gp select -h [exit 0]
@@ -378,6 +379,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -397,6 +399,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -451,6 +454,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -468,6 +472,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -485,6 +490,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -531,6 +537,7 @@ Options:
       --keys-file <PATH>     File holding the keys (keep it chmod 600)
       --keys-env <VAR>       Environment variable holding the keys
       --key-version <HEX>    Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>          SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>          Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                  Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                 Print help (see more with '--help')
@@ -553,6 +560,7 @@ Options:
       --keys-file <PATH>           File holding the keys (keep it chmod 600)
       --keys-env <VAR>             Environment variable holding the keys
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -572,6 +580,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -590,6 +599,7 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help               Print help (see more with '--help')
@@ -631,9 +641,10 @@ Options:
       --keys-file <PATH>           File holding the keys (keep it chmod 600)
       --keys-env <VAR>             Environment variable holding the keys
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help                       Print help
+  -h, --help                       Print help (see more with '--help')
 
 $ sim-doctor gp aram delete-all -h [exit 0]
 Delete EVERY access rule the ARA-M holds: STORE DATA [Command-Delete] with an empty body (F1 00)
@@ -648,9 +659,10 @@ Options:
       --keys-file <PATH>           File holding the keys (keep it chmod 600)
       --keys-env <VAR>             Environment variable holding the keys
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help                       Print help
+  -h, --help                       Print help (see more with '--help')
 
 $ sim-doctor gp aram lock -h [exit 0]
 Lock the ARA-M's STORE DATA (the single byte A1), so no rule can ever be added, changed or deleted again. pySim's sysmocom ARA-M fork only
@@ -664,9 +676,10 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
-  -h, --help               Print help
+  -h, --help               Print help (see more with '--help')
 
 $ sim-doctor gp aram config -h [exit 0]
 The configuration handshake: GET DATA [Config] (80 CA DF 21) offering the device's interface version. Read-only, no --yes
@@ -683,8 +696,9 @@ Options:
       --keys-file <PATH>   File holding the keys (keep it chmod 600)
       --keys-env <VAR>     Environment variable holding the keys
       --key-version <HEX>  Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
+      --mode <MODE>        SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --channel <N>        Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
-  -h, --help               Print help
+  -h, --help               Print help (see more with '--help')
 
 $ sim-doctor trace -h [exit 0]
 Decode a captured APDU trace offline (no card, no reader)
