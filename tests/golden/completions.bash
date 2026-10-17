@@ -247,6 +247,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp,channel)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel"
                 ;;
+            sim__doctor__subcmd__gp,cplc-set)
+                cmd="sim__doctor__subcmd__gp__subcmd__cplc__subcmd__set"
+                ;;
             sim__doctor__subcmd__gp,delete)
                 cmd="sim__doctor__subcmd__gp__subcmd__delete"
                 ;;
@@ -291,6 +294,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,channel)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help,cplc-set)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cplc__subcmd__set"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,delete)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__delete"
@@ -447,6 +453,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__gp,channel)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp,cplc-set)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cplc__subcmd__set"
                 ;;
             sim__doctor__subcmd__help__subcmd__gp,delete)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__delete"
@@ -1718,7 +1727,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp)
-            opts="-h --help info ara status select channel delete install put-key help"
+            opts="-h --help info ara status select channel delete install put-key cplc-set help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1863,6 +1872,48 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cplc__subcmd__set)
+            opts="-h --kind --data --today --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --kind)
+                    COMPREPLY=($(compgen -W "pre-perso perso" -- "${cur}"))
+                    return 0
+                    ;;
+                --data)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__delete)
             opts="-h --aid --related --reader --json --trace --keys-file --keys-env --key-version --channel --yes --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -1902,7 +1953,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help)
-            opts="info ara status select channel delete install put-key help"
+            opts="info ara status select channel delete install put-key cplc-set help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1960,6 +2011,20 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__open)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cplc__subcmd__set)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -2668,7 +2733,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp)
-            opts="info ara status select channel delete install put-key"
+            opts="info ara status select channel delete install put-key cplc-set"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2726,6 +2791,20 @@ _sim__doctor() {
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__open)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cplc__subcmd__set)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi

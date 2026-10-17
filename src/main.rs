@@ -845,6 +845,38 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+    /// Write the CPLC pre-personalization or personalization block (STORE DATA
+    /// with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso)
+    /// over SCP03. WARNING: this writes card-identifying CPLC data, and the change
+    /// can be permanent on a card that locks its CPLC.
+    ///
+    /// The block is eight bytes: the personalizer (2), the date (2) and the
+    /// equipment ID (4). --today writes today's date (UTC) into the date bytes. A
+    /// dry run unless --yes (--yes needs --keys-file/--keys-env); the dry run
+    /// prints the APDU. One STORE DATA, MAC'd; a refusal is reported and not
+    /// retried.
+    ///
+    /// Exit 0 for a dry run or a sent write, 1 otherwise.
+    CplcSet {
+        /// pre-perso (DGI 9F67) or perso (DGI 9F66).
+        #[arg(long, value_enum)]
+        kind: GpCplcKind,
+        /// The eight data bytes of the block as 16 hex digits.
+        #[arg(long, value_name = "HEX")]
+        data: String,
+        /// Write today's date (UTC) into the date bytes, overriding those in --data.
+        #[arg(long)]
+        today: bool,
+        #[command(flatten)]
+        write: GpWriteFlags,
+    },
+}
+
+/// Which CPLC block `gp cplc-set` writes.
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum GpCplcKind {
+    PrePerso,
+    Perso,
 }
 
 #[derive(Subcommand)]
@@ -1952,6 +1984,12 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 replace_current_keyset,
                 &write,
             ),
+            GpAction::CplcSet {
+                kind,
+                data,
+                today,
+                write,
+            } => run_gp_cplc_set(kind, &data, today, &write),
         },
         Command::Euicc(args) => match args.action {
             EuiccAction::Info(f) => run_euicc(euicc::Query::Info, &f),
@@ -2685,6 +2723,58 @@ fn run_gp_delete(aid: &str, related: bool, w: &GpWriteFlags) -> contract::ExitCo
         w.trace,
         w.channel.channel,
         |s, t| gp::delete(s, t, &req, &auth, w.yes),
+    )
+}
+
+/// `sim-doctor gp cplc-set`: a dry run unless `--yes`, offline without keys. The
+/// block is checked (hex, eight bytes, the date in range) before a reader is opened.
+fn run_gp_cplc_set(
+    kind: GpCplcKind,
+    data: &str,
+    today: bool,
+    w: &GpWriteFlags,
+) -> contract::ExitCode {
+    let set = match kind {
+        GpCplcKind::PrePerso => gp::CplcSet::PrePerso,
+        GpCplcKind::Perso => gp::CplcSet::Perso,
+    };
+    let Ok(bytes) = hex::decode(data.trim()) else {
+        return report_refusal(
+            "gp",
+            "--data must be hex",
+            serde_json::json!({ "error": { "kind": "bad-cplc-data" } }),
+            w.json,
+        );
+    };
+    let today = today.then(|| chrono::Utc::now().date_naive());
+    let req = match gp::cplc_request(set, &bytes, today) {
+        Ok(req) => req,
+        Err(e) => return bad_gp_request(&e, w.json),
+    };
+    let keys = match load_gp_keys(&w.keys, w.json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let Some(keys) = keys else {
+        return match gp::cplc_set_dry_run(&req) {
+            Ok(mut data) => {
+                if w.channel.channel != 0 {
+                    data["logical_channel"] = serde_json::json!(w.channel.channel);
+                    gp::retarget_channel(&mut data, w.channel.channel);
+                }
+                emit_gp("gp cplc-set", data, w.json)
+            }
+            Err(e) => bad_gp_request(&e, w.json),
+        };
+    };
+    let auth = gp_auth(&keys, &w.keys, w.channel.channel);
+    run_gp(
+        "gp cplc-set",
+        w.reader.as_deref(),
+        w.json,
+        w.trace,
+        w.channel.channel,
+        |s, t| gp::cplc_set(s, t, &req, &auth, w.yes),
     )
 }
 

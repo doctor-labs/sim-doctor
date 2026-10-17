@@ -34,6 +34,7 @@ All notable changes to this project are documented here. The format follows
 - `sim-doctor euicc challenge`: GetEUICCChallenge (ES10b, SGP.22 v2.5 §5.7.7) prints the 16-byte eUICC challenge, read-only (#228).
 - `sim-doctor readers` lists the PC/SC readers by name and index, needing no card (`--json` for an envelope); exits 2 when the PC/SC service is unreachable. `scan`, `shell` and `explore` take `--reader-index N` to select a reader by that index instead of by name, for readers that share a name (#220).
 - `fuzz compare <RESULT_FILE>... [--json]`: compares two or more `fuzz ota --json` results, ranking keysets by accepted probes and listing the (TAR, keyset, mechanism) triples the runs disagree on. Offline; only triples every run probed are compared; a bad or oversized file refuses with exit 2 (#272).
+- `gp cplc-set --kind pre-perso|perso --data HEX [--today]`: writes the CPLC pre-personalization (DGI 9F67) or personalization (DGI 9F66) block over SCP03 with one STORE DATA; dry run unless `--yes`, `--today` writes the date (#242).
 - `update_binary` and `update_record` card-shell commands (UPDATE BINARY/RECORD), gated behind `--yes`, with optional `--read-back` verify (#180).
 - `terminate_df`, `terminate_ef` and `terminate_card_usage` card-shell commands (TERMINATE DF/EF/CARD USAGE; destructive, dry run unless --yes) (#184).
 - `envelope` and `envelope_sms` card-shell commands: free-form ENVELOPE (INS C2, CLA `card.cla() | 0x80`) and an ENVELOPE SMS-PP DOWNLOAD wrapped in tag D1; gated behind `--yes`, dry run prints the APDU (#201).
