@@ -317,7 +317,9 @@ enum Command {
     /// requests, and closes the channel. info, profiles and notifications only
     /// read. `nickname`, `enable`, `disable`, `delete`, `reset` and
     /// `notifications remove` are the writes: dry runs unless --yes (`reset` also
-    /// needs --confirm-eid). `notifications dump` retrieves (read-only), `notifications
+    /// needs --confirm-eid). `store-data` is the escape hatch: one operator-supplied
+    /// ES10x request, printed as the STORE DATA blocks it would become unless --yes.
+    /// Never exposed over MCP. `notifications dump` retrieves (read-only), `notifications
     /// replay` reaches the network (dry run unless --yes). The output is the
     /// lpac envelope under --json. Exit codes: 0 answered, 1 the card is not an
     /// eUICC, refused, or answered something malformed (the envelope carries
@@ -380,6 +382,15 @@ enum EuiccAction {
     /// exposed over MCP.
     #[command(after_help = euicc::DEFAULT_DP_WARNING)]
     SetDefaultDp(DefaultDpArgs),
+    /// One operator-supplied ES10x request, sent to the ISD-R as raw STORE
+    /// DATA: the escape hatch for a function this tool does not implement
+    /// (pySim-shell `do_es10x_store_data`). A dry run unless `--yes`: the card
+    /// may act on an arbitrary ES10 request in ways this tool cannot undo.
+    /// No keys are involved - this is not SCP03 - so none are asked for. The
+    /// payload is bounded and refused above it, hex or stdin, and the card
+    /// answer is reported verbatim even when this tool cannot decode it.
+    /// Never exposed over MCP.
+    StoreData(RawStoreDataArgs),
 }
 
 /// Everything `sim-doctor euicc notifications` takes: the list, or `remove`.
@@ -446,6 +457,23 @@ struct RemoveArgs {
     seq: u32,
     /// Send the request, then re-read the list and confirm. Without it
     /// nothing is changed.
+    #[arg(long)]
+    yes: bool,
+    #[command(flatten)]
+    flags: EuiccFlags,
+}
+
+/// Everything `sim-doctor euicc store-data` takes.
+#[derive(Args)]
+struct RawStoreDataArgs {
+    /// The ES10x request as hex: `BF3E00`, `bf 3e 00`, `bf3e:00` and
+    /// `0xBF3E00` all parse. `-`, or no argument at all, reads it from
+    /// stdin. Bounded: more than 8192 bytes is refused.
+    #[arg(allow_hyphen_values = true, value_name = "HEX")]
+    payload: Option<String>,
+    /// Send it. Without it nothing is sent and no card is contacted: the
+    /// STORE DATA blocks it would become are printed, each with its
+    /// CLA/INS/P1/P2/Lc and payload bytes, and `card_touched` is false.
     #[arg(long)]
     yes: bool,
     #[command(flatten)]
@@ -2766,6 +2794,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             EuiccAction::Delete(a) => run_euicc_delete(&a),
             EuiccAction::Reset(a) => run_euicc_reset(&a),
             EuiccAction::SetDefaultDp(a) => run_euicc_default_dp(&a),
+            EuiccAction::StoreData(a) => run_euicc_store_data(&a),
         },
         Command::Trace(args) => run_trace(&args),
         Command::Mcp => run_mcp(d),
@@ -4424,6 +4453,66 @@ fn run_euicc_remove(args: &RemoveArgs) -> contract::ExitCode {
         &args.flags,
         |session, aid| euicc::remove_notification(session, aid, max, request),
         euicc::erase_to_human,
+    )
+}
+
+/// `sim-doctor euicc store-data <HEX|-> [--yes]`: the escape hatch - one
+/// operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA.
+///
+/// The payload is parsed and bounded before a reader is opened, and without
+/// `--yes` nothing is sent and no card is contacted: the blocks are printed
+/// instead. No keys are involved; STORE DATA on a fresh logical channel is not
+/// SCP03.
+fn run_euicc_store_data(args: &RawStoreDataArgs) -> contract::ExitCode {
+    const KIND: &str = contract::DEFAULT_KIND;
+    let json = args.flags.json;
+    let apply = args.yes;
+    let parsed = match args.payload.as_deref() {
+        None | Some("-") => {
+            let mut stdin = io::stdin();
+            euicc::RawStoreData::from_reader(&mut stdin, apply)
+        }
+        Some(text) => euicc::RawStoreData::from_hex(text, apply),
+    };
+    let request = match parsed {
+        Ok(request) => request,
+        Err(f) => return report_refusal(KIND, &f.message, f.data, json),
+    };
+    let max = usize::from(args.flags.max_segment);
+    if !apply {
+        // A dry run opens no reader at all: the blocks are the whole report.
+        let data = match euicc::raw_store_data_plan(max, &request) {
+            Ok(data) => data,
+            Err(f) => return report_refusal(KIND, &f.message, f.data, json),
+        };
+        let rendered = if json {
+            match contract::Envelope::new(
+                KIND,
+                contract::ExitCode::Success,
+                contract::OK_MESSAGE,
+                data,
+            )
+            .to_json()
+            {
+                Ok(line) => line,
+                Err(err) => {
+                    eprintln!("sim-doctor: {err}");
+                    return contract::ExitCode::Findings;
+                }
+            }
+        } else {
+            euicc::raw_to_human(&data).trim_end().to_owned()
+        };
+        if let Err(err) = emit_stdout(&rendered, "the store-data plan") {
+            eprintln!("sim-doctor: {err}");
+            return contract::ExitCode::Findings;
+        }
+        return contract::ExitCode::Success;
+    }
+    run_euicc_op(
+        &args.flags,
+        |session, aid| euicc::raw_store_data(session, aid, max, &request),
+        euicc::raw_to_human,
     )
 }
 

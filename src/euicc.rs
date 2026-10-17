@@ -1687,6 +1687,435 @@ pub fn default_dp_to_human(data: &Value) -> String {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Raw STORE DATA: the escape hatch
+// ---------------------------------------------------------------------------
+
+/// Largest raw ES10x request [`raw_store_data`] carries, in bytes.
+///
+/// A STORE DATA block holds at most [`es10::MAX_BLOCK_DATA`] bytes and P2 is
+/// one octet, so one request can be at most 256 blocks - 65280 bytes
+/// ([SGP.22 v2.5 section 5.7.6]). This bound is stricter, and it is a choice
+/// rather than a quotation: a request an operator hand-writes to probe an
+/// undocumented ES10 function is tens to hundreds of bytes, so 8192 leaves
+/// ample room for the largest hand-built one while keeping the read bounded,
+/// the plan printable and the number of card exchanges small.
+pub const MAX_RAW_STORE_DATA: usize = 8192;
+
+/// The STORE DATA class byte before a logical channel is folded into it: 80,
+/// the base of the 8x / Cx classes of [SGP.22 v2.5 section 5.7.2] Table 47. A
+/// dry run can only print this, because the channel the card will open is not
+/// known until the card answers.
+pub const STORE_DATA_BASE_CLA: u8 = 0x80;
+
+/// What the dry run of [`raw_store_data`] prints in `note`: what would happen,
+/// and what does not.
+pub const DRY_RUN_NOTE: &str = "WARNING: no card was contacted and nothing was sent. --yes sends this payload to the ISD-R as raw STORE DATA, and the card may act on it in ways this tool cannot undo. No keys are involved: STORE DATA on a fresh logical channel is not SCP03.";
+
+/// The STORE DATA class byte on logical channel `n`: [`STORE_DATA_BASE_CLA`]
+/// with the channel folded in, exactly as [`channel_cla`] does for every other
+/// function this module sends.
+pub fn store_data_class(channel: u8) -> u8 {
+    channel_cla(true, channel)
+}
+
+/// One operator-supplied ES10x request to send to the ISD-R as STORE DATA - the
+/// escape hatch for a function this tool does not implement (pySim-shell
+/// `do_es10x_store_data` in `pysim/shell.py`).
+///
+/// No keys are involved. STORE DATA on a freshly opened logical channel is
+/// plain, not SCP03, so there is no key file to give and no authentication
+/// that can fail.
+#[derive(Debug, Clone)]
+pub struct RawStoreData {
+    payload: Vec<u8>,
+    /// Send it. `false` - the CLI default - cuts the blocks and reports them
+    /// without contacting a card.
+    pub apply: bool,
+}
+
+impl RawStoreData {
+    /// Checks the payload before anything else looks at it: a STORE DATA needs
+    /// at least one data byte ([SGP.22 v2.5 section 5.7.6]) and this command
+    /// carries at most [`MAX_RAW_STORE_DATA`].
+    ///
+    /// # Errors
+    ///
+    /// A [`Failure`] of kind `empty-payload` or `payload-too-large`.
+    pub fn new(payload: Vec<u8>, apply: bool) -> Result<Self, Failure> {
+        if payload.is_empty() {
+            return Err(Failure::new(
+                "empty-payload",
+                "a raw STORE DATA needs at least one byte of ES10x request".to_owned(),
+                json!({ "bytes": 0, "max": MAX_RAW_STORE_DATA }),
+            ));
+        }
+        if payload.len() > MAX_RAW_STORE_DATA {
+            return Err(Failure::new(
+                "payload-too-large",
+                format!(
+                    "the raw STORE DATA payload is {} bytes; this command refuses more than {MAX_RAW_STORE_DATA}",
+                    payload.len()
+                ),
+                json!({ "bytes": payload.len(), "max": MAX_RAW_STORE_DATA }),
+            ));
+        }
+        Ok(Self { payload, apply })
+    }
+
+    /// The request bytes, exactly as the operator gave them.
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    /// From the hex an operator typed: `BF3E00`, `bf 3e 00`, `BF:3E:00` and
+    /// `0xBF3E00` all parse, the same text forms `card decode_hex` takes.
+    /// Checked before a reader is opened.
+    ///
+    /// # Errors
+    ///
+    /// A [`Failure`] of kind `not-hex`, plus [`RawStoreData::new`].
+    pub fn from_hex(text: &str, apply: bool) -> Result<Self, Failure> {
+        let cleaned: String = text
+            .trim()
+            .trim_start_matches("0x")
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != ':')
+            .collect();
+        let bytes = hex::decode(&cleaned).map_err(|_| {
+            Failure::new(
+                "not-hex",
+                format!("{text:?} is not hex; the ES10x request is bytes of hex"),
+                json!({ "chars": cleaned.chars().count() }),
+            )
+        })?;
+        Self::new(bytes, apply)
+    }
+
+    /// From a reader, bounded. At most [`MAX_RAW_STORE_DATA`] bytes of hex are
+    /// read - two characters per payload byte, and one byte more to see that
+    /// the stream does not stop there - so a stream can never grow the request
+    /// without limit and no flag turns that off.
+    ///
+    /// # Errors
+    ///
+    /// A [`Failure`] of kind `payload-too-large` when the stream is longer
+    /// than the bound, `cannot-read` when the reader fails, plus
+    /// [`RawStoreData::from_hex`] for the text it carries.
+    pub fn from_reader(reader: &mut dyn std::io::Read, apply: bool) -> Result<Self, Failure> {
+        use std::io::Read as _;
+        let cap = MAX_RAW_STORE_DATA * 2 + 1;
+        let mut text = Vec::new();
+        reader
+            .take(cap as u64)
+            .read_to_end(&mut text)
+            .map_err(|e| {
+                Failure::new(
+                    "cannot-read",
+                    format!("cannot read the payload: {e}"),
+                    json!({}),
+                )
+            })?;
+        if text.len() >= cap {
+            return Err(Failure::new(
+                "payload-too-large",
+                format!(
+                    "the payload stream is longer than {MAX_RAW_STORE_DATA} bytes of hex; this command refuses more"
+                ),
+                json!({ "max": MAX_RAW_STORE_DATA }),
+            ));
+        }
+        Self::from_hex(&String::from_utf8_lossy(&text), apply)
+    }
+}
+
+/// The STORE DATA blocks `payload` becomes on the class byte `cla`, at most
+/// `max_segment` data bytes each: what a dry run prints and what `--yes` sends,
+/// cut by [`es10::blocks_sized`], the one segmentation this tool has.
+///
+/// # Errors
+///
+/// A [`Failure`] of kind `store-data-refused` when the request cannot be
+/// carried: more than 256 blocks at this segment size (P2 is one octet), or a
+/// segment size outside 1 to 255.
+pub fn raw_plan(cla: u8, payload: &[u8], max_segment: usize) -> Result<Value, Failure> {
+    let blocks = es10::blocks_sized(cla, payload, max_segment).map_err(|e| {
+        Failure::new(
+            "store-data-refused",
+            format!("this payload cannot be carried as STORE DATA: {e}"),
+            json!({ "bytes": payload.len(), "max_segment": max_segment }),
+        )
+    })?;
+    let list = blocks
+        .iter()
+        .map(|command| {
+            let wire = command
+                .encode()
+                .expect("a STORE DATA block this module built encodes");
+            let lc = usize::from(wire[4]);
+            json!({
+                "cla": hex::encode_upper(&wire[..1]),
+                "ins": hex::encode_upper(&wire[1..2]),
+                "p1": hex::encode_upper(&wire[2..3]),
+                "p2": hex::encode_upper(&wire[3..4]),
+                "lc": hex::encode_upper(&wire[4..5]),
+                "data": hex::encode_upper(&wire[5..5 + lc]),
+                "apdu": hex::encode_upper(&wire),
+            })
+        })
+        .collect::<Vec<_>>();
+    let cla_hex = hex::encode_upper([cla]);
+    Ok(json!({
+        "cla": cla_hex,
+        "cla_rule": "the logical channel the card opens is folded into the class byte: 80 is channel 0, 81 is channel 1, C0 is channel 4 (SGP.22 v2.5 section 5.7.2, Table 47)",
+        "max_segment": max_segment,
+        "block_count": list.len(),
+        "blocks": list,
+    }))
+}
+
+/// The plan a dry run reports and `--yes` sends, built offline: no card, no
+/// channel, no reader.
+///
+/// # Errors
+///
+/// As [`raw_plan`], plus [`RawStoreData::new`].
+pub fn raw_store_data_plan(max_segment: usize, request: &RawStoreData) -> Result<Value, Failure> {
+    let payload = request.payload();
+    Ok(json!({
+        "card_touched": false,
+        "dry_run": true,
+        "sent": false,
+        "applied": false,
+        "payload_bytes": payload.len(),
+        "payload_hex": hex::encode_upper(payload),
+        "plan": raw_plan(STORE_DATA_BASE_CLA, payload, max_segment)?,
+        "function": identify(payload),
+        "note": DRY_RUN_NOTE,
+    }))
+}
+
+/// The ES10 function whose request these exact bytes are, when this tool
+/// implements one that builds them the same way. `None` for anything else,
+/// which is most raw payloads.
+fn identify(payload: &[u8]) -> Option<&'static str> {
+    let known = [
+        ("GetEuiccChallenge", es10::get_euicc_challenge_request()),
+        ("GetEID", es10::get_eid_request()),
+        ("GetEuiccInfo1", es10::get_euicc_info1_request()),
+        ("GetEuiccInfo2", es10::get_euicc_info2_request()),
+        (
+            "GetEuiccConfiguredAddresses",
+            es10::get_euicc_configured_addresses_request(),
+        ),
+        (
+            "GetProfilesInfo",
+            es10::get_profiles_info_request(None, Some(&PROFILE_TAGS)).unwrap_or_default(),
+        ),
+    ];
+    known
+        .iter()
+        .find(|(_, request)| request.as_slice() == payload)
+        .map(|(name, _)| *name)
+}
+
+/// The card answer, verbatim, plus a decoded form when this tool decodes the
+/// function [`identify`] recognised. A function it does not decode is a
+/// reported answer, not an error: the bytes are still there to read.
+fn response_json(payload: &[u8], response: &[u8]) -> Value {
+    let function = identify(payload);
+    let mut out = json!({
+        "function": function,
+        "response_bytes": response.len(),
+        "response_hex": hex::encode_upper(response),
+    });
+    match function {
+        None => {
+            out["decoded"] = json!(false);
+            out["decoded_response"] = Value::Null;
+            out["note"] = json!(format!(
+                "this tool neither builds nor decodes this ES10 function, so the answer above is reported verbatim: {} bytes the card returned",
+                response.len()
+            ));
+        }
+        Some(function) => match decode_raw(function, response) {
+            Ok(value) => {
+                out["decoded"] = json!(true);
+                out["decoded_response"] = value;
+                out["note"] = json!("these bytes are byte-for-byte a request this tool builds, so the answer is decoded as well as shown verbatim");
+            }
+            Err(message) => {
+                out["decoded"] = json!(false);
+                out["decoded_response"] = Value::Null;
+                out["decode_error"] = json!(message);
+                out["note"] = json!("this tool decodes this ES10 function but the answer does not parse as one; the bytes are shown verbatim above");
+            }
+        },
+    }
+    out
+}
+
+/// The decoded response for `function`, with this module own decoders.
+///
+/// # Errors
+///
+/// A sentence when the answer does not parse as that function.
+fn decode_raw(function: &'static str, response: &[u8]) -> Result<Value, String> {
+    let wrong = |e: es10::DecodeError| bad(function, e).message;
+    match function {
+        "GetEuiccChallenge" => Ok(json!({
+            "challenge": hex::encode_upper(
+                es10::decode_get_euicc_challenge(response).map_err(wrong)?.challenge
+            )
+        })),
+        "GetEID" => Ok(json!({
+            "eid": hex::encode_upper(es10::decode_get_eid(response).map_err(wrong)?)
+        })),
+        "GetEuiccInfo1" => Ok(info1_json(
+            &es10::decode_euicc_info1(response).map_err(wrong)?,
+        )),
+        "GetEuiccInfo2" => Ok(info2_json(
+            &es10::decode_euicc_info2(response).map_err(wrong)?,
+        )),
+        "GetEuiccConfiguredAddresses" => {
+            let a = es10::decode_configured_addresses(response).map_err(wrong)?;
+            Ok(json!({
+                "default_smdp": a.default_dp_address,
+                "root_smds": a.root_ds_address,
+            }))
+        }
+        "GetProfilesInfo" => match es10::decode_profiles_info(response).map_err(wrong)? {
+            es10::ProfileInfoListResponse::Ok { profiles, .. } => Ok(json!({
+                "profiles": profiles.iter().map(profile_json).collect::<Vec<_>>()
+            })),
+            es10::ProfileInfoListResponse::Error(code) => Ok(json!({ "error_code": code.code() })),
+        },
+        _ => Ok(Value::Null),
+    }
+}
+
+/// [`in_channel`] records the channel it opened after the body has run, so
+/// every planned block carries the real class byte here. A dry run could only
+/// show [`STORE_DATA_BASE_CLA`]; what went on the wire is the truth.
+fn fold_channel_into_plan(data: &mut Value) {
+    let Some(number) = data["channel"]["number"].as_u64() else {
+        return;
+    };
+    let cla = hex::encode_upper([store_data_class(u8::try_from(number).unwrap_or(0))]);
+    if let Some(blocks) = data["plan"]["blocks"].as_array_mut() {
+        for block in blocks {
+            block["cla"] = json!(cla);
+            if let Some(apdu) = block["apdu"]
+                .as_str()
+                .filter(|a| a.len() > 2)
+                .map(str::to_owned)
+            {
+                block["apdu"] = json!(format!("{cla}{}", &apdu[2..]));
+            }
+        }
+    }
+    data["plan"]["cla"] = json!(cla);
+}
+
+/// Sends one operator-supplied ES10x request to the ISD-R as STORE DATA and
+/// reports what came back, or - without [`RawStoreData::apply`] - plans it and
+/// contacts no card at all.
+///
+/// With `apply` the request goes out on a freshly opened logical channel with
+/// the ISD-R selected, exactly as every other function in this module does:
+/// [`in_channel`] and [`es10::store_data_sized`], no second STORE DATA path.
+/// The response is reassembled by [`session::send`] and reported verbatim.
+///
+/// # Errors
+///
+/// A [`Failure`]; `store-data-refused` when the request cannot be carried in
+/// blocks, `es10-refused` when the ISD-R rejects it.
+pub fn raw_store_data<S: CardSession + ?Sized>(
+    session: &mut S,
+    aid: &[u8],
+    max_segment: usize,
+    request: &RawStoreData,
+) -> Result<Value, Failure> {
+    if !request.apply {
+        return raw_store_data_plan(max_segment, request);
+    }
+    let payload = request.payload().to_vec();
+    let mut data = in_channel(session, aid, max_segment, |ask| {
+        let response = ask("the raw STORE DATA request", payload.clone())?;
+        Ok(response_json(&payload, &response))
+    })?;
+    data["plan"] = raw_plan(STORE_DATA_BASE_CLA, &payload, max_segment)?;
+    fold_channel_into_plan(&mut data);
+    data["card_touched"] = json!(true);
+    data["dry_run"] = json!(false);
+    data["sent"] = json!(true);
+    data["applied"] = json!(true);
+    Ok(data)
+}
+
+/// The human report for a raw STORE DATA run: the warning, the block
+/// breakdown, and the card answer verbatim.
+pub fn raw_to_human(data: &Value) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "WARNING: raw STORE DATA sends an operator-supplied ES10x request to the ISD-R.\n\
+         The card may act on it in ways this tool cannot undo. No keys are involved: this is not SCP03.\n",
+    );
+    out.push_str(&format!(
+        "Card touched: {}\n",
+        if data["card_touched"].as_bool().unwrap_or(false) {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    out.push_str(&format!(
+        "Payload: {} bytes\n",
+        data["payload_bytes"].as_u64().unwrap_or(0)
+    ));
+    out.push_str(&format!(
+        "Function: {}\n",
+        data["function"]
+            .as_str()
+            .unwrap_or("(not one this tool builds or decodes)")
+    ));
+    out.push_str("Blocks (CLA INS P1 P2 Lc data):\n");
+    if let Some(blocks) = data["plan"]["blocks"].as_array() {
+        for block in blocks {
+            let field = |k: &str| block[k].as_str().unwrap_or("-").to_owned();
+            out.push_str(&format!(
+                "  {} {} {} {} {}  {}\n",
+                field("cla"),
+                field("ins"),
+                field("p1"),
+                field("p2"),
+                field("lc"),
+                field("data")
+            ));
+        }
+    }
+    if data["sent"].as_bool().unwrap_or(false) {
+        out.push_str(&format!(
+            "Response: {} bytes\n  {}\n",
+            data["response_bytes"].as_u64().unwrap_or(0),
+            data["response_hex"].as_str().unwrap_or("")
+        ));
+        if data["decoded"].as_bool().unwrap_or(false) {
+            out.push_str(&format!(
+                "Decoded {}: {}\n",
+                data["function"].as_str().unwrap_or("response"),
+                sanitize(&data["decoded_response"].to_string())
+            ));
+        } else if let Some(error) = data["decode_error"].as_str() {
+            out.push_str(&format!("Not decoded: {}\n", sanitize(error)));
+        }
+    }
+    out.push_str(&format!(
+        "{}\n",
+        sanitize(data["note"].as_str().unwrap_or(""))
+    ));
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2877,6 +3306,194 @@ mod tests {
         );
         let f = dump_notifications(&mut card, &ISDR_AID, 255, None).unwrap_err();
         assert_eq!(f.kind, "decode-failed");
+    }
+
+    // --- raw STORE DATA (#230) ---------------------------------------------
+
+    #[test]
+    fn raw_store_data_prints_the_exact_block_breakdown() {
+        // 12 bytes at 5 per block is three blocks: P1 11, 11, 91; P2 00, 01,
+        // 02; case 4 with Le 00 (SGP.22 v2.5 section 5.7.2, Tables 47 and 48).
+        let request = RawStoreData::new(h("000102030405060708090A0B"), false).unwrap();
+        let plan = raw_store_data_plan(5, &request).unwrap();
+        assert_eq!(plan["card_touched"], false);
+        assert_eq!(plan["sent"], false);
+        assert_eq!(plan["applied"], false);
+        assert_eq!(plan["payload_bytes"], 12);
+        assert_eq!(plan["payload_hex"], "000102030405060708090A0B");
+        assert_eq!(plan["plan"]["block_count"], 3);
+        let blocks = plan["plan"]["blocks"].as_array().unwrap();
+        assert_eq!(blocks[0]["cla"], "80");
+        assert_eq!(blocks[0]["ins"], "E2");
+        assert_eq!(blocks[0]["p1"], "11");
+        assert_eq!(blocks[0]["p2"], "00");
+        assert_eq!(blocks[0]["lc"], "05");
+        assert_eq!(blocks[0]["data"], "0001020304");
+        assert_eq!(blocks[0]["apdu"], "80E2110005000102030400");
+        assert_eq!(blocks[1]["p1"], "11");
+        assert_eq!(blocks[1]["p2"], "01");
+        assert_eq!(blocks[1]["data"], "0506070809");
+        assert_eq!(blocks[1]["apdu"], "80E2110105050607080900");
+        assert_eq!(blocks[2]["p1"], "91");
+        assert_eq!(blocks[2]["p2"], "02");
+        assert_eq!(blocks[2]["lc"], "02");
+        assert_eq!(blocks[2]["data"], "0A0B");
+        assert_eq!(blocks[2]["apdu"], "80E29102020A0B00");
+    }
+
+    #[test]
+    fn raw_store_data_fits_one_block_when_the_payload_does() {
+        // GetEID is BF3E 03 5C 01 5A, six bytes: one block, and it is the
+        // last one, so P1 is 91 and P2 is 00.
+        let request = RawStoreData::new(es10::get_eid_request(), false).unwrap();
+        assert_eq!(request.payload(), h("BF3E035C015A").as_slice());
+        let plan = raw_store_data_plan(255, &request).unwrap();
+        assert_eq!(plan["plan"]["block_count"], 1);
+        assert_eq!(plan["function"], "GetEID");
+        assert_eq!(plan["plan"]["blocks"][0]["p1"], "91");
+        assert_eq!(plan["plan"]["blocks"][0]["p2"], "00");
+        assert_eq!(plan["plan"]["blocks"][0]["lc"], "06");
+        assert_eq!(
+            plan["plan"]["blocks"][0]["apdu"],
+            "80E2910006BF3E035C015A00"
+        );
+    }
+
+    #[test]
+    fn raw_store_data_refuses_a_payload_over_the_bound() {
+        let long = RawStoreData::new(vec![0xAB; MAX_RAW_STORE_DATA + 1], true).unwrap_err();
+        assert_eq!(long.kind, "payload-too-large");
+        assert_eq!(long.data["error"]["kind"], "payload-too-large");
+        assert_eq!(long.data["max"], MAX_RAW_STORE_DATA);
+        let at = RawStoreData::new(vec![0xAB; MAX_RAW_STORE_DATA], true).unwrap();
+        assert_eq!(at.payload().len(), MAX_RAW_STORE_DATA);
+        let hexed = "AB".repeat(MAX_RAW_STORE_DATA + 1);
+        assert_eq!(
+            RawStoreData::from_hex(&hexed, false).unwrap_err().kind,
+            "payload-too-large"
+        );
+    }
+
+    #[test]
+    fn raw_store_data_reads_stdin_within_the_bound_and_refuses_a_longer_stream() {
+        let mut short = "bf 3e 00\n".as_bytes();
+        let read = RawStoreData::from_reader(&mut short, false).unwrap();
+        assert_eq!(read.payload(), h("BF3E00").as_slice());
+        let long = "AB".repeat(MAX_RAW_STORE_DATA + 1).into_bytes();
+        let mut cursor = long.as_slice();
+        let f = RawStoreData::from_reader(&mut cursor, false).unwrap_err();
+        assert_eq!(f.kind, "payload-too-large");
+    }
+
+    #[test]
+    fn raw_store_data_refuses_hex_that_is_not_hex_before_anything_else() {
+        assert_eq!(
+            RawStoreData::from_hex("BF3E0", false).unwrap_err().kind,
+            "not-hex"
+        );
+        assert_eq!(
+            RawStoreData::from_hex("BF ZZ 00", false).unwrap_err().kind,
+            "not-hex"
+        );
+        assert_eq!(
+            RawStoreData::from_hex("BF3E00", false)
+                .unwrap()
+                .payload()
+                .len(),
+            3
+        );
+        assert_eq!(
+            RawStoreData::from_hex("bf3e:00", false).unwrap().payload(),
+            h("BF3E00").as_slice()
+        );
+        assert_eq!(
+            RawStoreData::from_hex("0xBF3E00", false).unwrap().payload(),
+            h("BF3E00").as_slice()
+        );
+        assert_eq!(
+            RawStoreData::from_hex("", false).unwrap_err().kind,
+            "empty-payload"
+        );
+    }
+
+    #[test]
+    fn raw_store_data_refuses_a_request_p2_cannot_number() {
+        // P2 is one octet: 256 blocks is the ceiling, 257 cannot be numbered.
+        let too_many = RawStoreData::new(vec![0x00; 257], true).unwrap();
+        let f = raw_store_data_plan(1, &too_many).unwrap_err();
+        assert_eq!(f.kind, "store-data-refused");
+        let exact = RawStoreData::new(vec![0x00; 256], true).unwrap();
+        assert_eq!(
+            raw_store_data_plan(1, &exact).unwrap()["plan"]["block_count"],
+            256
+        );
+    }
+
+    #[test]
+    fn a_raw_store_data_dry_run_contacts_no_card() {
+        // The three pairs are open, select and close: a dry run must use none.
+        let mut card = script("9000", &[]);
+        let request = RawStoreData::new(h("0001"), false).unwrap();
+        let data = raw_store_data(&mut card, &ISDR_AID, 255, &request).unwrap();
+        assert_eq!(card.remaining(), 3);
+        assert_eq!(data["card_touched"], false);
+        assert_eq!(data["sent"], false);
+        assert!(data["note"].as_str().unwrap().contains("WARNING"));
+    }
+
+    #[test]
+    fn raw_store_data_reassembles_and_decodes_a_function_this_tool_knows() {
+        let request = es10::get_eid_request();
+        let mut card = script("9000", &[(request.clone(), eid_response())]);
+        let raw = RawStoreData::new(request, true).unwrap();
+        let data = raw_store_data(&mut card, &ISDR_AID, 255, &raw).unwrap();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(data["card_touched"], true);
+        assert_eq!(data["sent"], true);
+        assert_eq!(data["function"], "GetEID");
+        assert_eq!(data["decoded"], true);
+        assert_eq!(data["decoded_response"]["eid"], EID);
+        assert_eq!(data["response_bytes"], 21);
+        assert_eq!(data["response_hex"], format!("BF3E125A10{EID}"));
+        // The channel the card opened is folded into the class byte: 81.
+        assert_eq!(data["plan"]["cla"], "81");
+        assert_eq!(data["plan"]["blocks"][0]["cla"], "81");
+        assert_eq!(
+            data["plan"]["blocks"][0]["apdu"],
+            "81E2910006BF3E035C015A00"
+        );
+    }
+
+    #[test]
+    fn raw_store_data_reports_an_unknown_function_verbatim() {
+        // Not a request this tool builds: an operator probing an undocumented
+        // ES10 function. The answer is reported, not refused.
+        let payload = h("42A1038001");
+        let answer = h("BF1002 8002 8001");
+        let mut card = script("9000", &[(payload.clone(), ok("BF1002 8002 8001"))]);
+        let raw = RawStoreData::new(payload, true).unwrap();
+        let data = raw_store_data(&mut card, &ISDR_AID, 255, &raw).unwrap();
+        assert_eq!(card.remaining(), 0);
+        assert_eq!(data["function"], Value::Null);
+        assert_eq!(data["decoded"], false);
+        assert_eq!(data["decoded_response"], Value::Null);
+        assert_eq!(data["response_bytes"], answer.len());
+        assert_eq!(data["response_hex"], "BF100280028001");
+        assert!(data["note"].as_str().unwrap().contains("verbatim"));
+        let text = raw_to_human(&data);
+        assert!(text.contains("BF100280028001"));
+        assert!(text.contains("not one this tool builds or decodes"));
+    }
+
+    #[test]
+    fn raw_store_data_human_report_warns_and_lists_the_blocks() {
+        let raw = RawStoreData::new(h("000102030405060708090A0B"), false).unwrap();
+        let text = raw_to_human(&raw_store_data_plan(5, &raw).unwrap());
+        assert!(text.starts_with("WARNING:"));
+        assert!(text.contains("Card touched: no"));
+        assert!(text.contains("not SCP03"));
+        assert!(text.contains("  80 E2 11 00 05  0001020304"));
+        assert!(text.contains("  80 E2 91 02 02  0A0B"));
     }
 
     /// A GetEuiccConfiguredAddresses answer (BF3C) carrying `dp` as the
