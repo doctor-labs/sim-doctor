@@ -808,10 +808,12 @@ _arguments "${_arguments_options[@]}" : \
 (install)
 _arguments "${_arguments_options[@]}" : \
 '--load=[The CAP file (a zip of javacard/*.cap components)]:CAP:_files' \
-'--module=[The Executable Module AID (the applet class). Optional when the CAP has one applet]:HEX:_default' \
-'--app=[The application (instance) AID. Defaults to the module AID]:HEX:_default' \
-'--params=[The Install Parameters field as TLV with the mandatory C9 tag (default C900\: none; required with --no-felix)]:HEX:_default' \
-'--privileges=[Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused]:HEX:_default' \
+'(--load --module --app --package --params)--update=[Update the registry entry of this instance AID\: INSTALL \[for registry update\] (P1 40). The privileges and the install parameters sent REPLACE what the card holds, for good; the code of the applet is not replaced and the instance is not removed. Refuses --load, --package, --module, --app and --params]:HEX:_default' \
+'(--update)--package=[The Executable Load File (package) AID. With --install-only, where no CAP is read, it names the package on the card. Defaults to the CAP package AID]:HEX:_default' \
+'(--update)--module=[The Executable Module AID (the applet class). Optional when the CAP has one applet, and with --install-only it defaults to --app, then to --package]:HEX:_default' \
+'(--update)--app=[The application (instance) AID. Defaults to the module AID]:HEX:_default' \
+'(--update)--params=[The Install Parameters field as TLV with the mandatory C9 tag (default C900\: none; required with --no-felix)]:HEX:_default' \
+'--privileges=[Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused. With --update, 000000 omits the field, which leaves the privileges the card holds alone]:HEX:_default' \
 '--bs=[Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split\: the bytes loaded are the same. Shown in the dry run'\''s APDUs]:BYTES:_default' \
 '*--cl-notify=[--cl-notify AID\: add this AID to the CREL notify list (EF A1 A3 4F). Repeatable; the AIDs go into one list in the order given]:AID:_default' \
 '*--cl-notify-remove=[--cl-notify-remove AID\: remove this AID from the CREL notify list (EF A1 A4 4F). Repeatable. An AID given here and to --cl-notify is refused\: the card cannot be told to add and remove the same entry]:AID:_default' \
@@ -831,9 +833,10 @@ renc\:"31\: C-MAC, R-MAC and R-ENC"
 all\:"33\: all four protections"))' \
 '--key-kdf=[Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro'\''s own vectors. The keys stay in the file or the environment variable\: a template name is not key material]:TEMPLATE:_default' \
 '--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'(--load --update)--install-only[Send INSTALL \[for install and make selectable\] only\: the module is already on the card. Refuses --load; needs --package]' \
 '-F[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
 '--no-felix[Refuse to guess the install parameters\: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)]' \
-'--make-default[Make the applet default selected\: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro'\''s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first]' \
+'(--update)--make-default[Make the applet default selected\: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro'\''s --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first]' \
 '--cl-activated[--cl-activated\: set the contactless activation state byte (EF A0 81)]' \
 '--cl-display-optional[--cl-display-optional\: the display is not required for this application (EF A1 88 01)]' \
 '--cl-contact[--cl-contact\: enable the contact interface (EF A0 A5 82, bit 80)]' \
@@ -3336,7 +3339,7 @@ _sim-doctor__subcmd__gp_commands() {
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
-'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
+'install:Install an applet over an SCP03 channel (GlobalPlatform Card Spec v2.3.1 11.5, 11.6; v2.4 11.5.2.3.5). CHANGES CARD CONTENT\: every form writes to the card registry, and none of them can be undone' \
 'create-sd:Create a supplementary Security Domain over an SCP03 channel\: INSTALL \[for install and make selectable\] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -3620,7 +3623,7 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
-'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
+'install:Install an applet over an SCP03 channel (GlobalPlatform Card Spec v2.3.1 11.5, 11.6; v2.4 11.5.2.3.5). CHANGES CARD CONTENT\: every form writes to the card registry, and none of them can be undone' \
 'create-sd:Create a supplementary Security Domain over an SCP03 channel\: INSTALL \[for install and make selectable\] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \
@@ -4110,7 +4113,7 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
 'delete-key:Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE' \
-'install:Load a CAP file and install an applet over an SCP03 channel\: INSTALL \[for load\], LOAD, INSTALL \[for install and make selectable\] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT' \
+'install:Install an applet over an SCP03 channel (GlobalPlatform Card Spec v2.3.1 11.5, 11.6; v2.4 11.5.2.3.5). CHANGES CARD CONTENT\: every form writes to the card registry, and none of them can be undone' \
 'create-sd:Create a supplementary Security Domain over an SCP03 channel\: INSTALL \[for install and make selectable\] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT' \
 'put-key:Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'\''S ADMINISTRATIVE ACCESS' \
 'cplc-set:Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING\: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC' \

@@ -1169,20 +1169,33 @@ enum GpAction {
         #[command(flatten)]
         dk: GpDeleteKeyFlags,
     },
-    /// Load a CAP file and install an applet over an SCP03 channel: INSTALL [for
-    /// load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card
-    /// Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT.
+    /// Install an applet over an SCP03 channel (GlobalPlatform Card Spec v2.3.1
+    /// 11.5, 11.6; v2.4 11.5.2.3.5). CHANGES CARD CONTENT: every form writes to
+    /// the card registry, and none of them can be undone.
+    ///
+    /// Exactly one of --load, --install-only or --update says what to send:
+    /// --load sends INSTALL [for load], LOAD, INSTALL [for install and make
+    /// selectable]; --install-only sends only INSTALL [for install and make
+    /// selectable], the GlobalPlatformPro `--install-only` applet, for a module
+    /// the card already holds (refuses --load, needs --package); --update sends
+    /// only INSTALL [for registry update] (P1 40), the GlobalPlatformPro
+    /// `--update` that replaces the privileges and the install parameters of one
+    /// instance AID without reinstalling it (refuses --load, --package, --module,
+    /// --app and --params: a registry update carries no C9 application
+    /// parameters, which a card rejects even when empty, and 000000 omits the
+    /// privileges rather than clearing them).
     ///
     /// Same safeguards as delete: a dry run unless --yes (offline without keys),
-    /// one authentication attempt, a registry pre-read that refuses a load file or
-    /// application AID that is already on the card, every command sent once and
-    /// in order, stopping at the first refusal, and a registry re-read to confirm.
-    /// For a Security Domain that verifies a DAP, --dap-key-file/--dap-key-env
-    /// (one AES key, hex, optionally KEY/KCV) sign the Load File Data Block Hash
-    /// with AES-CMAC and send the DAP block in front of the load file (GP Card Spec
+    /// one authentication attempt, a registry pre-read that refuses what the card
+    /// already holds or does not hold, every command sent once and in order,
+    /// stopping at the first refusal, and a registry re-read to confirm. For a
+    /// Security Domain that verifies a DAP, --dap-key-file/--dap-key-env (one AES
+    /// key, hex, optionally KEY/KCV) sign the Load File Data Block Hash with
+    /// AES-CMAC and send the DAP block in front of the load file (GP Card Spec
     /// v2.3.1 C.2, C.3, B.2.2); the Security Domain must be in the registry with
     /// the DAP Verification privilege, else nothing is sent. The DAP key is never
-    /// printed. DES, RSA and ECC DAP keys and tokens are not supported. Not
+    /// printed. DES, RSA and ECC DAP keys and tokens are not supported. A DAP
+    /// block belongs to the load file and is refused without --load. Not
     /// available over MCP.
     ///
     /// -F / --no-felix refuses the one field this tool would otherwise choose
@@ -1201,32 +1214,54 @@ enum GpAction {
     /// Exit 0 for a dry run or a verified install, 1 otherwise.
     Install {
         /// The CAP file (a zip of javacard/*.cap components).
-        #[arg(long, value_name = "CAP")]
-        load: std::path::PathBuf,
+        #[arg(long, value_name = "CAP",
+              required_unless_present_any = ["install_only", "update"])]
+        load: Option<std::path::PathBuf>,
+        /// Send INSTALL [for install and make selectable] only: the module is
+        /// already on the card. Refuses --load; needs --package.
+        #[arg(long, conflicts_with_all = ["load", "update"])]
+        install_only: bool,
+        /// Update the registry entry of this instance AID: INSTALL [for registry
+        /// update] (P1 40). The privileges and the install parameters sent
+        /// REPLACE what the card holds, for good; the code of the applet is not
+        /// replaced and the instance is not removed. Refuses --load, --package,
+        /// --module, --app and --params.
+        #[arg(long, value_name = "HEX",
+              conflicts_with_all = ["load", "module", "app", "package", "params"])]
+        update: Option<String>,
+        /// The Executable Load File (package) AID. With --install-only, where no
+        /// CAP is read, it names the package on the card. Defaults to the CAP
+        /// package AID.
+        #[arg(long, value_name = "HEX",
+              required_unless_present_any = ["load", "update"],
+              conflicts_with = "update")]
+        package: Option<String>,
         /// The Executable Module AID (the applet class). Optional when the CAP has
-        /// one applet.
-        #[arg(long, value_name = "HEX")]
+        /// one applet, and with --install-only it defaults to --app, then to
+        /// --package.
+        #[arg(long, value_name = "HEX", conflicts_with = "update")]
         module: Option<String>,
         /// The application (instance) AID. Defaults to the module AID.
-        #[arg(long, value_name = "HEX")]
+        #[arg(long, value_name = "HEX", conflicts_with = "update")]
         app: Option<String>,
         /// The Install Parameters field as TLV with the mandatory C9 tag
         /// (default C900: none; required with --no-felix).
-        #[arg(long, value_name = "HEX")]
+        #[arg(long, value_name = "HEX", conflicts_with = "update")]
         params: Option<String>,
         /// Refuse to guess the install parameters: --params becomes required
         /// (GlobalPlatformPro -F / --no-felix, issue #253).
         #[arg(short = 'F', long)]
         no_felix: bool,
         /// Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card
-        /// Terminate are refused.
+        /// Terminate are refused. With --update, 000000 omits the field, which
+        /// leaves the privileges the card holds alone.
         #[arg(long, value_name = "HEX", default_value = "000000")]
         privileges: String,
         /// Make the applet default selected: sets the Card Reset privilege, 0x04 in
         /// the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit
         /// GlobalPlatformPro's --make-default sets). The card then selects this
         /// applet by default after reset, so it changes what the card runs first.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "update")]
         make_default: bool,
         /// Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut
         /// into blocks of this size, so a smaller one sends more, shorter LOAD
@@ -3235,8 +3270,11 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             } => run_gp_delete_key(key_id, key_version, related, allow_lockout, &dk),
             GpAction::Install {
                 load,
+                install_only,
+                update,
                 module,
                 app,
+                package,
                 params,
                 no_felix,
                 privileges,
@@ -3251,9 +3289,12 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     _ => privileges,
                 };
                 run_gp_install(
-                    &load,
+                    load.as_deref(),
+                    install_only,
+                    update.as_deref(),
                     module,
                     app,
+                    package,
                     GpInstallParams {
                         given: params,
                         no_felix,
@@ -4840,9 +4881,12 @@ fn run_gp_create_sd(
 
 #[allow(clippy::too_many_arguments)]
 fn run_gp_install(
-    load: &std::path::Path,
+    load: Option<&std::path::Path>,
+    install_only: bool,
+    update: Option<&str>,
     module: Option<String>,
     app: Option<String>,
+    package: Option<String>,
     params: GpInstallParams,
     privileges: &str,
     block_size: usize,
@@ -4854,14 +4898,26 @@ fn run_gp_install(
         let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
         report_refusal("gp", &message, data, w.json)
     };
+    let aid_arg = |name: &str, text: &str| {
+        parse_aid(text).ok_or_else(|| format!("--{name} must be 5 to 16 bytes of hex"))
+    };
+    let kind = if update.is_some() {
+        gp::InstallKind::RegistryUpdate
+    } else if install_only {
+        gp::InstallKind::InstallOnly
+    } else {
+        gp::InstallKind::Load
+    };
     // -F is the DWIM switch of GlobalPlatformPro (`GPCommandLineInterfaceNG.java:45`),
     // where it turns off a default SCP03 key set (`GPToolNG.java:206`) and the secure
     // channel protocol parameter added to a security domain install (`GPToolNG.java:484`).
     // This tool does neither, so what it refuses here is the one field it does choose:
     // the empty C900, filled in by clap until now. Asked for, it is sent unchanged.
+    // A registry update carries no C9 at all, so there is no chosen field for -F to refuse.
     let GpInstallParams { given, no_felix } = params;
     let params = match given {
         Some(text) => text,
+        None if kind == gp::InstallKind::RegistryUpdate => String::new(),
         None if no_felix => {
             return refuse(
                 "params-required",
@@ -4872,58 +4928,7 @@ fn run_gp_install(
         }
         None => "C900".to_string(),
     };
-    let bytes = match std::fs::read(load) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return refuse(
-                "cap-unreadable",
-                format!("cannot read {}: {e}", load.display()),
-            )
-        }
-    };
-    let cap = match sim_doctor::cap::Cap::parse(&bytes) {
-        Ok(cap) => cap,
-        Err(e) => return refuse("cap-invalid", e.to_string()),
-    };
-    let (package, applets) = match (cap.header_package_aid(), cap.applet_aids()) {
-        (Ok(p), Ok(a)) => (p, a),
-        (Err(e), _) | (_, Err(e)) => return refuse("cap-invalid", e.to_string()),
-    };
-    let aid_arg = |name: &str, text: &str| {
-        parse_aid(text).ok_or_else(|| format!("--{name} must be 5 to 16 bytes of hex"))
-    };
-    let module_aid = match module {
-        Some(text) => match aid_arg("module", &text) {
-            Ok(aid) if applets.contains(&aid) => aid,
-            Ok(_) => {
-                return refuse(
-                    "module-not-in-cap",
-                    "--module is not an applet AID of this CAP".into(),
-                )
-            }
-            Err(m) => return refuse("bad-aid", m),
-        },
-        None => match applets.as_slice() {
-            [only] => only.clone(),
-            _ => {
-                return refuse(
-                    "module-required",
-                    format!(
-                        "the CAP has {} applets; choose one with --module",
-                        applets.len()
-                    ),
-                )
-            }
-        },
-    };
-    let app_aid = match app {
-        Some(text) => match aid_arg("app", &text) {
-            Ok(aid) => aid,
-            Err(m) => return refuse("bad-aid", m),
-        },
-        None => module_aid.clone(),
-    };
-    let (Ok(params), Ok(privileges)) = (hex::decode(&params), hex::decode(privileges)) else {
+    let (Ok(params), Ok(mut privileges)) = (hex::decode(&params), hex::decode(privileges)) else {
         return refuse("bad-hex", "--params and --privileges must be hex".into());
     };
     let cl = match contactless.build() {
@@ -4937,13 +4942,131 @@ fn run_gp_install(
         Ok(params) => params,
         Err(e) => return refuse("bad-cl-params", e.to_string()),
     };
+    // GlobalPlatformPro omits an empty privilege set (the LV is then length 00)
+    // rather than sending 000000.
+    if kind == gp::InstallKind::RegistryUpdate && privileges.iter().all(|b| *b == 0) {
+        privileges.clear();
+    }
     let dap = match load_dap(dap) {
         Ok(dap) => dap,
         Err((kind, message)) => return refuse(kind, message),
     };
+    if dap.is_some() && kind != gp::InstallKind::Load {
+        return refuse(
+            "dap-without-load",
+            format!(
+                "a DAP block belongs to the load file, and --{} loads nothing",
+                kind.name()
+            ),
+        );
+    }
+    let (load_file, load_file_aid, module_aid, app_aid) = match kind {
+        gp::InstallKind::Load => {
+            let Some(load) = load else {
+                return refuse(
+                    "no-load-file",
+                    "--load is needed unless --install-only or --update says what to send".into(),
+                );
+            };
+            let bytes = match std::fs::read(load) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return refuse(
+                        "cap-unreadable",
+                        format!("cannot read {}: {e}", load.display()),
+                    )
+                }
+            };
+            let cap = match sim_doctor::cap::Cap::parse(&bytes) {
+                Ok(cap) => cap,
+                Err(e) => return refuse("cap-invalid", e.to_string()),
+            };
+            let (cap_package, applets) = match (cap.header_package_aid(), cap.applet_aids()) {
+                (Ok(p), Ok(a)) => (p, a),
+                (Err(e), _) | (_, Err(e)) => return refuse("cap-invalid", e.to_string()),
+            };
+            let load_file_aid = match &package {
+                Some(text) => match aid_arg("package", text) {
+                    Ok(aid) => aid,
+                    Err(m) => return refuse("bad-aid", m),
+                },
+                None => cap_package,
+            };
+            let module_aid = match &module {
+                Some(text) => match aid_arg("module", text) {
+                    Ok(aid) if applets.contains(&aid) => aid,
+                    Ok(_) => {
+                        return refuse(
+                            "module-not-in-cap",
+                            "--module is not an applet AID of this CAP".into(),
+                        )
+                    }
+                    Err(m) => return refuse("bad-aid", m),
+                },
+                None => match applets.as_slice() {
+                    [only] => only.clone(),
+                    _ => {
+                        return refuse(
+                            "module-required",
+                            format!(
+                                "the CAP has {} applets; choose one with --module",
+                                applets.len()
+                            ),
+                        )
+                    }
+                },
+            };
+            let app_aid = match &app {
+                Some(text) => match aid_arg("app", text) {
+                    Ok(aid) => aid,
+                    Err(m) => return refuse("bad-aid", m),
+                },
+                None => module_aid.clone(),
+            };
+            (cap.load_file(), load_file_aid, module_aid, app_aid)
+        }
+        // --install-only: no CAP is read, so --package names the package on the
+        // card, --module defaults to --app and then to --package, and --app
+        // (the instance) defaults to the module AID, as GlobalPlatformPro does.
+        gp::InstallKind::InstallOnly => {
+            let load_file_aid = match aid_arg("package", &package.unwrap_or_default()) {
+                Ok(aid) => aid,
+                Err(m) => return refuse("bad-aid", m),
+            };
+            let module_aid = match &module {
+                Some(text) => match aid_arg("module", text) {
+                    Ok(aid) => aid,
+                    Err(m) => return refuse("bad-aid", m),
+                },
+                None => match &app {
+                    Some(text) => match aid_arg("app", text) {
+                        Ok(aid) => aid,
+                        Err(m) => return refuse("bad-aid", m),
+                    },
+                    None => load_file_aid.clone(),
+                },
+            };
+            let app_aid = match &app {
+                Some(text) => match aid_arg("app", text) {
+                    Ok(aid) => aid,
+                    Err(m) => return refuse("bad-aid", m),
+                },
+                None => module_aid.clone(),
+            };
+            (Vec::new(), load_file_aid, module_aid, app_aid)
+        }
+        gp::InstallKind::RegistryUpdate => {
+            let app_aid = match aid_arg("update", update.unwrap_or_default()) {
+                Ok(aid) => aid,
+                Err(m) => return refuse("bad-aid", m),
+            };
+            (Vec::new(), Vec::new(), Vec::new(), app_aid)
+        }
+    };
     let req = gp::InstallRequest {
-        load_file: cap.load_file(),
-        load_file_aid: package,
+        kind,
+        load_file,
+        load_file_aid,
         module_aid,
         app_aid,
         privileges,
@@ -7787,6 +7910,23 @@ fn run_gp_move(aid: &str, from: &str, to: &str, w: &GpWriteFlags) -> contract::E
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `--update` replaces the privileges the card holds, so `--make-default`
+    /// (which would add the Card Reset bit to them) is refused with it.
+    #[test]
+    fn install_update_refuses_make_default() {
+        let err = Cli::try_parse_from([
+            "sim-doctor",
+            "gp",
+            "install",
+            "--update",
+            "A0000000031010",
+            "--make-default",
+        ])
+        .err()
+        .expect("must be refused");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
 
     /// `--fail-on` defaults to `critical`: the choice that keeps a scan with
     /// only lower findings at exit 0, as it was before doctor/1. Documented in

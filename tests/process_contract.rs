@@ -2782,3 +2782,162 @@ fn gp_install_refuses_to_guess_install_parameters() {
     assert_eq!(apdus[0], apdus[1]);
     let _ = std::fs::remove_file(cap);
 }
+
+/// `gp install --install-only` and `--update`: every flag combination that cannot
+/// be sent is a usage error with nothing sent, and each allowed form builds its
+/// own single APDU offline.
+#[test]
+fn gp_install_only_and_update_send_one_apdu_and_refuse_the_rest() {
+    let _guard = spawn_lock();
+
+    for args in [
+        &["gp", "install", "--json"][..],
+        &[
+            "gp",
+            "install",
+            "--load",
+            "a.cap",
+            "--install-only",
+            "--json",
+        ],
+        &[
+            "gp",
+            "install",
+            "--install-only",
+            "--update",
+            "A000000077010002",
+            "--json",
+        ],
+        &[
+            "gp",
+            "install",
+            "--load",
+            "a.cap",
+            "--update",
+            "A000000077010002",
+            "--json",
+        ],
+        // --install-only without the package it installs from
+        &["gp", "install", "--install-only", "--json"],
+        // a registry update carries no load file, no module, no app and no C9
+        &[
+            "gp",
+            "install",
+            "--update",
+            "A000000077010002",
+            "--package",
+            "A0000000770100",
+            "--json",
+        ],
+        &[
+            "gp",
+            "install",
+            "--update",
+            "A000000077010002",
+            "--module",
+            "A000000077010001",
+            "--json",
+        ],
+        &[
+            "gp",
+            "install",
+            "--update",
+            "A000000077010002",
+            "--app",
+            "A000000077010002",
+            "--json",
+        ],
+        &[
+            "gp",
+            "install",
+            "--update",
+            "A000000077010002",
+            "--params",
+            "C900",
+            "--json",
+        ],
+    ] {
+        let r = run(args, Stdio::piped());
+        assert_eq!(r.code(), 129, "{args:?}: {}", r.stderr);
+    }
+
+    // --install-only: INSTALL [for install and make selectable] and nothing else.
+    let out = run(
+        &[
+            "gp",
+            "install",
+            "--install-only",
+            "--package",
+            "A0000000770100",
+            "--module",
+            "A000000077010001",
+            "--app",
+            "A000000077010002",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let data = env.payload().data();
+    assert_eq!(data["card_touched"], false);
+    assert_eq!(data["sent"], false);
+    assert_eq!(data["target"]["kind"], "install-only");
+    let apdus = data["plan"]["apdus"].as_array().unwrap();
+    assert_eq!(apdus.len(), 1);
+    assert_eq!(apdus[0]["step"], "install_for_install");
+    assert_eq!(
+        apdus[0]["apdu"],
+        "80E60C002207A000000077010008A00000007701000108A0000000770100020300000002C9000000"
+    );
+
+    // --update: INSTALL [for registry update], P1 40, no privileges, no C9.
+    let out = run(
+        &["gp", "install", "--update", "A000000077010002", "--json"],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let data = env.payload().data();
+    assert_eq!(data["target"]["kind"], "registry-update");
+    let apdus = data["plan"]["apdus"].as_array().unwrap();
+    assert_eq!(apdus.len(), 1);
+    assert_eq!(apdus[0]["step"], "install_for_registry_update");
+    assert_eq!(apdus[0]["apdu"], "80E640000E000008A00000007701000200000000");
+
+    // --update with privileges sends the three bytes; 000000 omits the field.
+    let out = run(
+        &[
+            "gp",
+            "install",
+            "--update",
+            "A000000077010002",
+            "--privileges",
+            "200000",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 0, "{}", out.stderr);
+    let env = assert_exactly_one_envelope(&out.stdout, contract::ExitCode::Success);
+    let data = env.payload().data();
+    assert_eq!(
+        data["plan"]["apdus"][0]["apdu"],
+        "80E6400011000008A00000007701000203200000000000"
+    );
+
+    // The plain form is unchanged.
+    let out = run(
+        &[
+            "gp",
+            "install",
+            "--update",
+            "A000000077010002",
+            "--privileges",
+            "ZZ",
+            "--json",
+        ],
+        Stdio::piped(),
+    );
+    assert_eq!(out.code(), 1, "{}", out.stderr);
+}

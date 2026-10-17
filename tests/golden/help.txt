@@ -324,7 +324,7 @@ Commands:
   make-default  Make an installed application Default Selected over an SCP03 channel: INSTALL [for make selectable] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT
   rename-isd    Rename the Issuer Security Domain over an SCP03 channel: STORE DATA `4F LEN AID` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT
   delete-key    Delete a key from the issuer security domain over an SCP03 channel (DELETE KEY, GlobalPlatform Card Spec v2.3.1 11.2.2). CHANGES CARD STATE
-  install       Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT
+  install       Install an applet over an SCP03 channel (GlobalPlatform Card Spec v2.3.1 11.5, 11.6; v2.4 11.5.2.3.5). CHANGES CARD CONTENT: every form writes to the card registry, and none of them can be undone
   create-sd     Create a supplementary Security Domain over an SCP03 channel: INSTALL [for install and make selectable] carrying the Security Domain privileges and the allow-to / allow-from install parameters (GlobalPlatform Card Spec v2.3.1 11.5, Tables 11-43 and 11-49). CHANGES CARD CONTENT
   put-key       Add or replace an SCP03 key set (ENC, MAC, DEK; AES-128) in the issuer security domain over an SCP03 channel (PUT KEY, GlobalPlatform Card Spec v2.3.1 11.8). CAN PERMANENTLY LOCK THE CARD'S ADMINISTRATIVE ACCESS
   cplc-set      Write the CPLC pre-personalization or personalization block (STORE DATA with DGI 9F67 or 9F66, GlobalPlatformPro --set-pre-perso and --set-perso) over SCP03. WARNING: this writes card-identifying CPLC data, and the change can be permanent on a card that locks its CPLC
@@ -671,17 +671,20 @@ Options:
   -h, --help               Print help (see more with '--help')
 
 $ sim-doctor gp install -h [exit 0]
-Load a CAP file and install an applet over an SCP03 channel: INSTALL [for load], LOAD, INSTALL [for install and make selectable] (GlobalPlatform Card Spec v2.3.1 11.5, 11.6). CHANGES CARD CONTENT
+Install an applet over an SCP03 channel (GlobalPlatform Card Spec v2.3.1 11.5, 11.6; v2.4 11.5.2.3.5). CHANGES CARD CONTENT: every form writes to the card registry, and none of them can be undone
 
-Usage: sim-doctor gp install [OPTIONS] --load <CAP>
+Usage: sim-doctor gp install [OPTIONS]
 
 Options:
       --load <CAP>              The CAP file (a zip of javacard/*.cap components)
-      --module <HEX>            The Executable Module AID (the applet class). Optional when the CAP has one applet
+      --install-only            Send INSTALL [for install and make selectable] only: the module is already on the card. Refuses --load; needs --package
+      --update <HEX>            Update the registry entry of this instance AID: INSTALL [for registry update] (P1 40). The privileges and the install parameters sent REPLACE what the card holds, for good; the code of the applet is not replaced and the instance is not removed. Refuses --load, --package, --module, --app and --params
+      --package <HEX>           The Executable Load File (package) AID. With --install-only, where no CAP is read, it names the package on the card. Defaults to the CAP package AID
+      --module <HEX>            The Executable Module AID (the applet class). Optional when the CAP has one applet, and with --install-only it defaults to --app, then to --package
       --app <HEX>               The application (instance) AID. Defaults to the module AID
       --params <HEX>            The Install Parameters field as TLV with the mandatory C9 tag (default C900: none; required with --no-felix)
   -F, --no-felix                Refuse to guess the install parameters: --params becomes required (GlobalPlatformPro -F / --no-felix, issue #253)
-      --privileges <HEX>        Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused [default: 000000]
+      --privileges <HEX>        Privileges, 1 or 3 bytes of hex (default 000000). Card Lock and Card Terminate are refused. With --update, 000000 omits the field, which leaves the privileges the card holds alone [default: 000000]
       --make-default            Make the applet default selected: sets the Card Reset privilege, 0x04 in the first privilege byte (GP Card Spec v2.3.1 table 11-7, the bit GlobalPlatformPro's --make-default sets). The card then selects this applet by default after reset, so it changes what the card runs first
       --bs <BYTES>              Data bytes per LOAD block, 1 to 247 (default 240; 255 minus the 8-byte SCP03 C-MAC). The load file is cut into blocks of this size, so a smaller one sends more, shorter LOAD commands. Changes only how the file is split: the bytes loaded are the same. Shown in the dry run's APDUs [default: 240]
       --cl-activated            --cl-activated: set the contactless activation state byte (EF A0 81)
