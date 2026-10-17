@@ -918,13 +918,6 @@ enum GpAction {
         #[command(flatten)]
         write: GpWriteFlags,
     },
-}
-
-/// Which CPLC block `gp cplc-set` writes.
-#[derive(clap::ValueEnum, Clone, Copy)]
-enum GpCplcKind {
-    PrePerso,
-    Perso,
     /// Personalize an application or Security Domain over an SCP03 channel:
     /// INSTALL [for personalization] (P1 20) for the AID, then one STORE DATA with
     /// the BER-TLV data (GlobalPlatform Card Spec v2.3.1; the layout is unverified
@@ -951,6 +944,13 @@ enum GpCplcKind {
         #[command(flatten)]
         write: GpWriteFlags,
     },
+}
+
+/// Which CPLC block `gp cplc-set` writes.
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum GpCplcKind {
+    PrePerso,
+    Perso,
 }
 
 #[derive(Subcommand)]
