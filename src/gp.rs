@@ -59,8 +59,11 @@
 //! Load File Data Block Hash with a symmetric AES DAP key ([`dap_signature`]:
 //! AES-CMAC, C.3 and B.2.2) and puts the DAP block in front of the load file.
 //!
-//! **Does not own, and never sends.** STORE DATA, SET STATUS, INSTALL
-//! [for extradition / registry update / personalization], DELETE [key], PUT KEY
+//! `gp personalize` sends INSTALL [for personalization] and one STORE DATA over
+//! the same channel, behind the same dry run, pre-read and re-read as the rest.
+//!
+//! **Does not own, and never sends.** SET STATUS, INSTALL
+//! [for extradition / registry update], DELETE [key], PUT KEY
 //! for anything but an SCP03 AES-128 key set (RSA/ECC/DES keys, a lone DAP
 //! verification key), any token, and DAP signatures other than the AES scheme
 //! (DES, RSA and ECC DAP keys are not implemented). [`info`], [`ara`], [`status`] and
@@ -1944,6 +1947,9 @@ pub enum BuildError {
     /// A CPLC block that is not eight bytes, or a `--today` date outside 2020 to 2029.
     #[error("{0}")]
     Cplc(&'static str),
+    /// The personalization data is empty or is not BER-TLV.
+    #[error("personalization data must be BER-TLV, and not empty")]
+    PersonalizationData,
 }
 
 /// Default LOAD block size: pySim's, the old GlobalPlatformPro default, leaves
@@ -2415,6 +2421,51 @@ pub fn install_for_install(
     ))
 }
 
+/// Builds, and does not send, INSTALL [for personalization]: `80 E6 20 00 Lc
+/// <data> 00` with data = `LV(load file AID) LV(module AID) LV(application AID)
+/// LV(privileges) BERLV(install parameters) LV(install token)`, all but the
+/// application AID empty: `00 00 <len> <aid> 00 00 00`. P1 `20` is the
+/// personalization bit (pySim `do_install_for_personalization`, GlobalPlatformPro
+/// `installForPersonalization`, which writes this layout). The field order
+/// mirrors [`install_for_install`] (Table 11-43). [U] The section number was not
+/// checked against the GP Card Spec v2.3.1 text in this environment.
+pub fn install_for_personalization_command(aid: &[u8]) -> Result<Command, BuildError> {
+    aid_ok("personalization target", aid, false)?;
+    let mut data = Vec::new();
+    lv(&mut data, "load file AID", &[])?;
+    lv(&mut data, "module AID", &[])?;
+    lv(&mut data, "application AID", aid)?;
+    lv(&mut data, "privileges", &[])?;
+    data.push(0x00); // install parameters: empty BER-TLV
+    data.push(0x00); // install token: empty
+    Ok(Command::case4(
+        Header::new(0x80, 0xE6, 0x20, 0x00),
+        data,
+        Le::Short(0),
+    ))
+}
+
+/// Builds, and does not send, STORE DATA: `80 E2 80 00 Lc <data>` with P1 `80`
+/// (last block) and P2 `00`, the whole BER-TLV personalization data in one
+/// command. [U] P1 `80` as "last block" and the BER-TLV data form are recalled
+/// from GP Card Spec v2.3.1 STORE DATA and not checked against its text here;
+/// the other P1 bits (format, encryption, response) are left zero.
+pub fn store_data_command(data: &[u8]) -> Result<Command, BuildError> {
+    if data.is_empty() || parse_tlvs(data).is_none() {
+        return Err(BuildError::PersonalizationData);
+    }
+    if data.len() + scp03::MAC_LEN > 0xFF {
+        return Err(BuildError::Field {
+            field: "STORE DATA",
+            len: data.len(),
+        });
+    }
+    Ok(Command::case3(
+        Header::new(0x80, 0xE2, 0x80, 0x00),
+        data.to_vec(),
+    ))
+}
+
 /// What `gp delete` removes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteRequest {
@@ -2528,6 +2579,19 @@ pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> [u8; 16] {
     }
 }
 
+/// What `gp personalize` writes: INSTALL [for personalization] for `aid`, then
+/// one STORE DATA with `data`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonalizeRequest {
+    /// The application or Security Domain AID to personalize.
+    pub aid: Vec<u8>,
+    /// The BER-TLV personalization data, sent as the STORE DATA body.
+    pub data: Vec<u8>,
+}
+
+/// Said in every personalize output, dry run or not.
+pub const PERSONALIZE_WARNING: &str = "personalization writes data the application reads on the card: a wrong value can break it, and this tool cannot read the stored value back. Check the data against your records before adding --yes";
+
 /// One APDU of a write, as built (before secure messaging).
 struct Planned {
     step: &'static str,
@@ -2591,6 +2655,19 @@ fn install_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned
         }
     }
     Ok(plan)
+}
+
+fn personalize_plan_steps(req: &PersonalizeRequest) -> Result<Vec<Planned>, BuildError> {
+    Ok(vec![
+        Planned {
+            step: "install_for_personalization",
+            command: install_for_personalization_command(&req.aid)?,
+        },
+        Planned {
+            step: "store_data",
+            command: store_data_command(&req.data)?,
+        },
+    ])
 }
 
 fn plan_json(plan: &[Planned]) -> Value {
@@ -3230,6 +3307,87 @@ pub fn install<S: CardSession + ?Sized>(
                 })
         },
     )
+}
+
+/// `gp personalize` without keys: the offline dry run, with the plan and the
+/// warning. Sends nothing and does not touch a card.
+///
+/// # Errors
+///
+/// [`BuildError`] for an AID or personalization data that cannot be built.
+pub fn personalize_dry_run(req: &PersonalizeRequest) -> Result<Value, BuildError> {
+    let plan = personalize_plan_steps(req)?;
+    let mut data = offline_dry_run(
+        "personalize",
+        personalize_target(req),
+        &plan,
+        "no keys were given, so the card was not contacted and the registry was not checked; add --keys-file or --keys-env to check that the AID is present, and --yes to send",
+    );
+    data["warning"] = json!(PERSONALIZE_WARNING);
+    Ok(data)
+}
+
+fn personalize_target(req: &PersonalizeRequest) -> Value {
+    json!({
+        "aid": hex::encode_upper(&req.aid),
+        "data_bytes": req.data.len(),
+        "data": hex::encode_upper(&req.data),
+    })
+}
+
+/// `gp personalize` over SCP03: authenticate once, GET STATUS, refuse when the
+/// AID is not in the registry (`aid-not-present`) or the registry cannot be read
+/// in full (`registry-unreadable`), all with nothing sent; a dry run unless
+/// `yes`; otherwise INSTALL [for personalization] then STORE DATA, MAC'd and in
+/// order, stopping at the first refusal, then a re-read that must still list the
+/// AID (`verify-failed`). The stored value cannot be read back here, so the
+/// re-read confirms only that the target is still present.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; refusals are `data.error`.
+pub fn personalize<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    req: &PersonalizeRequest,
+    auth: &Auth<'_>,
+    yes: bool,
+) -> Result<Report, session::Error> {
+    let aid_hex = hex::encode_upper(&req.aid);
+    write(
+        session,
+        trace,
+        auth,
+        yes,
+        "personalize",
+        personalize_target(req),
+        |_| personalize_plan_steps(req),
+        |registry| {
+            if !registry_complete(registry) {
+                return Err((
+                    "registry-unreadable",
+                    "the registry could not be read in full, so the AID cannot be confirmed present; nothing was sent".into(),
+                ));
+            }
+            match registry_entry(registry, &aid_hex) {
+                None => Err((
+                    "aid-not-present",
+                    format!("{aid_hex} is not in the card registry; nothing was sent"),
+                )),
+                Some((scope, e)) => Ok(json!({
+                    "present": true,
+                    "scope": scope,
+                    "lifecycle": e["lifecycle_name"],
+                    "privileges": e["privilege_names"],
+                })),
+            }
+        },
+        |after| registry_entry(after, &aid_hex).is_some(),
+    )
+    .map(|mut report| {
+        report.data["warning"] = json!(PERSONALIZE_WARNING);
+        report
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -6318,5 +6476,99 @@ mod tests {
         );
         // not 1 or 3 bytes: left to the builder, which refuses them
         assert_eq!(with_default_selected(&[0, 0]), None);
+    }
+
+    /// The personalize vectors: the application AID of the install and one
+    /// BER-TLV TLV (`C2 01 AA`) for STORE DATA.
+    const PERS_INSTALL: &str = "80E620000D000007A000000062000100000000";
+
+    fn personalize_request(aid: &str) -> PersonalizeRequest {
+        PersonalizeRequest {
+            aid: hex::decode(aid).unwrap(),
+            data: hex::decode("C201AA").unwrap(),
+        }
+    }
+
+    #[test]
+    fn personalize_builders_match_the_layout_bytes() {
+        // INSTALL [for personalization]: P1 20, empty load file and module AIDs,
+        // LV(AID), empty privileges, parameters and token: 00 00 <len> <aid> 00 00 00.
+        let c = install_for_personalization_command(&hex::decode(APP1).unwrap()).unwrap();
+        assert_eq!(hex::encode_upper(c.encode().unwrap()), PERS_INSTALL);
+        assert!(matches!(
+            install_for_personalization_command(&[1, 2]),
+            Err(BuildError::Aid { .. })
+        ));
+        // STORE DATA: P1 80 (last block), P2 00, the data as the body, no Le.
+        let s = store_data_command(&[0xC2, 0x01, 0xAA]).unwrap();
+        assert_eq!(hex::encode_upper(s.encode().unwrap()), "80E2800003C201AA");
+        // Empty data and data that is not BER-TLV are refused.
+        assert_eq!(
+            store_data_command(&[]),
+            Err(BuildError::PersonalizationData)
+        );
+        assert_eq!(
+            store_data_command(&[0xC2, 0x05, 0x01]),
+            Err(BuildError::PersonalizationData)
+        );
+    }
+
+    #[test]
+    fn personalize_offline_dry_run_builds_both_apdus_without_a_card() {
+        let d = personalize_dry_run(&personalize_request(APP1)).unwrap();
+        assert_eq!(d["card_touched"], false);
+        assert_eq!(d["plan"]["apdus"][0]["apdu"], PERS_INSTALL);
+        assert_eq!(d["plan"]["apdus"][1]["apdu"], "80E2800003C201AA");
+        assert!(d["warning"]
+            .as_str()
+            .unwrap()
+            .contains("cannot read the stored value back"));
+        assert!(personalize_dry_run(&PersonalizeRequest {
+            aid: vec![1, 2],
+            data: vec![0xC2, 0x01, 0xAA],
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn personalize_dry_run_with_keys_sends_neither_command() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let r = personalize(
+            &mut card,
+            true,
+            &personalize_request(APP1),
+            &auth(&keys),
+            false,
+        )
+        .unwrap();
+        assert!(r.data.get("error").is_none(), "{:?}", r.data);
+        assert_eq!(r.data["dry_run"], true);
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(r.data["pre_read"]["present"], true);
+        assert_eq!(r.data["plan"]["apdus"][0]["apdu"], PERS_INSTALL);
+        assert_eq!(sent_ins(&card, "E6"), 0);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert!(render_text(&r.data).contains("PERSONALIZE: DRY RUN"));
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    #[test]
+    fn personalize_refuses_an_aid_that_is_not_there_and_sends_nothing() {
+        let keys = keys();
+        let mut card = secure_card("9000");
+        let r = personalize(
+            &mut card,
+            true,
+            &personalize_request("A0000000620009"),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(r.data["error"]["kind"], "aid-not-present");
+        assert_eq!(r.data["sent"], false);
+        assert_eq!(sent_ins(&card, "E6"), 0);
+        assert_eq!(sent_ins(&card, "E2"), 0);
+        assert_no_key_material(&everything(&r, &keys));
     }
 }
