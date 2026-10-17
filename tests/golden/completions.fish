@@ -254,6 +254,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l list -d 'Print the registry as a table: scope, AID, lifecycle, privileges'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l info -d 'Print each registry entry in detail, with its raw lifecycle and privilege bytes'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from status" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from select" -l aid -d 'The application AID, 5 to 16 bytes of hex' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from select" -l reader -d 'The reader to use, matched against the driver\'s own name' -r
@@ -301,6 +302,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l related -d 'Also delete related objects (P2 80): for a load file, its applications'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l aid -d 'The application AID, 5 to 16 bytes of hex' -r
@@ -318,6 +320,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -s P -l profile -d 'Use a named card profile instead of the built-in default (#238)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from make-default" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l new-aid -d 'The new ISD AID, 5 to 16 bytes of hex' -r
@@ -335,6 +338,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -s P -l profile -d 'Use a named card profile instead of the built-in default (#238)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from rename-isd" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from delete-key" -l key-id -d 'The Key Identifier to delete (GP tag D0). If absent, every key id matches and only --key-version narrows the delete' -r
@@ -395,6 +399,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l cl-contactless -d '--cl-contactless: enable the contactless interface (EF A0 A5 82, bit 40). With --cl-contact the mask is C0, both interfaces'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -l domain -d 'The AID of the Security Domain to create, 5 to 16 bytes of hex' -r
@@ -417,6 +422,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -l allow-from -d 'allow-from (tag 87): the new domain may be extradited out of it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from create-sd" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l new-key-version -d 'The Key Version Number of the new keys, 01 to 7F' -r
@@ -439,6 +445,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l replace-current-keyset -d 'Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l kind -d 'pre-perso (DGI 9F67) or perso (DGI 9F66)' -r -f -a "pre-perso\t''
@@ -459,6 +466,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l today -d 'Write today\'s date (UTC) into the date bytes, overriding those in --data'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from cplc-set" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l aid -d 'The application or Security Domain AID, 5 to 16 bytes of hex' -r
@@ -477,6 +485,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -s P -l profile -d 'Use a named card profile instead of the built-in default (#238)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from personalize" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from aram" -s P -l profile -d 'Use a named card profile instead of the built-in default (#238)' -r
@@ -503,6 +512,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from move" -s P -l profile -d 'Use a named card profile instead of the built-in default (#238)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from move" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from move" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from move" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from move" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from move" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from receipt" -l receipt -d 'The receipt bytes on their own, hex. Use --response to hand over the whole response instead' -r
@@ -548,6 +558,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from store-data" -l response -d 'P1 b1: let the card answer each block'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from store-data" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from store-data" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from store-data" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from store-data" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from store-data" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -l reader -d 'The reader to use, matched against the driver\'s own name' -r
@@ -564,6 +575,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -s P -l profile -d 'Use a named card profile instead of the built-in default (#238)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -l json -d 'Emit one JSON envelope of kind "gp" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -l trace -d 'Add every APDU exchange (command and response hex) as data.trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -l yes -d 'Send the commands. Without it nothing is written. Needs --keys-file or --keys-env'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from secure-apdu" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from help" -f -a "cert" -d '`gp cert`: the GlobalPlatform card certificate of tag 7F21 (SCP11)'
@@ -883,6 +895,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l channel 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l dry-run -d 'Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l yes -d 'Send the erase. Needs --class, --records, --confirm-iccid and a key source'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l json -d 'Emit one JSON envelope of kind "program-erase" on stdout'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -l s16 -d 'Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand erase" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand help; and not __fish_seen_subcommand_from modules readers scan profile cards ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help" -f -a "modules" -d 'Describe the crate module roots and the layering between them'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand help; and not __fish_seen_subcommand_from modules readers scan profile cards ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help" -f -a "readers" -d 'List the PC/SC readers by name and index, for --reader or --reader-index'

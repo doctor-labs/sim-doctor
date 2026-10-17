@@ -527,6 +527,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
   -h, --help                Print help (see more with '--help')
 
 $ sim-doctor gp select -h [exit 0]
@@ -604,6 +605,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -626,6 +628,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -704,6 +707,7 @@ Options:
       --key-version <HEX>     Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>           SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>    Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                   Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>           Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                   Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                  Print help (see more with '--help')
@@ -724,6 +728,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -744,6 +749,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -810,6 +816,7 @@ Options:
       --key-version <HEX>       Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>             SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>      Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                     Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>             Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                     Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                    Print help (see more with '--help')
@@ -835,6 +842,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -860,6 +868,7 @@ Options:
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>         Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                        Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -882,6 +891,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -903,6 +913,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -948,6 +959,7 @@ Options:
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>         Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                        Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -968,6 +980,7 @@ Options:
       --key-version <HEX>          Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>                SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>         Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                        Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>                Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                        Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                       Print help (see more with '--help')
@@ -987,6 +1000,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -1009,6 +1023,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
   -h, --help                Print help (see more with '--help')
 
@@ -1030,6 +1045,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -1081,6 +1097,7 @@ Options:
       --key-version <HEX>        Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>              SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>       Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                      Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>              Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                      Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                     Print help (see more with '--help')
@@ -1103,6 +1120,7 @@ Options:
       --key-version <HEX>   Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>         SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>  Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                 Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>         Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --yes                 Send the commands. Without it nothing is written. Needs --keys-file or --keys-env
   -h, --help                Print help (see more with '--help')
@@ -1777,6 +1795,7 @@ Options:
       --key-version <HEX>      Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose its first key set [default: 00]
       --mode <MODE>            SCP03 security level of the secure channel: mac (01, C-MAC only, the default), enc (03, command encryption), rmac (11), renc (31) or all (33). Any other level is refused before a reader is opened [default: mac] [possible values: mac, enc, rmac, renc, all]
       --key-kdf <TEMPLATE>     Diversify ONE master key from the key text with this KDF template, using the key diversification data the card returns in INITIALIZE UPDATE, and authenticate with the result (kdf3 is the SCP03 one; emv, visa2 and visa are 3DES and are refused). Known-answer tested against GlobalPlatformPro's own vectors. The keys stay in the file or the environment variable: a template name is not key material
+      --s16                    Speak the SCP03 S16 profile: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent
       --channel <N>            Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
   -h, --help                   Print help (see more with '--help')

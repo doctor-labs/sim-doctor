@@ -623,6 +623,7 @@ all\:"33\: all four protections"))' \
 '(--info)--list[Print the registry as a table\: scope, AID, lifecycle, privileges]' \
 '--info[Print each registry entry in detail, with its raw lifecycle and privilege bytes]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
@@ -698,6 +699,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -721,6 +723,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -874,6 +877,7 @@ all\:"33\: all four protections"))' \
 '--related[Also delete related objects (P2 80)\: for a load file, its applications]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -897,6 +901,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -920,6 +925,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -991,6 +997,7 @@ all\:"33\: all four protections"))' \
 '--cl-contactless[--cl-contactless\: enable the contactless interface (EF A0 A5 82, bit 40). With --cl-contact the mask is C0, both interfaces]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1019,6 +1026,7 @@ all\:"33\: all four protections"))' \
 '--allow-from[allow-from (tag 87)\: the new domain may be extradited out of it]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1047,6 +1055,7 @@ all\:"33\: all four protections"))' \
 '--replace-current-keyset[Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1072,6 +1081,7 @@ all\:"33\: all four protections"))' \
 '--today[Write today'\''s date (UTC) into the date bytes, overriding those in --data]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1096,6 +1106,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1144,6 +1155,7 @@ all\:"33\: all four protections"))' \
 '(--nfc-never)--nfc-always[Always deliver the application'\''s NFC events (NFC-AR-DO D1 01 01)]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1167,6 +1179,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1189,6 +1202,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1214,6 +1228,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
@@ -1278,6 +1293,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1331,6 +1347,7 @@ all\:"33\: all four protections"))' \
 '--response[P1 b1\: let the card answer each block]' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -1353,6 +1370,7 @@ all\:"33\: all four protections"))' \
 '--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
 '--json[Emit one JSON envelope of kind "gp" on stdout]' \
 '--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -2476,6 +2494,7 @@ all\:"33\: all four protections"))' \
 '--dry-run[Print the plan and send nothing. This is already what happens without --yes; asking for it explicitly is still refused beside --yes, because one of the two asks for a send and the other asks for no send]' \
 '--yes[Send the erase. Needs --class, --records, --confirm-iccid and a key source]' \
 '--json[Emit one JSON envelope of kind "program-erase" on stdout]' \
+'--s16[Speak the SCP03 S16 profile\: a 16-byte host challenge, and 16-byte cryptograms and C-MACs. Only a card that announces S16 (bit 0x01 of the "i" parameter) answers it, and a card that does not stops the run with nothing else sent]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0

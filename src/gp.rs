@@ -1355,6 +1355,46 @@ impl From<Scp03Mode> for scp03::SecurityLevel {
     }
 }
 
+/// The host challenge of one authentication attempt: 8 random bytes, or 16 in
+/// S16 mode (`--s16`). Fresh per run, like the 8-byte one always was.
+#[derive(Clone, Copy)]
+pub enum HostChallenge {
+    /// The default profile: an 8-byte challenge.
+    S8([u8; scp03::CHALLENGE_LEN]),
+    /// The S16 profile: a 16-byte challenge, which is what a card that
+    /// announces S16 (the "i" parameter's bit 0x01) expects.
+    S16([u8; scp03::CHALLENGE_LEN_S16]),
+}
+
+impl HostChallenge {
+    /// Fresh random bytes for the profile asked for.
+    pub fn random(s16: bool) -> Self {
+        if s16 {
+            let mut host = [0u8; scp03::CHALLENGE_LEN_S16];
+            rand::fill(&mut host);
+            Self::S16(host)
+        } else {
+            let mut host = [0u8; scp03::CHALLENGE_LEN];
+            rand::fill(&mut host);
+            Self::S8(host)
+        }
+    }
+
+    /// Whether this is the S16 challenge.
+    pub fn is_s16(&self) -> bool {
+        matches!(self, Self::S16(_))
+    }
+}
+
+/// The C-MAC length a run transmits: 8, or 16 in S16 mode.
+fn mac_len_for(auth: &Auth<'_>) -> usize {
+    if auth.host_challenge.is_s16() {
+        scp03::MAC_LEN_S16
+    } else {
+        scp03::MAC_LEN
+    }
+}
+
 /// What `gp status` needs to authenticate once.
 pub struct Auth<'a> {
     /// The static keys.
@@ -1370,8 +1410,8 @@ pub struct Auth<'a> {
     /// The SCP03 security level of the channel (#256): EXTERNAL AUTHENTICATE
     /// carries it in P1 and every later command is wrapped and checked at it.
     pub level: scp03::SecurityLevel,
-    /// The 8 random bytes of the host challenge. Fresh per run.
-    pub host_challenge: [u8; scp03::CHALLENGE_LEN],
+    /// The random bytes of the host challenge, 8 or 16 in S16 mode.
+    pub host_challenge: HostChallenge,
     /// The logical channel the secure channel is opened on (0 is the basic
     /// channel). The MAC covers the class byte, which carries it; pair it with
     /// [`OnChannel`] on the session.
@@ -1387,7 +1427,10 @@ pub(crate) struct Stop {
 
 pub(crate) struct Established {
     pub(crate) channel: scp03::Channel,
-    iur: scp03::InitializeUpdateResponse,
+    /// The key version number the card selected.
+    key_version: u8,
+    /// The "i" parameter the card announced.
+    i_parameter: u8,
     /// The keys the channel was actually established with, when `--key-kdf`
     /// diversified a master key. The reported key check values are these, not
     /// the master key's.
@@ -1438,6 +1481,25 @@ pub(crate) fn authenticate<S: CardSession + ?Sized>(
     steps: &mut Vec<Value>,
     auth: &Auth<'_>,
 ) -> Result<Result<Established, Stop>, session::Error> {
+    match auth.host_challenge {
+        HostChallenge::S8(host) => {
+            authenticate_profile::<{ scp03::CHALLENGE_LEN }, S>(session, steps, auth, &host)
+        }
+        HostChallenge::S16(host) => {
+            authenticate_profile::<{ scp03::CHALLENGE_LEN_S16 }, S>(session, steps, auth, &host)
+        }
+    }
+}
+
+/// [`authenticate`] in one profile: `N` is that profile's challenge length, 8
+/// or 16 for S16. Every step is the same one; only the lengths, and the card's
+/// own "i" parameter, say which profile it is.
+fn authenticate_profile<const N: usize, S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+    auth: &Auth<'_>,
+    host: &[u8; N],
+) -> Result<Result<Established, Stop>, session::Error> {
     let policy = read_policy();
     let stop = |kind, message, key_version| {
         Ok(Err(Stop {
@@ -1448,7 +1510,17 @@ pub(crate) fn authenticate<S: CardSession + ?Sized>(
     };
     let sw = |ex: &session::Exchange| sw_hex(ex).unwrap_or_else(|| "none".into());
 
-    let init = scp03::initialize_update(auth.key_version, &auth.host_challenge);
+    // S16 is C-MAC only: the S16 R-MAC length and C-ENC padding are not
+    // verifiable from the repo refmap [U]. Refused before anything is sent.
+    if N == scp03::CHALLENGE_LEN_S16 && auth.level != scp03::SecurityLevel::C_MAC {
+        return stop(
+            "s16-level-unsupported",
+            "--s16 supports only --mode mac (C-MAC, 01); nothing was sent".into(),
+            None,
+        );
+    }
+
+    let init = scp03::initialize_update_with(auth.key_version, host);
     let ex = session::send(session, &init, &policy)?;
     push_steps(steps, "initialize_update", &ex);
     if !ex.is_normal_processing() {
@@ -1469,7 +1541,33 @@ pub(crate) fn authenticate<S: CardSession + ?Sized>(
             None,
         );
     }
-    let iur = match scp03::InitializeUpdateResponse::parse(ex.data()) {
+    // The card announces which profile it speaks in "i" bit 0x01. A run that
+    // asked for the other one stops here, with EXTERNAL AUTHENTICATE not sent
+    // and so no authentication attempt counted.
+    let data = ex.data();
+    if data.len() >= 13 && data[11] == 0x03 {
+        let announced_s16 = scp03::Profile::announced(data[12]) == scp03::Profile::S16;
+        if announced_s16 != (N == scp03::CHALLENGE_LEN_S16) {
+            return if announced_s16 {
+                stop(
+                    "s16-required",
+                    "the card announces the S16 profile (i bit 0x01): 16-byte challenges, \
+                     cryptograms and C-MACs. Re-run with --s16; nothing else was sent"
+                        .into(),
+                    None,
+                )
+            } else {
+                stop(
+                    "s16-not-announced",
+                    "the card does not announce S16 (i bit 0x01 clear): 8-byte challenges, \
+                     cryptograms and C-MACs. Re-run without --s16; nothing else was sent"
+                        .into(),
+                    None,
+                )
+            };
+        }
+    }
+    let iur = match scp03::InitUpdate::<N>::parse(ex.data()) {
         Ok(iur) => iur,
         Err(e) => return stop("initialize-update-unreadable", e.to_string(), None),
     };
@@ -1505,16 +1603,19 @@ pub(crate) fn authenticate<S: CardSession + ?Sized>(
         }
     };
     let keys = diversified.as_ref().unwrap_or(auth.keys);
-    let session_keys = scp03::derive_session_keys(
-        &keys.enc,
-        &keys.mac,
-        &auth.host_challenge,
-        &iur.card_challenge,
-    );
-    if !scp03::verify_card_cryptogram(
+    let i_parameter = iur.i_parameter;
+    let profile = if N == scp03::CHALLENGE_LEN_S16 {
+        scp03::Profile::S16
+    } else {
+        scp03::Profile::S8
+    };
+    let session_keys =
+        scp03::derive_session_keys_with(&keys.enc, &keys.mac, host, &iur.card_challenge);
+    if !scp03::verify_card_cryptogram_with(
         &session_keys,
-        &auth.host_challenge,
+        host,
         &iur.card_challenge,
+        profile,
         &iur.card_cryptogram,
     ) {
         return stop(
@@ -1525,20 +1626,24 @@ pub(crate) fn authenticate<S: CardSession + ?Sized>(
             kvn,
         );
     }
-    let host_cryptogram = scp03::cryptogram(
+    let host_cryptogram = scp03::cryptogram_with(
         &session_keys.mac,
         scp03::Side::Host,
-        &auth.host_challenge,
+        host,
         &iur.card_challenge,
+        profile,
     );
-    let mut channel = scp03::Channel::new(&session_keys)
+    let mut channel = scp03::Channel::with_mac_len(&session_keys, profile.byte_len())
         .with_security_level(auth.level)
         .on_logical_channel(auth.logical_channel);
-    let external =
-        match scp03::external_authenticate(&mut channel, auth.level.bits(), &host_cryptogram) {
-            Ok(command) => command,
-            Err(e) => return stop("external-authenticate-unbuildable", e.to_string(), kvn),
-        };
+    let external = match scp03::external_authenticate_with(
+        &mut channel,
+        auth.level.bits(),
+        &host_cryptogram,
+    ) {
+        Ok(command) => command,
+        Err(e) => return stop("external-authenticate-unbuildable", e.to_string(), kvn),
+    };
     let ex = session::send(session, &external, &policy)?;
     push_steps(steps, "external_authenticate", &ex);
     if !ex.is_normal_processing() {
@@ -1554,7 +1659,8 @@ pub(crate) fn authenticate<S: CardSession + ?Sized>(
     }
     Ok(Ok(Established {
         channel,
-        iur,
+        key_version: iur.key_version,
+        i_parameter,
         keys: diversified,
     }))
 }
@@ -1581,7 +1687,7 @@ fn send_secure<S: CardSession + ?Sized>(
 /// The `secure_channel` block of an established channel. Holds the key check
 /// values of the supplied keys (public, 24 bits each) and never a key.
 fn channel_report(auth: &Auth<'_>, est: &Established, card_keys: Option<&Value>) -> Value {
-    let kvn = est.iur.key_version;
+    let kvn = est.key_version;
     // The card's own entry for this key version: GET DATA E0 has id, version,
     // type and length only; no KCV (GP 2.3.1 11.3.3.1; GlobalPlatformPro
     // `GPKeyInfo.parseTemplate` reads no KCV either).
@@ -1611,7 +1717,8 @@ fn channel_report(auth: &Auth<'_>, est: &Established, card_keys: Option<&Value>)
         "established": true,
         "security_level": "C-MAC (01)",
         "key_version": kvn,
-        "i_parameter": format!("{:02X}", est.iur.i_parameter),
+        "i_parameter": format!("{:02X}", est.i_parameter),
+        "profile": if auth.host_challenge.is_s16() { "S16" } else { "S8" },
         "card_cryptogram_verified": true,
         "enc_key_exercised": false,
         "key_kdf": auth.kdf.unwrap_or("none"),
@@ -4598,6 +4705,15 @@ fn delete_plan_steps(req: &DeleteRequest) -> Result<Vec<Planned>, BuildError> {
 /// authenticated); `--install-only` and `--update` carry no Security Domain AID
 /// and ignore it.
 fn install_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned>, BuildError> {
+    install_plan_steps_mac(req, sd_aid, scp03::MAC_LEN)
+}
+
+/// [`install_plan_steps`] for the C-MAC length the run really transmits.
+fn install_plan_steps_mac(
+    req: &InstallRequest,
+    sd_aid: &[u8],
+    mac_len: usize,
+) -> Result<Vec<Planned>, BuildError> {
     if req.privileges.first().is_some_and(|b| b & 0x18 != 0) {
         return Err(BuildError::PrivilegeRefused(
             "Card Lock and Card Terminate are not granted by gp install",
@@ -4626,7 +4742,7 @@ fn install_plan_steps(req: &InstallRequest, sd_aid: &[u8]) -> Result<Vec<Planned
     };
     // Wrapping adds an 8-byte C-MAC to the data; the Lc must still fit.
     for p in &plan {
-        if p.command.data().len() + scp03::MAC_LEN > 0xFF {
+        if p.command.data().len() + mac_len > 0xFF {
             return Err(BuildError::InstallTooLong(p.command.data().len()));
         }
     }
@@ -5059,7 +5175,7 @@ fn prepare_write<S: CardSession + ?Sized>(
     let (mut channel, current_kvn) = match authenticate(session, &mut steps, auth)? {
         Ok(est) => {
             data["secure_channel"] = channel_report(auth, &est, card_keys.as_ref());
-            (est.channel, est.iur.key_version)
+            (est.channel, est.key_version)
         }
         Err(stop) => {
             data["secure_channel"] = json!({
@@ -5727,7 +5843,7 @@ pub fn install<S: CardSession + ?Sized>(
         yes,
         "install",
         install_target(req),
-        |sd| install_plan_steps(req, sd),
+        |sd| install_plan_steps_mac(req, sd, mac_len_for(auth)),
         |registry| {
             if !registry_complete(registry) {
                 return Err((
@@ -8859,7 +8975,7 @@ mod tests {
             keys,
             kdf: None,
             key_version: 0x30,
-            host_challenge: HOST_CHALLENGE,
+            host_challenge: HostChallenge::S8(HOST_CHALLENGE),
             level: scp03::SecurityLevel::C_MAC,
             logical_channel: 0,
         }
@@ -13332,6 +13448,161 @@ mod tests {
             "{err}"
         );
     }
+
+    // ---- SCP03 S16, the profile `--s16` asks for ---------------------------
+    //
+    // A card that announces S16 (bit 0x01 of the "i" parameter) wants a 16-byte
+    // host challenge and answers with a 16-byte card challenge and cryptogram;
+    // the cryptograms are derived with L = 128 and every C-MAC is 16 bytes.
+    // The wire bytes below come from the same independent model of Amendment D
+    // 4.1.5 and 6.2.2-6.2.4 as the 8-byte ones above (AES-CMAC from
+    // `openssl mac`), run for these 16-byte challenges.
+    const HOST_CHALLENGE_S16: [u8; 16] = [
+        0xB1, 0x3E, 0x5F, 0x93, 0x8F, 0xC1, 0x08, 0xC4, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+        0xB8,
+    ];
+    const INIT_UPDATE_S16: &str = "8050300010B13E5F938FC108C4B1B2B3B4B5B6B7B800";
+    const INIT_UPDATE_RESP_S16: &str =
+        "000000000000000000003003113EB51047495B249F01020304050607084BDA8184313667C8FA8378CDEC82E278000002";
+    const EXT_AUTH_01_S16: &str =
+        "8482010020E1CFB62E4C2BC67DBC2770939011A207FF541A7BD21FBC81EB052A685476EE94";
+    const GS_ISD_S16: &str = "84F28002124F002417C833D0E12547FC1C346F83CA3F5E00";
+    const GS_APPS_S16: &str = "84F24002124F0079A74D4E5360CB7366C0808B411AA13B00";
+    const GS_LF_S16: &str = "84F22002124F00B5BEFED7E4136C57885797F00AF7B64500";
+    const GS_LFM_S16: &str = "84F21002124F006AAFD0E1DCE479E164C6564D084A028100";
+
+    fn auth_s16(keys: &Keys) -> Auth<'_> {
+        Auth {
+            keys,
+            key_version: 0x30,
+            kdf: None,
+            host_challenge: HostChallenge::S16(HOST_CHALLENGE_S16),
+            level: scp03::SecurityLevel::C_MAC,
+            logical_channel: 0,
+        }
+    }
+
+    #[test]
+    fn s16_reads_the_registry_over_a_sixteen_byte_channel() {
+        let keys = keys();
+        let isd = tlv(
+            "E3",
+            &(tlv("4F", "A000000151000000") + &tlv("9F70", "0F") + &tlv("C5", "9E0000")),
+        );
+        let app1 = tlv(
+            "E3",
+            &(tlv("4F", "A0000000620001") + &tlv("9F70", "07") + &tlv("C5", "180000")),
+        );
+        let lfm = tlv(
+            "E3",
+            &(tlv("4F", "A0000000620003") + &tlv("9F70", "01") + &tlv("84", "A000000062000301")),
+        );
+        let crd = recognition_hex(&["0215", "0370"]) + "9000";
+        let rows = [
+            (SEL1, "9000".to_string()),
+            ("80CA006600", crd),
+            ("80CA00E000", format!("{KEY_INFO_AES}9000")),
+            (INIT_UPDATE_S16, format!("{INIT_UPDATE_RESP_S16}9000")),
+            (EXT_AUTH_01_S16, "9000".to_string()),
+            (GS_ISD_S16, isd + "9000"),
+            (GS_APPS_S16, app1 + "9000"),
+            (GS_LF_S16, "6A88".to_string()),
+            (GS_LFM_S16, lfm + "9000"),
+        ];
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
+        let mut card = Card::new(&rows);
+        let r = status_authenticated(&mut card, true, &profile::DEFAULT, &auth_s16(&keys)).unwrap();
+        assert!(r.isd_found);
+        assert!(r.data.get("error").is_none());
+        // One attempt, as in the 8-byte profile: one INITIALIZE UPDATE, one
+        // EXTERNAL AUTHENTICATE, both 16 bytes wider.
+        assert_eq!(sent_ins(&card, "50"), 1);
+        assert_eq!(sent_ins(&card, "82"), 1);
+        let wire: Vec<&str> = card.sent.iter().map(String::as_str).collect();
+        assert_eq!(
+            wire,
+            [
+                SEL1,
+                "80CA006600",
+                "80CA00E000",
+                INIT_UPDATE_S16,
+                EXT_AUTH_01_S16,
+                GS_ISD_S16,
+                GS_APPS_S16,
+                GS_LF_S16,
+                GS_LFM_S16
+            ]
+        );
+        let ch = &r.data["secure_channel"];
+        assert_eq!(ch["established"], true);
+        assert_eq!(ch["profile"], "S16");
+        assert_eq!(ch["i_parameter"], "11");
+        assert_eq!(ch["key_version"], 0x30);
+        assert_eq!(ch["card_cryptogram_verified"], true);
+        assert_eq!(
+            r.data["registry"][0]["entries"][0]["lifecycle_name"],
+            "SECURED"
+        );
+        assert_no_key_material(&everything(&r, &keys));
+    }
+
+    /// S16 is C-MAC only: any higher --mode is refused before INITIALIZE UPDATE.
+    #[test]
+    fn s16_with_a_higher_security_level_sends_nothing() {
+        let keys = keys();
+        let crd = recognition_hex(&["0215", "0370"]) + "9000";
+        let rows = [
+            (SEL1, "9000".to_string()),
+            ("80CA006600", crd),
+            ("80CA00E000", format!("{KEY_INFO_AES}9000")),
+        ];
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
+        let mut card = Card::new(&rows);
+        let mut a = auth_s16(&keys);
+        a.level = scp03::SecurityLevel::from_bits(0x11).unwrap();
+        let r = status_authenticated(&mut card, true, &profile::DEFAULT, &a).unwrap();
+        assert_eq!(r.data["secure_channel"]["established"], false);
+        assert_eq!(r.data["secure_channel"]["stopped"], "s16-level-unsupported");
+        assert_eq!(sent_ins(&card, "50"), 0);
+        assert_eq!(sent_ins(&card, "82"), 0);
+    }
+
+    #[test]
+    fn s16_is_refused_where_the_card_does_not_announce_it() {
+        let keys = keys();
+        let crd = recognition_hex(&["0215", "0370"]) + "9000";
+        // --s16, and the card answers the 16-byte INITIALIZE UPDATE with an
+        // 8-byte profile (i = 70): the run stops after that one command.
+        let rows = [
+            (SEL1, "9000".to_string()),
+            ("80CA006600", crd.clone()),
+            ("80CA00E000", format!("{KEY_INFO_AES}9000")),
+            (INIT_UPDATE_S16, format!("{INIT_UPDATE_RESP}9000")),
+        ];
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
+        let mut card = Card::new(&rows);
+        let r = status_authenticated(&mut card, true, &profile::DEFAULT, &auth_s16(&keys)).unwrap();
+        assert_eq!(r.data["secure_channel"]["established"], false);
+        assert_eq!(r.data["secure_channel"]["stopped"], "s16-not-announced");
+        assert_eq!(sent_ins(&card, "82"), 0);
+        assert_eq!(card.sent.last().map(String::as_str), Some(INIT_UPDATE_S16));
+
+        // No --s16, and the card announces S16 (i = 11): refused the same way,
+        // before the card cryptogram is even looked at.
+        let rows = [
+            (SEL1, "9000".to_string()),
+            ("80CA006600", crd),
+            ("80CA00E000", format!("{KEY_INFO_AES}9000")),
+            (INIT_UPDATE, format!("{INIT_UPDATE_RESP_S16}9000")),
+        ];
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (*a, b.as_str())).collect();
+        let mut card = Card::new(&rows);
+        let r = status_authenticated(&mut card, true, &profile::DEFAULT, &auth(&keys)).unwrap();
+        assert_eq!(r.data["secure_channel"]["established"], false);
+        assert_eq!(r.data["secure_channel"]["stopped"], "s16-required");
+        assert_eq!(sent_ins(&card, "82"), 0);
+        assert_eq!(card.sent.last().map(String::as_str), Some(INIT_UPDATE));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -14562,7 +14833,7 @@ mod crs_tests {
         Auth {
             keys,
             key_version: 0x30,
-            host_challenge: HOST_CHALLENGE,
+            host_challenge: HostChallenge::S8(HOST_CHALLENGE),
             logical_channel: 0,
             level: scp03::SecurityLevel::C_MAC,
             kdf: None,
