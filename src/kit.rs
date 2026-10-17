@@ -126,7 +126,7 @@ impl Run {
             dialect: args.dialect,
             limits: limits_from(&args.walk_limits),
             break_after_count_match: args.walk_limits.break_after_count_match,
-            tar: args.tar.clone(),
+            tar: args.tar.clone().skipping_responses(args.tar_filter.clone()),
             terminal_profile: args.terminal_profile,
             por: if args.sms_deliver_report {
                 tar::PorMode::SmsDeliverReport

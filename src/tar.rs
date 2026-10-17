@@ -778,6 +778,81 @@ pub struct Selection {
 
     /// The class byte the ENVELOPE is sent at.
     pub class: Class,
+
+    /// SIMTester's `-stre` response filter, if one was given (issue #264).
+    ///
+    /// Applied to the sweep's probes only, never to the calibration pass: the
+    /// calibration answers are what the baseline is measured from, and filtering
+    /// them would move the baseline under the rest of the sweep.
+    pub skip_response: Option<ResponseFilter>,
+}
+
+/// A regular expression over the response of a TAR probe (issue #264).
+///
+/// **Matched against the response spelled as uppercase hex, data first and the
+/// status word last, with no separators:** `6D00` is a bare status word, and a
+/// response with a body ends in its status word. SIMTester's `-stre` matches
+/// `ByteArray.getStringData()` of the same response; the exact spelling of that
+/// string is not pinned here, so the hex form is this crate's own and is what
+/// `--tar-skip-response` documents.
+#[derive(Debug, Clone)]
+pub struct ResponseFilter {
+    pattern: String,
+    compiled: regex::bytes::Regex,
+}
+
+impl ResponseFilter {
+    /// Whether a response, spelled as in [`spell_response`], is filtered out.
+    pub fn matches(&self, spelling: &str) -> bool {
+        self.compiled.is_match(spelling.as_bytes())
+    }
+}
+
+/// Equal when they would filter the same responses, which the pattern text
+/// decides; see the note on [`Mode`]'s equality for why the compiled form is
+/// not compared.
+impl PartialEq for ResponseFilter {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern
+    }
+}
+
+impl Eq for ResponseFilter {}
+
+impl fmt::Display for ResponseFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.pattern)
+    }
+}
+
+impl std::str::FromStr for ResponseFilter {
+    type Err = regex::Error;
+
+    /// Compiles the pattern as typed, for the same reason [`Mode::Regex`] keeps
+    /// its text: an operator's pattern is answered as written, not rewritten.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            pattern: text.to_owned(),
+            compiled: regex::bytes::Regex::new(text)?,
+        })
+    }
+}
+
+/// The spelling of a response that a [`ResponseFilter`] is matched against.
+///
+/// See [`ResponseFilter`] for the form. Uppercase, so a pattern written in
+/// either case of the hex digits does not depend on the card.
+pub fn spell_response(response: &Response) -> String {
+    let mut spelling: String = response
+        .body()
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect();
+    if let Some(status) = response.status() {
+        let [sw1, sw2] = status.to_bytes();
+        spelling.push_str(&format!("{sw1:02X}{sw2:02X}"));
+    }
+    spelling
 }
 
 impl Default for Selection {
@@ -804,11 +879,20 @@ impl Default for Selection {
         Self {
             mode: Mode::Off,
             class: Class::Etsi,
+            skip_response: None,
         }
     }
 }
 
 impl Selection {
+    /// This selection with SIMTester's `-stre` response filter set, or left
+    /// as it is for `None` (issue #264).
+    #[must_use]
+    pub fn skipping_responses(mut self, filter: Option<ResponseFilter>) -> Self {
+        self.skip_response = filter;
+        self
+    }
+
     /// The focused set at the ETSI class, asked for by name.
     ///
     /// [`Default`] is [`Mode::Off`] and should stay that way while an
@@ -821,6 +905,7 @@ impl Selection {
         Self {
             mode: Mode::Focused,
             class: Class::Etsi,
+            skip_response: None,
         }
     }
 }
@@ -851,7 +936,10 @@ impl Selection {
     /// folded into the mode, so a reader of a refusal sees the value they
     /// would have typed and then one more thing.
     pub fn fingerprint(&self) -> String {
-        format!("{}@{}", self, self.class.id())
+        match &self.skip_response {
+            Some(filter) => format!("{}+skip-response:{}@{}", self, filter, self.class.id()),
+            None => format!("{}@{}", self, self.class.id()),
+        }
     }
 }
 
@@ -916,7 +1004,11 @@ impl std::str::FromStr for Selection {
             }
         }
 
-        Ok(Self { mode, class })
+        Ok(Self {
+            mode,
+            class,
+            skip_response: None,
+        })
     }
 }
 
@@ -1282,6 +1374,13 @@ impl fmt::Display for Baseline {
 /// What the scanner concluded about one TAR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Verdict {
+    /// The card's response matched `--tar-skip-response`, so the probe is
+    /// neither a finding nor a refusal of the baseline kind (issue #264).
+    Filtered {
+        /// The status word the card answered with.
+        status: Option<StatusWord>,
+    },
+
     /// The card's answer to this TAR differed from its baseline answer.
     ///
     /// **This is the finding**, and the status word travels with it so a reader
@@ -1304,7 +1403,9 @@ impl Verdict {
     /// The status word either way.
     pub const fn status(&self) -> Option<StatusWord> {
         match self {
-            Self::Accepted { status, .. } | Self::Refused { status } => *status,
+            Self::Accepted { status, .. }
+            | Self::Refused { status }
+            | Self::Filtered { status } => *status,
         }
     }
 
@@ -1318,6 +1419,7 @@ impl Verdict {
         match self {
             Self::Accepted { .. } => "accepted",
             Self::Refused { .. } => "refused",
+            Self::Filtered { .. } => "filtered",
         }
     }
 }
@@ -1336,7 +1438,7 @@ impl Probe {
     pub fn to_json(&self) -> Value {
         let body_len = match self.verdict {
             Verdict::Accepted { body_len, .. } => body_len,
-            Verdict::Refused { .. } => 0,
+            Verdict::Refused { .. } | Verdict::Filtered { .. } => 0,
         };
         json!({
             "tar": hex(self.tar),
@@ -1744,6 +1846,8 @@ enum Stop {
 #[derive(Debug)]
 pub(crate) struct Reply {
     pub(crate) signature: Signature,
+    /// The response as [`spell_response`] spells it, for a `--tar-skip-response` match.
+    pub(crate) spelling: String,
     pub(crate) exchanges: usize,
 }
 
@@ -1829,6 +1933,7 @@ pub(crate) fn probe_envelope<S: CardSession + ?Sized>(
     }
     Ok(Ok(Reply {
         signature: Signature::of(exchange.response()),
+        spelling: spell_response(exchange.response()),
         exchanges: exchange.exchange_count(),
     }))
 }
@@ -1861,6 +1966,7 @@ fn probe_split<S: CardSession + ?Sized>(
     let Some(requested) = advertised_data_octets(&first) else {
         return Ok(Ok(Reply {
             signature: Signature::of(&first),
+            spelling: spell_response(&first),
             exchanges: 1,
         }));
     };
@@ -1911,6 +2017,7 @@ fn probe_split<S: CardSession + ?Sized>(
 
     Ok(Ok(Reply {
         signature: Signature::of(&second),
+        spelling: spell_response(&second),
         exchanges,
     }))
 }
@@ -2073,7 +2180,15 @@ pub fn audit_with_por<S: CardSession + ?Sized>(
             match probe(session, tar, selection.class, por, policy) {
                 Ok(Ok(reply)) => {
                     exchanges += reply.exchanges;
-                    let verdict = if baseline.refuses(&reply.signature) {
+                    let filtered = selection
+                        .skip_response
+                        .as_ref()
+                        .is_some_and(|filter| filter.matches(&reply.spelling));
+                    let verdict = if filtered {
+                        Verdict::Filtered {
+                            status: reply.signature.status(),
+                        }
+                    } else if baseline.refuses(&reply.signature) {
                         Verdict::Refused {
                             status: reply.signature.status(),
                         }
@@ -3178,6 +3293,37 @@ mod tests {
         assert!(audit.is_complete());
         assert!(audit.blind_spot().is_none());
         assert_eq!(audit.probes.len(), FOCUSED_PROBES);
+    }
+
+    /// `--tar-skip-response` is SIMTester's `-stre` response filter (issue #264):
+    /// a sweep probe whose response matches the pattern is neither accepted nor
+    /// raised, and the match is still visible per probe as `filtered`.
+    #[test]
+    fn a_response_matching_the_skip_filter_is_not_accepted_and_raises_nothing() {
+        let mut card = SwimsMsZero::new();
+        let selection = "range:000000-000003"
+            .parse::<Selection>()
+            .expect("range")
+            .skipping_responses(Some("6D00".parse().expect("a pattern")));
+        let audit = audit(&mut card, &selection, &Policy::default(), &mut never)
+            .expect("no transport error");
+
+        assert_eq!(audit.accepted_count(), 0, "6D00 was filtered, not accepted");
+        assert!(!audit.msl_zero_allowed(), "MSL 0 must not be reported");
+        assert_eq!(audit.probes[0].verdict.id(), "filtered");
+        assert_eq!(
+            audit.probes[0]
+                .verdict
+                .status()
+                .expect("a status")
+                .to_string(),
+            "6D00"
+        );
+        assert_eq!(audit.probes[1].verdict.id(), "refused");
+        assert_eq!(
+            audit.selection.fingerprint(),
+            "range:000000-000003+skip-response:6D00@etsi"
+        );
     }
 
     /// The other end: a card that answers TAR zero differently **is** reported

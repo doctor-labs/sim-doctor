@@ -3951,7 +3951,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__scan)
-            opts="-b -h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --tar --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --face --theme --color --headless --help"
+            opts="-b -h --json --tui --dialect --reader --reader-index --max-depth --max-children --max-nodes --max-directories --sfb --scan-file-break --sffs --score --severity --baseline --fail-on --sarif --tar --tar-filter --terminal-profile --sms-deliver-report --sfrv --reserved-file-ids --face --theme --color --headless --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4002,6 +4002,10 @@ _sim__doctor() {
                     return 0
                     ;;
                 --tar)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --tar-filter)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
