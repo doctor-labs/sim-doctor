@@ -111,6 +111,7 @@ fn help_lists_the_commands() {
         "query_card_key",
         "history",
         "run_script",
+        "bulk_script",
     ] {
         assert!(text.contains(name), "{name} missing:\n{text}");
     }
@@ -1963,4 +1964,88 @@ fn write_csv_never_holds_the_arguments_of_a_secret_bearing_command() {
     assert_eq!(rows[2][0], "apdu <args redacted>");
     assert!(!text.contains("1234"), "a PIN reached the log: {text}");
     assert!(!text.contains("31323334"), "a key reached the log: {text}");
+}
+
+#[test]
+fn bulk_script_command_exists_in_help() {
+    let out = card("cardsh_channels.jsonl", &["-c", "help"]);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("bulk_script"),
+        "bulk_script missing from help:\n{text}"
+    );
+}
+
+#[test]
+fn bulk_script_halts_on_error_with_failing_command() {
+    // Write a script that fails (bogus_command), with --halt-on-error the loop
+    // stops after the first card.
+    let script_path = std::env::temp_dir().join("sim-doctor-bulk-halt-test.txt");
+    std::fs::write(&script_path, "bogus_command").unwrap();
+
+    let out = card(
+        "cardsh_channels.jsonl",
+        &[
+            "--json",
+            "-c",
+            &format!("bulk_script --halt-on-error {}", script_path.display()),
+        ],
+    );
+    let _ = std::fs::remove_file(&script_path);
+    // bogus_command fails, so the process exits 1 (failed > 0).
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The bulk_script reply is the last JSON line
+    let r = lines(&out);
+    let last = r.last().expect("at least one record");
+    assert!(last["ok"].as_bool().unwrap_or(false), "{}", last);
+    assert_eq!(last["data"]["failure"], 1);
+    assert_eq!(last["data"]["success"], 0);
+}
+
+#[test]
+fn bulk_script_runs_pre_and_on_stop_actions() {
+    let script_path = std::env::temp_dir().join("sim-doctor-bulk-actions-test.txt");
+    std::fs::write(&script_path, "bogus_command").unwrap();
+
+    let pre_marker = std::env::temp_dir().join("sim-doctor-bulk-pre-marker.txt");
+    let stop_marker = std::env::temp_dir().join("sim-doctor-bulk-stop-marker.txt");
+    let _ = std::fs::remove_file(&pre_marker);
+    let _ = std::fs::remove_file(&stop_marker);
+
+    let out = card(
+        "cardsh_channels.jsonl",
+        &[
+            "--json",
+            "--yes",
+            "-c",
+            &format!(
+                "bulk_script \
+             --pre-card-action 'touch {}' \
+             --on-stop-action 'touch {}' \
+             --halt-on-error {}",
+                pre_marker.display(),
+                stop_marker.display(),
+                script_path.display()
+            ),
+        ],
+    );
+    // Verify the hook actions ran.
+    assert!(pre_marker.exists(), "pre_card_action should have run");
+    assert!(stop_marker.exists(), "on_stop_action should have run");
+    let _ = std::fs::remove_file(&script_path);
+    let _ = std::fs::remove_file(&pre_marker);
+    let _ = std::fs::remove_file(&stop_marker);
+    // bogus_command fails, so the process exits 1 (failed > 0).
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
