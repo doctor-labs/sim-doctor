@@ -16,6 +16,9 @@ _sim__doctor() {
             ",$1")
                 cmd="sim__doctor"
                 ;;
+            sim__doctor,batch)
+                cmd="sim__doctor__subcmd__batch"
+                ;;
             sim__doctor,card)
                 cmd="sim__doctor__subcmd__card"
                 ;;
@@ -550,6 +553,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp__subcmd__help__subcmd__crs,list)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__crs__subcmd__list"
                 ;;
+            sim__doctor__subcmd__help,batch)
+                cmd="sim__doctor__subcmd__help__subcmd__batch"
+                ;;
             sim__doctor__subcmd__help,card)
                 cmd="sim__doctor__subcmd__help__subcmd__card"
                 ;;
@@ -983,12 +989,58 @@ _sim__doctor() {
 
     case "${cmd}" in
         sim__doctor)
-            opts="-h -V --help --version modules readers scan profile ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
+            opts="-h -V --help --version modules readers scan profile ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__batch)
+            opts="-h --plan --state --reader --yes --on-failure --retry-failed --batch-name --handler --chv-file --chv-env --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --plan)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --state)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --on-failure)
+                    COMPREPLY=($(compgen -W "stop continue" -- "${cur}"))
+                    return 0
+                    ;;
+                --batch-name)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --handler)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --chv-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --chv-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -4577,8 +4629,22 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help)
-            opts="modules readers scan profile ts48 install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
+            opts="modules readers scan profile ts48 batch install ci completions mcp rules why fix gp trace cat sms saip ota-crypto esim-cert ota-expanded keygen fuzz euicc card erase help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__batch)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi

@@ -112,6 +112,7 @@ pub mod apdu_fuzz;
 pub mod apdu_scan;
 pub mod backend;
 pub mod baseline;
+pub mod batch;
 pub mod bpp;
 pub mod cap;
 pub mod cardprofile;

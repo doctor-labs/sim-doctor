@@ -30,6 +30,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('scan', 'scan', [CompletionResultType]::ParameterValue, 'Select a card''s master file, walk everything under it, and report')
             [CompletionResult]::new('profile', 'profile', [CompletionResultType]::ParameterValue, 'Print the card-profile database, or probe a card against it')
             [CompletionResult]::new('ts48', 'ts48', [CompletionResultType]::ParameterValue, 'Compare a card against the public GSMA TS.48 test profile')
+            [CompletionResult]::new('batch', 'batch', [CompletionResultType]::ParameterValue, 'Program a batch of cards, one at a time, with a crash-safe state file')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project')
             [CompletionResult]::new('ci', 'ci', [CompletionResultType]::ParameterValue, 'Write the GitHub Actions workflow that runs this repo''s action on pull requests')
             [CompletionResult]::new('completions', 'completions', [CompletionResultType]::ParameterValue, 'Write a shell completion script to stdout')
@@ -179,6 +180,22 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;ts48;help;help' {
+            break
+        }
+        'sim-doctor;batch' {
+            [CompletionResult]::new('--plan', '--plan', [CompletionResultType]::ParameterName, 'The plan: a `sim-doctor-batch-plan/1` JSON document naming every card, its ICCID and the commands to send it. Read and checked in full before any card is touched')
+            [CompletionResult]::new('--state', '--state', [CompletionResultType]::ParameterName, 'The state file. The only record of which cards are programmed and verified; its absence means the batch has not started, and an unreadable one stops the run rather than restarting it')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name (default: the first reader)')
+            [CompletionResult]::new('--on-failure', '--on-failure', [CompletionResultType]::ParameterName, 'Whether a card that failed lets the run go on to the next one. `stop` (the default) ends the run at the first failure; `continue` goes on and the report says which card was left behind and why. A swapped card stops the run either way')
+            [CompletionResult]::new('--batch-name', '--batch-name', [CompletionResultType]::ParameterName, 'The batch''s name, recorded in the state file (default: the plan''s `batch`, or `batch`)')
+            [CompletionResult]::new('--handler', '--handler', [CompletionResultType]::ParameterName, 'A feeder instead of a person: `get = command`, `done = command` and `error = command`, one per line (`#` starts a comment). The command is run directly, not through a shell')
+            [CompletionResult]::new('--chv-file', '--chv-file', [CompletionResultType]::ParameterName, 'File holding PINs, PUKs and ADM keys for plan commands that need them (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history')
+            [CompletionResult]::new('--chv-env', '--chv-env', [CompletionResultType]::ParameterName, 'Environment variable holding the same text (entries separated by `;` or newlines)')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the batch. Without it, every card''s plan is printed and not one byte is sent')
+            [CompletionResult]::new('--retry-failed', '--retry-failed', [CompletionResultType]::ParameterName, 'Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards that failed because no card was there are retried without this')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Print one JSON envelope on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
         'sim-doctor;install' {
@@ -1684,6 +1701,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('scan', 'scan', [CompletionResultType]::ParameterValue, 'Select a card''s master file, walk everything under it, and report')
             [CompletionResult]::new('profile', 'profile', [CompletionResultType]::ParameterValue, 'Print the card-profile database, or probe a card against it')
             [CompletionResult]::new('ts48', 'ts48', [CompletionResultType]::ParameterValue, 'Compare a card against the public GSMA TS.48 test profile')
+            [CompletionResult]::new('batch', 'batch', [CompletionResultType]::ParameterValue, 'Program a batch of cards, one at a time, with a crash-safe state file')
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project')
             [CompletionResult]::new('ci', 'ci', [CompletionResultType]::ParameterValue, 'Write the GitHub Actions workflow that runs this repo''s action on pull requests')
             [CompletionResult]::new('completions', 'completions', [CompletionResultType]::ParameterValue, 'Write a shell completion script to stdout')
@@ -1736,6 +1754,9 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;help;ts48;compare' {
+            break
+        }
+        'sim-doctor;help;batch' {
             break
         }
         'sim-doctor;help;install' {

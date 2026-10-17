@@ -31,8 +31,8 @@ mod card_cmd;
 mod kit;
 
 use sim_doctor::{
-    apdu_fuzz, apdu_scan, cat, cert, ci, contract, erase, euicc, fix, fuzz, gp, keygen, notif,
-    ota_expanded, otacrypto, rules, saip, scan, session, sms, tar, trace,
+    apdu_fuzz, apdu_scan, batch, cardsh, cat, cert, ci, contract, erase, euicc, fix, fuzz, gp,
+    keygen, notif, ota_expanded, otacrypto, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
         replay,
@@ -173,6 +173,16 @@ enum Command {
 
     /// Compare a card against the public GSMA TS.48 test profile.
     Ts48(Ts48Args),
+
+    /// Program a batch of cards, one at a time, with a crash-safe state file.
+    ///
+    /// A batch is N card writes and it can stop with some cards programmed and
+    /// others not. This reads the plan, drives one card-handler automaton
+    /// (`get` / `done` / `error`, as pySim's card handler is), and records what
+    /// each card answered in a state file that is replaced atomically and is
+    /// committed only after the card confirms. **A dry run unless `--yes`**, and
+    /// a dry run prints the plan for every card and sends nothing at all.
+    Batch(BatchArgs),
 
     /// Write agent guidance (Claude skill, Cursor rule, AGENTS.md block) into a project.
     ///
@@ -3159,6 +3169,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                 run_profile_probe(args.reader, args.json, Some(args.name))
             }
         },
+        Command::Batch(args) => run_batch(args),
         Command::Ts48(args) => match args.action {
             Ts48Action::Compare(args) => run_ts48_compare(args),
         },
@@ -8544,4 +8555,174 @@ fn gp_cert_built(
         key_source: key.map(GpCertKeyArgs::label),
         public_key_source,
     })
+}
+
+/// Everything `sim-doctor batch` takes.
+#[derive(Args)]
+struct BatchArgs {
+    /// The plan: a `sim-doctor-batch-plan/1` JSON document naming every card, its ICCID and the
+    /// commands to send it. Read and checked in full before any card is touched.
+    #[arg(long, value_name = "PATH")]
+    plan: std::path::PathBuf,
+
+    /// The state file. The only record of which cards are programmed and verified; its absence
+    /// means the batch has not started, and an unreadable one stops the run rather than restarting it.
+    #[arg(long, value_name = "PATH")]
+    state: std::path::PathBuf,
+
+    /// The reader to use, matched against the driver's own name (default: the first reader).
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+
+    /// Send the batch. Without it, every card's plan is printed and not one byte is sent.
+    #[arg(long)]
+    yes: bool,
+
+    /// Whether a card that failed lets the run go on to the next one. `stop` (the default) ends the
+    /// run at the first failure; `continue` goes on and the report says which card was left behind
+    /// and why. A swapped card stops the run either way.
+    #[arg(long, value_name = "WHAT", default_value = "stop", value_parser = ["stop", "continue"])]
+    on_failure: String,
+
+    /// Attempt again a card an earlier run failed on for a reason that will not fix itself. Cards
+    /// that failed because no card was there are retried without this.
+    #[arg(long)]
+    retry_failed: bool,
+
+    /// The batch's name, recorded in the state file (default: the plan's `batch`, or `batch`).
+    #[arg(long, value_name = "NAME")]
+    batch_name: Option<String>,
+
+    /// A feeder instead of a person: `get = command`, `done = command` and `error = command`, one
+    /// per line (`#` starts a comment). The command is run directly, not through a shell.
+    #[arg(long, value_name = "PATH")]
+    handler: Option<std::path::PathBuf>,
+
+    /// File holding PINs, PUKs and ADM keys for plan commands that need them (`pin1=1234` per line;
+    /// keep it chmod 600). Never a value on the command line: it would land in shell history.
+    #[arg(long, value_name = "PATH", conflicts_with = "chv_env")]
+    chv_file: Option<std::path::PathBuf>,
+
+    /// Environment variable holding the same text (entries separated by `;` or newlines).
+    #[arg(long, value_name = "VAR")]
+    chv_env: Option<String>,
+
+    /// Print one JSON envelope on stdout, and nothing else.
+    #[arg(long)]
+    json: bool,
+}
+
+/// Runs `sim-doctor batch`: the plan, then the automaton, then the report.
+///
+/// Every command the plan carries goes through the card shell, so a plan that
+/// tries to write without `--yes` here prints what it would send and sends
+/// nothing: `batch::Options::yes` is the shell's own gate.
+fn run_batch(args: BatchArgs) -> contract::ExitCode {
+    guard_exchange(batch::KIND, args.json);
+    let refuse = |message: &str, data: serde_json::Value| {
+        report_refusal(batch::KIND, message, data, args.json)
+    };
+    if checkpoint() {
+        return report_interrupted(batch::KIND, args.json);
+    }
+    let plan = match batch::Plan::load(&args.plan) {
+        Ok(plan) => plan,
+        Err(failure) => {
+            return refuse(
+                &failure.detail,
+                serde_json::json!({ "error": failure.data() }),
+            )
+        }
+    };
+    let on_failure = match batch::OnFailure::parse(&args.on_failure) {
+        Ok(on_failure) => on_failure,
+        Err(message) => {
+            return refuse(
+                &message,
+                serde_json::json!({ "error": { "kind": "bad-on-failure" } }),
+            )
+        }
+    };
+    let mut handler: Box<dyn batch::Handler> = match &args.handler {
+        None => Box::new(batch::Prompt),
+        Some(path) => {
+            let text = match std::fs::read_to_string(path) {
+                Ok(text) => text,
+                Err(err) => {
+                    return refuse(
+                        &format!("{}: {err}", path.display()),
+                        serde_json::json!({ "error": { "kind": "handler-unreadable" } }),
+                    )
+                }
+            };
+            match batch::External::parse(&text) {
+                Ok(external) => Box::new(external),
+                Err(message) => {
+                    return refuse(
+                        &format!("{}: {message}", path.display()),
+                        serde_json::json!({ "error": { "kind": "handler-invalid" } }),
+                    )
+                }
+            }
+        }
+    };
+    let opts = batch::Options {
+        batch: args
+            .batch_name
+            .clone()
+            .or_else(|| plan.batch.clone())
+            .unwrap_or_else(|| "batch".to_owned()),
+        state_path: args.state.clone(),
+        yes: args.yes,
+        on_failure,
+        retry_failed: args.retry_failed,
+        reader: args.reader.clone(),
+    };
+
+    // One shell per card, over a session opened by the real reader. The PIN
+    // source is read per card rather than cloned into the closure.
+    let yes = args.yes;
+    let dialect = scan::Dialect::Ts102221;
+    let chv_file = args.chv_file.clone();
+    let chv_env = args.chv_env.clone();
+    let mut shells = move || -> cardsh::Shell {
+        let source = match (&chv_file, &chv_env) {
+            (Some(path), _) => Some(cardsh::secrets::Source::File(path.clone())),
+            (None, Some(name)) => Some(cardsh::secrets::Source::Env(name.clone())),
+            (None, None) => None,
+        };
+        let secrets = match source
+            .as_ref()
+            .map(cardsh::secrets::Secrets::load)
+            .transpose()
+        {
+            Ok(secrets) => secrets,
+            Err(message) => {
+                eprintln!("sim-doctor: {message}");
+                None
+            }
+        };
+        cardsh::Shell::new(
+            Box::new(|requested| {
+                let (session, reader, atr) =
+                    open_scan_session(requested, false, None).map_err(|f| f.message)?;
+                Ok((session, reader.as_str().to_owned(), atr))
+            }),
+            cardsh::Opts {
+                yes,
+                dialect: dialect.tag_set(),
+                secrets,
+                card_key: None,
+                card_keys: None,
+            },
+        )
+    };
+
+    let (code, report) = batch::execute(&plan, &opts, &mut shells, handler.as_mut());
+    if args.json {
+        println!("{}", report.envelope());
+    } else {
+        print!("{}", report.to_text());
+    }
+    code
 }
