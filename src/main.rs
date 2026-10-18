@@ -2957,10 +2957,11 @@ struct ScanArgs {
     #[arg(long)]
     tar_uncapped: bool,
 
-    /// Send the uncapped TAR sweep. Required with --tar-uncapped.
+    /// Send the TAR probes. Required with --tar focused, full or range (F-1).
     ///
-    /// Without it, --tar-uncapped is a dry run: it prints how many ENVELOPEs the sweep would send,
-    /// opens no reader, sends nothing and exits 2. Ignored without --tar-uncapped.
+    /// Without it, --tar focused, full or range is a dry run: it prints how many ENVELOPEs the sweep
+    /// would send (the cap, or the full space with --tar-uncapped), opens no reader, sends nothing
+    /// and exits 2. With it, exactly the printed count is sent.
     #[arg(long)]
     yes: bool,
 

@@ -55,9 +55,9 @@
 -> {"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"gp_status","arguments":{"trace":true}}}
 <- {"id":31,"jsonrpc":"2.0","result":{"content":[{"text":"unknown argument \"trace\"","type":"text"}],"isError":true}}
 -> {"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"scan","arguments":{"tar":"focused"}}}
-<- 181007 bytes, sha256 eb92d91b4e603a8a4ebd809ec6d43b8ac0a8fa10efe623b411ad537e3288387c
+<- {"id":32,"jsonrpc":"2.0","result":{"content":[{"text":"sim-doctor: --tar focused would send 676 ENVELOPEs (656 TAR probes and 20 calibration probes; the full TAR space is 16777216). Dry run: nothing was sent. Add --yes to send them.\n","type":"text"}],"isError":true}}
 -> {"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"scan","arguments":{"tar":"focused","severity":"high","score":true}}}
-<- 181015 bytes, sha256 9c6ba0034a40ac850c58c60da4c87a6d3162c7ccd1b26060d8cb1256f5243e7a
+<- {"id":33,"jsonrpc":"2.0","result":{"content":[{"text":"sim-doctor: --tar focused would send 676 ENVELOPEs (656 TAR probes and 20 calibration probes; the full TAR space is 16777216). Dry run: nothing was sent. Add --yes to send them.\n","type":"text"}],"isError":true}}
 -> {"jsonrpc":"2.0","id":34,"method":"tools/call","params":{"name":"scan","arguments":{"baseline":"/nonexistent/golden.json"}}}
 <- {"id":34,"jsonrpc":"2.0","result":{"content":[{"text":"sim-doctor: the baseline file could not be read: /nonexistent/golden.json: No such file or directory (os error 2)\n","type":"text"}],"isError":true}}
 -> {"jsonrpc":"2.0","id":35,"method":"tools/call","params":{"name":"scan","arguments":{"terminal-profile":true}}}
