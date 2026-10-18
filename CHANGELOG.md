@@ -6,6 +6,8 @@
 
 - `update_binary --read-back` that reads back data differing from what was written is now a failure: `ok:false`, exit non-zero, and a message naming the read-back mismatch (`verified:false` stays in the data). It used to exit 0 with `ok:true` (F-3).
 - `gp cplc-set`, `gp personalize` and `gp store-data` no longer print `verified:true`. Their writes are confirmed only by the registry, not by reading back the written bytes, so the result carries `verified_note` "written, not read back" instead. A real CPLC read-back (GET DATA on DGIs 9F66/9F67) is not implemented: whether the card serves those DGIs is unverified (F-4).
+- `scan --tar focused|full|range` is a dry run without `--yes` (F-1): it prints how many ENVELOPEs it would send (the sweep plus the 20 calibration probes) and sends nothing, exit 2. With `--yes` it sends exactly that many. It used to send up to 4096 ENVELOPEs with no confirmation. `--tar-uncapped` keeps its dry run and its full-space count. Over MCP the scan tool is therefore a dry run too, since it never takes `yes`.
+- The MCP `scan` tool no_longer advertises a `yes` property in its input schema (F-5). Every call that sent it was already refused, so the schema now matches what the tool accepts. The refusal itself is unchanged.
 
 ### Added
 

@@ -794,13 +794,21 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
         eprintln!("sim-doctor: --tar-uncapped is only meaningful with --tar other than off");
         return contract::ExitCode::Error;
     }
-    // The dry run: an uncapped sweep sends one ENVELOPE per TAR, so the count is shown and nothing
-    // is sent, and no reader is opened, until --yes is given.
-    if args.tar_uncapped && !args.yes {
+    // The dry run (F-1): every TAR probe sweep sends one ENVELOPE per TAR, so the count is shown and
+    // nothing is sent, and no reader is opened, until --yes is given. The count is the one the
+    // audit's bound allows, so `--yes` sends exactly this many.
+    if !matches!(args.tar.mode, tar::Mode::Off) && !args.yes {
+        let bound = if args.tar_uncapped {
+            tar::UNCAPPED_MAX_PROBES
+        } else {
+            tar::MAX_PROBES
+        };
+        let sweep = tar::tars(&args.tar).take(bound).count();
+        let total = sweep + tar::CALIBRATION_PROBES;
         eprintln!(
-            "sim-doctor: --tar-uncapped would send {} ENVELOPEs for TAR selection {} (the full TAR space is {}). Dry run: nothing was sent. Add --yes to send them.",
-            tar::uncapped_probe_count(&args.tar),
+            "sim-doctor: --tar {} would send {total} ENVELOPEs ({sweep} TAR probes and {} calibration probes; the full TAR space is {}). Dry run: nothing was sent. Add --yes to send them.",
             args.tar,
+            tar::CALIBRATION_PROBES,
             tar::TAR_SPACE
         );
         return contract::ExitCode::Error;

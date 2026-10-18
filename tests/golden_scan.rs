@@ -311,19 +311,22 @@ fn scan_through_the_binary() {
     };
 
     // The reference envelope, stored whole.
-    let first = run(&["scan", "--json", "--tar", "focused"], Some(&msl0));
+    let first = run(
+        &["scan", "--json", "--tar", "focused", "--yes"],
+        Some(&msl0),
+    );
     assert_eq!(first.code, 1, "{}", first.stderr);
     check("proc_scan_msl0.json", &norm(&first.stdout, &tmp));
 
     case(
         "msl0, default --fail-on (critical)",
-        &["scan", "--json", "--tar", "focused"],
+        &["scan", "--json", "--tar", "focused", "--yes"],
         Some(&msl0),
         &[],
     );
     case(
         "clean card",
-        &["scan", "--json", "--tar", "focused"],
+        &["scan", "--json", "--tar", "focused", "--yes"],
         Some(&clean),
         &[],
     );
@@ -335,19 +338,43 @@ fn scan_through_the_binary() {
     );
     case(
         "--fail-on info",
-        &["scan", "--json", "--tar", "focused", "--fail-on", "info"],
+        &[
+            "scan",
+            "--json",
+            "--tar",
+            "focused",
+            "--yes",
+            "--fail-on",
+            "info",
+        ],
         Some(&msl0),
         &[],
     );
     case(
         "--fail-on high",
-        &["scan", "--json", "--tar", "focused", "--fail-on", "high"],
+        &[
+            "scan",
+            "--json",
+            "--tar",
+            "focused",
+            "--yes",
+            "--fail-on",
+            "high",
+        ],
         Some(&msl0),
         &[],
     );
     case(
         "--severity high",
-        &["scan", "--json", "--tar", "focused", "--severity", "high"],
+        &[
+            "scan",
+            "--json",
+            "--tar",
+            "focused",
+            "--yes",
+            "--severity",
+            "high",
+        ],
         Some(&msl0),
         &[],
     );
@@ -358,6 +385,7 @@ fn scan_through_the_binary() {
             "--json",
             "--tar",
             "focused",
+            "--yes",
             "--severity",
             "critical",
             "--fail-on",
@@ -368,13 +396,21 @@ fn scan_through_the_binary() {
     );
     case(
         "--score with --json",
-        &["scan", "--json", "--tar", "focused", "--score"],
+        &["scan", "--json", "--tar", "focused", "--yes", "--score"],
         Some(&msl0),
         &[],
     );
     case(
         "truncated walk (--max-nodes 2)",
-        &["scan", "--json", "--tar", "focused", "--max-nodes", "2"],
+        &[
+            "scan",
+            "--json",
+            "--tar",
+            "focused",
+            "--yes",
+            "--max-nodes",
+            "2",
+        ],
         Some(&small),
         &[],
     );
@@ -397,7 +433,7 @@ fn scan_through_the_binary() {
         &[],
     );
     // The human report: the exit code and stderr are pinned, its text is not.
-    let human = run(&["scan", "--tar", "focused"], Some(&msl0));
+    let human = run(&["scan", "--tar", "focused", "--yes"], Some(&msl0));
     writeln!(
         text,
         "# human report: exit {}\n--- stderr\n{}",
@@ -406,7 +442,7 @@ fn scan_through_the_binary() {
     )
     .unwrap();
     assert!(human.stdout.contains("gsma/msl-zero-allowed"));
-    let human_tui = run(&["scan", "--tar", "focused", "--tui"], Some(&msl0));
+    let human_tui = run(&["scan", "--tar", "focused", "--yes", "--tui"], Some(&msl0));
     writeln!(
         text,
         "# --tui without a terminal: exit {}\n--- stderr\n{}",
@@ -427,6 +463,7 @@ fn scan_through_the_binary() {
             "--json",
             "--tar",
             "focused",
+            "--yes",
             "--sarif",
             sarif.to_str().unwrap(),
         ],
@@ -439,6 +476,7 @@ fn scan_through_the_binary() {
             "--json",
             "--tar",
             "focused",
+            "--yes",
             "--sarif",
             sarif.to_str().unwrap(),
         ],
@@ -458,6 +496,7 @@ fn scan_through_the_binary() {
         "--json",
         "--tar",
         "focused",
+        "--yes",
         "--sarif",
         unwritable.to_str().unwrap(),
     ];
@@ -479,13 +518,25 @@ fn scan_through_the_binary() {
     // --baseline: saved the way a user saves one.
     let saved_clean = write(
         "clean.json",
-        run(&["scan", "--json", "--tar", "focused"], Some(&clean)).stdout,
+        run(
+            &["scan", "--json", "--tar", "focused", "--yes"],
+            Some(&clean),
+        )
+        .stdout,
     );
     let saved_msl0 = write("msl0.json", first.stdout.clone());
     let saved_small = write(
         "small.json",
         run(
-            &["scan", "--json", "--tar", "focused", "--max-nodes", "2"],
+            &[
+                "scan",
+                "--json",
+                "--tar",
+                "focused",
+                "--yes",
+                "--max-nodes",
+                "2",
+            ],
             Some(&small),
         )
         .stdout,
@@ -509,6 +560,7 @@ fn scan_through_the_binary() {
             "--json",
             "--tar",
             "focused",
+            "--yes",
             "--baseline",
             base.to_str().unwrap(),
         ];
@@ -525,6 +577,7 @@ fn scan_through_the_binary() {
             "--json",
             "--tar",
             "focused",
+            "--yes",
             "--baseline",
             base,
             extra[0],
@@ -553,6 +606,7 @@ fn scan_through_the_binary() {
         "--json",
         "--tar",
         "focused",
+        "--yes",
         "--baseline",
         same.to_str().unwrap(),
         "--sarif",
@@ -656,7 +710,7 @@ fn a_scan_that_cannot_write_its_report_exits_2_and_says_so() {
         unsafe { libc::close(fds[0]) };
         // SAFETY: the write end is ours alone, so the `Stdio` is its only owner.
         let stdout = unsafe { Stdio::from_raw_fd(fds[1]) };
-        let mut args = vec!["scan", "--tar", "focused"];
+        let mut args = vec!["scan", "--tar", "focused", "--yes"];
         args.extend(extra);
         let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
             .args(&args)
@@ -685,7 +739,11 @@ fn sarif_and_baseline_are_one_file_however_spelled() {
     let msl0 = tmp.join("msl0.log");
     std::fs::write(&msl0, log(true, Limits::default(), &Selection::focused())).unwrap();
     let base = tmp.join("base.json");
-    let saved = run(&["scan", "--json", "--tar", "focused"], Some(&msl0)).stdout;
+    let saved = run(
+        &["scan", "--json", "--tar", "focused", "--yes"],
+        Some(&msl0),
+    )
+    .stdout;
     std::fs::write(&base, &saved).unwrap();
     std::fs::create_dir_all(tmp.join("sub")).unwrap();
     let respelled = tmp.join("sub").join("..").join("base.json");
@@ -694,6 +752,7 @@ fn sarif_and_baseline_are_one_file_however_spelled() {
         "--json",
         "--tar",
         "focused",
+        "--yes",
         "--baseline",
         base.to_str().unwrap(),
         "--sarif",
@@ -1083,7 +1142,11 @@ fn scan_with_a_kit_face() {
     let saved = tmp.join("clean.json");
     std::fs::write(
         &saved,
-        run(&["scan", "--json", "--tar", "focused"], Some(&clean)).stdout,
+        run(
+            &["scan", "--json", "--tar", "focused", "--yes"],
+            Some(&clean),
+        )
+        .stdout,
     )
     .unwrap();
     let mut text = String::new();
@@ -1129,7 +1192,7 @@ fn scan_with_a_kit_face() {
             &msl0,
         ),
     ] {
-        let mut args = vec!["scan", "--tar", "focused"];
+        let mut args = vec!["scan", "--tar", "focused", "--yes"];
         args.extend(extra);
         let r = run(&args, Some(log));
         writeln!(

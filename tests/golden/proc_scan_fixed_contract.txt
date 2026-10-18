@@ -1,4 +1,4 @@
-# same file, spelled two ways: sim-doctor scan --json --tar focused --baseline <TMP>/base.json --sarif <TMP>/sub/../base.json
+# same file, spelled two ways: sim-doctor scan --json --tar focused --yes --baseline <TMP>/base.json --sarif <TMP>/sub/../base.json
 exit 2
 --- stderr
 sim-doctor: --sarif and --baseline both name <TMP>/sub/../base.json; the SARIF file would destroy the baseline

@@ -77,7 +77,7 @@ gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
 '--reserved-file-ids[Scan reserved file identifiers 7FF0-7FFF inside an application]' \
 '--sfrv[Scan reserved file identifiers 7FF0-7FFF inside an application]' \
 '--tar-uncapped[Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266)]' \
-'--yes[Send the uncapped TAR sweep. Required with --tar-uncapped]' \
+'--yes[Send the TAR probes. Required with --tar focused, full or range (F-1)]' \
 '(--json --tui --face)--headless[A face in plain text without colour, for CI and pipes]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \

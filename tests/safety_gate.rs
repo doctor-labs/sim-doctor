@@ -1706,12 +1706,78 @@ fn g6_fuzz_sweeps_are_capped_even_with_both_gates() {
     assert!(out.stdout.contains("\"capped\":true"), "{}", out.stdout);
 }
 
+/// F-1: `scan --tar <selection>` without `--yes` is a dry run that prints `count` and sends
+/// nothing; with `--yes` it sends exactly `count` ENVELOPEs.
+fn tar_dry_run_contract(tag: &str, selection: &str, count: usize) {
+    let ctx = Ctx::new(tag);
+    let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));
+    let args: Vec<String> = [
+        "scan",
+        "--simulator",
+        &fake.spec,
+        "--tar",
+        selection,
+        "--json",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    let out = run_in(&ctx.work.dir, &args, &[], None);
+    assert_eq!(out.code, Some(2), "{}", out.all());
+    assert_eq!(fake.ins(0xC2), 0, "{selection}: ENVELOPEs without --yes");
+    assert_eq!(fake.connections.load(Ordering::SeqCst), 0, "{selection}");
+    assert!(
+        out.stderr
+            .contains(&format!("would send {count} ENVELOPEs")),
+        "{selection}: the count {count} is not printed: {}",
+        out.stderr
+    );
+
+    let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));
+    let mut args: Vec<String> = [
+        "scan",
+        "--simulator",
+        &fake.spec,
+        "--tar",
+        selection,
+        "--json",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    args.push("--yes".into());
+    let out = run_in(&ctx.work.dir, &args, &[], None);
+    assert_eq!(
+        fake.ins(0xC2),
+        count,
+        "{selection}: sent with --yes: {}",
+        out.all()
+    );
+}
+
+#[test]
+fn f1_tar_focused_is_a_dry_run_without_yes_and_sends_the_count_with_it() {
+    // 656 TAR probes plus the 20 calibration probes that always run first.
+    tar_dry_run_contract("f1focused", "focused", 676);
+}
+
+#[test]
+fn f1_tar_full_is_a_dry_run_without_yes_and_sends_the_count_with_it() {
+    // 4096 TAR probes (the cap) plus the 20 calibration probes.
+    tar_dry_run_contract("f1full", "full", 4116);
+}
+
+#[test]
+fn f1_tar_range_is_a_dry_run_without_yes_and_sends_the_count_with_it() {
+    // 64 TAR probes plus the 20 calibration probes.
+    tar_dry_run_contract("f1range", "range:000001-000040", 84);
+}
+
 // ---------------------------------------------------------------------------
 // FINDINGS: each test states the property that should hold; each fails today
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "FINDING F-1 (high): scan --tar full|focused|range sends up to 4096 ENVELOPEs with no --yes and no count first"]
 fn finding_f1_scan_tar_probes_send_envelopes_without_yes() {
     let ctx = Ctx::new("f1");
     let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));
@@ -1805,7 +1871,6 @@ fn finding_f4_verified_true_needs_a_read_back() {
 }
 
 #[test]
-#[ignore = "FINDING F-5 (low): the MCP scan tool advertises a yes property that every call refuses"]
 fn finding_f5_mcp_schema_does_not_advertise_yes() {
     let work = Work::new("f5");
     let answers = mcp_session(&work, None, &[(2, "tools/list", serde_json::json!({}))]);

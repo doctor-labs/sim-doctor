@@ -93,7 +93,7 @@ Options:
       --sms-deliver-report     Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT
       --reserved-file-ids      Scan reserved file identifiers 7FF0-7FFF inside an application [alias: --sfrv]
       --tar-uncapped           Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266)
-      --yes                    Send the uncapped TAR sweep. Required with --tar-uncapped
+      --yes                    Send the TAR probes. Required with --tar focused, full or range (F-1)
       --face <FACE>            The human report: a doctor-kit face (rich, plain or compact), or the full legacy report [possible values: rich, plain, compact, legacy]
       --theme <THEME>          The face's colours: mono, clinical or contrast (default: the tool's own)
       --color <COLOR>          Colour the face: auto (a terminal and no NO_COLOR), always or never [possible values: auto, always, never]
