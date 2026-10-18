@@ -23,6 +23,11 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+### Fixed
+
+- `erase --yes --simulator HOST:PORT` is refused with a one-line message and exit 1, before any reader is opened or APDU sent; it used to ignore the simulator and write the real PC/SC reader (F-2). The dry run (no `--yes`) still works against the simulator.
+- `mcp --simulator HOST:PORT` now reaches the tool calls: each child `scan` / `gp` / eUICC call runs against the simulator instead of opening the PC/SC reader (F-6).
+
 ## [Unreleased]
 
 - `card`: a CSV card key provider (pySim's `--csv`, `CardKeyProviderCsv`), as
