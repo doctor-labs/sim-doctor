@@ -3093,6 +3093,7 @@ pub fn store_data<S: CardSession + ?Sized>(
         },
         registry_complete,
     )
+    .map(not_read_back)
 }
 
 // ---------------------------------------------------------------------------
@@ -5200,6 +5201,20 @@ fn prepare_write<S: CardSession + ?Sized>(
     }))
 }
 
+/// Said in place of `verified` when a write is confirmed only by the registry, not
+/// by reading back the bytes that were written (STORE DATA, CPLC DGIs, personalization).
+const NOT_READ_BACK_NOTE: &str = "written, not read back: the card answered 9000 and the registry check does not show the written data";
+
+/// `verified:true` is a claim that the written bytes were read back. Writes that
+/// are not read back drop it and say so instead.
+fn not_read_back(mut report: Report) -> Report {
+    if let Some(result) = report.data.get_mut("result").and_then(Value::as_object_mut) {
+        result.remove("verified");
+        result.insert("verified_note".into(), json!(NOT_READ_BACK_NOTE));
+    }
+    report
+}
+
 /// The shared flow of `gp delete` and `gp install` with keys: authenticate once,
 /// read the registry, let `check` refuse (nothing sent), stop at a dry run
 /// unless `yes`, otherwise send each planned command MAC'd and in order, stop at
@@ -6035,6 +6050,7 @@ pub fn personalize<S: CardSession + ?Sized>(
         },
         |after| registry_entry(after, &aid_hex).is_some(),
     )
+    .map(not_read_back)
     .map(|mut report| {
         report.data["warning"] = json!(PERSONALIZE_WARNING);
         report
@@ -7469,7 +7485,7 @@ pub fn cplc_set<S: CardSession + ?Sized>(
     auth: &Auth<'_>,
     yes: bool,
 ) -> Result<Report, session::Error> {
-    let mut report = write(
+    let report = write(
         session,
         trace,
         auth,
@@ -7480,6 +7496,7 @@ pub fn cplc_set<S: CardSession + ?Sized>(
         |registry| Ok(json!({ "registry_entries": registry.len() })),
         |_| true,
     )?;
+    let mut report = not_read_back(report);
     report.data["warning"] = json!(CPLC_WARNING);
     Ok(report)
 }
