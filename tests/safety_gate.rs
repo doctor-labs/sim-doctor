@@ -1805,7 +1805,6 @@ fn finding_f4_verified_true_needs_a_read_back() {
 }
 
 #[test]
-#[ignore = "FINDING F-5 (low): the MCP scan tool advertises a yes property that every call refuses"]
 fn finding_f5_mcp_schema_does_not_advertise_yes() {
     let work = Work::new("f5");
     let answers = mcp_session(&work, None, &[(2, "tools/list", serde_json::json!({}))]);
