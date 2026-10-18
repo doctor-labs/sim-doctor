@@ -1729,8 +1729,7 @@ fn finding_f1_scan_tar_probes_send_envelopes_without_yes() {
 }
 
 #[test]
-#[ignore = "FINDING F-2 (high): erase --yes ignores --simulator and opens the PC/SC reader instead"]
-fn finding_f2_erase_yes_honours_the_simulator_flag() {
+fn finding_f2_erase_refuses_the_simulator_flag() {
     let ctx = Ctx::new("f2");
     let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));
     let args: Vec<String> = [
@@ -1752,10 +1751,19 @@ fn finding_f2_erase_yes_honours_the_simulator_flag() {
     .map(|s| s.to_string())
     .collect();
     let out = run_in(&ctx.work.dir, &args, &[], None);
+    // Decided: erase works only on a real reader, so --simulator is refused, not honoured.
+    assert_ne!(out.code, Some(0), "{}", out.all());
     assert!(
-        fake.connections.load(Ordering::SeqCst) >= 1,
-        "--simulator was ignored: {}",
-        out.all()
+        out.stderr
+            .contains("erase works only on a real card reader"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fake.count(), 0, "APDUs were sent: {:?}", fake.sent());
+    assert_eq!(
+        fake.connections.load(Ordering::SeqCst),
+        0,
+        "the simulator was connected to"
     );
 }
 
@@ -1817,7 +1825,6 @@ fn finding_f5_mcp_schema_does_not_advertise_yes() {
 }
 
 #[test]
-#[ignore = "FINDING F-6 (medium): mcp --simulator is accepted but the tool calls still open the PC/SC reader"]
 fn finding_f6_mcp_simulator_flag_reaches_the_tool_calls() {
     let work = Work::new("f6");
     let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));

@@ -457,10 +457,17 @@ impl Doctor for SimDoctor {
     fn mcp_tools(&self) -> Option<Vec<McpTool>> {
         let cli = Cli::command();
         let scan = cli.find_subcommand("scan")?;
-        Some(sim_doctor::mcp::tools(
-            scan,
-            std::sync::Arc::new(sim_doctor::mcp::run_self),
-        ))
+        // `--simulator` given to `mcp` reaches every child scan, right after the top-level
+        // command name (where the flag is declared), so the tool calls use the simulator (F-6).
+        let runner = std::sync::Arc::new(|argv: &[String]| {
+            let mut argv = argv.to_vec();
+            if let Some(spec) = crate::SIMULATOR.get() {
+                argv.insert(1, "--simulator".to_owned());
+                argv.insert(2, spec.clone());
+            }
+            sim_doctor::mcp::run_self(&argv)
+        });
+        Some(sim_doctor::mcp::tools(scan, runner))
     }
 
     /// The texts of the server it replaces. The protocol answers (`ping`, -32600 for a request
@@ -959,6 +966,14 @@ fn run_cli(d: &SimDoctor, own: &ArgMatches) -> Result<u8, String> {
                 .cloned()
         });
     if let Some(spec) = spec {
+        // `erase --yes` writes the card: with --simulator it is refused, before any reader or
+        // APDU, rather than writing the real reader instead (F-2). The dry run stays allowed.
+        if d.root.subcommand_name() == Some("erase") && flag_given(&d.root, "yes") {
+            eprintln!(
+                "sim-doctor: erase works only on a real card reader; --simulator is not supported"
+            );
+            return Ok(contract::ExitCode::Error.process_code());
+        }
         // PC/SC share mode has no meaning on a socket. Refused here, the one
         // place every command routes through, instead of being ignored.
         if flag_given(&d.root, "exclusive") || flag_given(own, "exclusive") {
