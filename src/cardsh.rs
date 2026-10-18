@@ -2589,14 +2589,27 @@ impl Shell {
         let sw = ex.status();
         let result = if read_back {
             let readback = card.read_binary(offset, data.len() as u32)?;
-            let verified = readback == data;
+            if readback != data {
+                return Err(CmdErr {
+                    message: format!(
+                        "UPDATE BINARY {}, but the read back does not match what was written",
+                        sw_text(sw)
+                    ),
+                    data: json!({
+                        "sent": true,
+                        "apdu": hex_upper(&wire),
+                        "sw": sw.map(|s| s.to_string()),
+                        "verified": false,
+                    }),
+                });
+            }
             Reply::ok(
                 format!("UPDATE BINARY done: {}", sw_text(sw)),
                 json!({
                     "sent": true,
                     "apdu": hex_upper(&wire),
                     "sw": sw.map(|s| s.to_string()),
-                    "verified": verified,
+                    "verified": true,
                 }),
             )
         } else {

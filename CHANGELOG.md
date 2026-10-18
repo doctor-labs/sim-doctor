@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- `update_binary --read-back` that reads back data differing from what was written is now a failure: `ok:false`, exit non-zero, and a message naming the read-back mismatch (`verified:false` stays in the data). It used to exit 0 with `ok:true` (F-3).
+- `gp cplc-set`, `gp personalize` and `gp store-data` no longer print `verified:true`. Their writes are confirmed only by the registry, not by reading back the written bytes, so the result carries `verified_note` "written, not read back" instead. A real CPLC read-back (GET DATA on DGIs 9F66/9F67) is not implemented: whether the card serves those DGIs is unverified (F-4).
+
 ### Added
 
 - `-X/--exclusive` together with `--simulator` is refused with exit 2 and a one-line message naming both flags; it used to be silently ignored, which let a run look exclusive when it was not. Checked once in the shared dispatch, so every command gets it.

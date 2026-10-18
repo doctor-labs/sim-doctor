@@ -1760,7 +1760,6 @@ fn finding_f2_erase_yes_honours_the_simulator_flag() {
 }
 
 #[test]
-#[ignore = "FINDING F-3 (medium): update_binary --read-back that does not match still exits 0 with ok:true"]
 fn finding_f3_update_binary_read_back_mismatch_is_a_failure() {
     let ctx = Ctx::new("f3");
     let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Liar));
@@ -1782,7 +1781,6 @@ fn finding_f3_update_binary_read_back_mismatch_is_a_failure() {
 }
 
 #[test]
-#[ignore = "FINDING F-4 (medium): gp cplc-set, personalize and store-data print result.verified:true with no read-back"]
 fn finding_f4_verified_true_needs_a_read_back() {
     let ctx = Ctx::new("f4");
     let mut bad = Vec::new();
