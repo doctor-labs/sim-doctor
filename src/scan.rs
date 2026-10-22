@@ -1164,7 +1164,15 @@ pub fn all_specs() -> Vec<rules::RuleSpec> {
 /// than into a report: a finding nobody can address is not a finding, and
 /// [`rules::Registry`] already refuses it at every other boundary.
 pub fn findings(subject: &Subject<'_>) -> Result<rules::Findings, rules::RegistryError> {
-    let found = rules().evaluate(subject)?;
+    findings_with_progress(subject, &rules::NoopProgress)
+}
+
+/// The findings one card produces, reporting progress to `progress`.
+pub fn findings_with_progress(
+    subject: &Subject<'_>,
+    progress: &dyn doctor_kit::Progress,
+) -> Result<rules::Findings, rules::RegistryError> {
+    let found = rules().evaluate_with_progress(subject, progress)?;
     Ok(if subject.tree.is_complete() {
         rules::Findings::complete(found)
     } else {
@@ -4061,5 +4069,54 @@ mod tests {
         assert_eq!(a.findings(), b.findings());
         assert_eq!(a.run(), b.run());
         assert_eq!(b.findings().len(), 1);
+    }
+
+    #[test]
+    fn progress_events_emitted_and_json_byte_identical() {
+        use doctor_kit::{Progress, ProgressEvent};
+        use std::sync::{Arc, Mutex};
+
+        struct EventRecorder {
+            events: Mutex<Vec<ProgressEvent>>,
+        }
+
+        impl Progress for EventRecorder {
+            fn event(&self, e: &ProgressEvent) {
+                self.events.lock().unwrap().push(e.clone());
+            }
+        }
+
+        let mut card = sample_card();
+        let tree = walk_sample(&mut card, Limits::default());
+        let audit = msl_zero_audit();
+        let subject = Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+        };
+
+        let recorder = Arc::new(EventRecorder {
+            events: Mutex::new(Vec::new()),
+        });
+
+        let found_no_progress = findings(&subject).unwrap();
+        let found_with_progress = findings_with_progress(&subject, recorder.as_ref()).unwrap();
+
+        assert_eq!(found_no_progress, found_with_progress);
+
+        let events = recorder.events.lock().unwrap();
+        assert!(!events.is_empty(), "progress events should be emitted");
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, ProgressEvent::CheckStarted { .. })),
+            "should emit CheckStarted"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, ProgressEvent::Done { .. })),
+            "should emit Done"
+        );
     }
 }

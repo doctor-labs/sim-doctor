@@ -29,9 +29,6 @@
 //! **Why rule IDs are validated at all.** AGENTS.md section 3 says rule IDs are
 //! addressable by agents and must never be renamed casually, which only works
 //! if the set of well-formed IDs is small and a typo is impossible to miss. A
-//! loose `String` would let `Filesystem/unreadable_ef` reach an output file
-//! and silently never match a baseline.
-//!
 //! **Why a duplicate ID cannot be registered.** Agents address rules by ID, so
 //! two rules sharing one makes every answer about that ID ambiguous from then
 //! on: no output can say which of the two fired, and a baseline cannot say
@@ -76,6 +73,14 @@ pub const NAME: &str = "rules";
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, str::FromStr};
+
+/// A progress sink that does nothing.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoopProgress;
+
+impl doctor_kit::Progress for NoopProgress {
+    fn event(&self, _e: &doctor_kit::ProgressEvent) {}
+}
 
 /// The separator between a plugin namespace and a rule name.
 const SEPARATOR: char = '/';
@@ -1934,8 +1939,24 @@ impl<S> Registry<S> {
     /// claiming one public address, and this time the check has come too late
     /// to stop it being written.
     pub fn evaluate(&self, subject: &S) -> Result<Vec<Finding>, RegistryError> {
+        self.evaluate_with_progress(subject, &NoopProgress)
+    }
+
+    /// Runs every rule over one subject, emitting progress events.
+    pub fn evaluate_with_progress(
+        &self,
+        subject: &S,
+        progress: &dyn doctor_kit::Progress,
+    ) -> Result<Vec<Finding>, RegistryError> {
         let mut findings = Vec::new();
-        for rule in &self.rules {
+        let total = self.rules.len();
+        for (i, rule) in self.rules.iter().enumerate() {
+            progress.event(&doctor_kit::ProgressEvent::CheckStarted {
+                id: rule.id().to_string(),
+                index: i + 1,
+                total,
+            });
+            let emitted_before = findings.len();
             for finding in rule.run(subject) {
                 if finding.rule() != rule.id() {
                     return Err(RegistryError::MisattributedFinding {
@@ -1943,9 +1964,27 @@ impl<S> Registry<S> {
                         claimed: finding.rule().clone(),
                     });
                 }
+                progress.event(&doctor_kit::ProgressEvent::Finding {
+                    id: finding.rule().to_string(),
+                    severity: match finding.severity() {
+                        Severity::Info => doctor_kit::doctor_core::Severity::Info,
+                        Severity::Low => doctor_kit::doctor_core::Severity::Low,
+                        Severity::Medium => doctor_kit::doctor_core::Severity::Medium,
+                        Severity::High => doctor_kit::doctor_core::Severity::High,
+                        Severity::Critical => doctor_kit::doctor_core::Severity::Critical,
+                    },
+                    message: finding.message().to_string(),
+                });
                 findings.push(finding);
             }
+            progress.event(&doctor_kit::ProgressEvent::CheckFinished {
+                id: rule.id().to_string(),
+                findings: findings.len() - emitted_before,
+            });
         }
+        progress.event(&doctor_kit::ProgressEvent::Done {
+            findings: findings.len(),
+        });
         Ok(findings)
     }
 }

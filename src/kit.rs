@@ -12,8 +12,9 @@
 //! `render_human`, `preflight_error`) and is pinned by `tests/golden_scan.rs`.
 
 use std::collections::HashSet;
+use std::io::IsTerminal;
 use std::process::ExitCode;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use doctor_kit::baseline::Saved;
@@ -176,9 +177,22 @@ pub struct SimDoctor {
     /// The baseline `--baseline` named, loaded by `load_baseline`.
     baseline: Mutex<Option<Baseline>>,
     outcome: Mutex<Option<Outcome>>,
+    progress: Mutex<Option<Arc<dyn doctor_kit::Progress>>>,
 }
 
 impl SimDoctor {
+    pub fn set_progress(&self, p: Arc<dyn doctor_kit::Progress>) {
+        *self.progress.lock().unwrap() = Some(p);
+    }
+
+    pub fn progress(&self) -> Arc<dyn doctor_kit::Progress> {
+        self.progress
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| Arc::new(rules::NoopProgress))
+    }
+
     fn json(&self) -> bool {
         self.run.get().is_some_and(|r| r.json)
     }
@@ -216,7 +230,8 @@ impl SimDoctor {
 
     /// The card read. Same steps, same checkpoints, same refusals as ever; the report is built
     /// here, the kit prints it.
-    fn scan_card(&self, args: &Run) -> Result<Envelope, ScanFailure> {
+    fn scan_card(&self, _: &Ctx, args: &Run) -> Result<Envelope, ScanFailure> {
+        let progress = self.progress();
         if checkpoint() {
             return Err(self.interrupted());
         }
@@ -285,11 +300,14 @@ impl SimDoctor {
             return Err(self.interrupted());
         }
 
-        let found = scan::findings(&scan::Subject {
-            tree: &tree,
-            tar: &audit,
-            scp03: None,
-        })
+        let found = scan::findings_with_progress(
+            &scan::Subject {
+                tree: &tree,
+                tar: &audit,
+                scp03: None,
+            },
+            progress.as_ref(),
+        )
         .map_err(|e| refuse("rule-misattribution", &e))?;
 
         // Filtered before it is scored, and the score taken from what is left:
@@ -529,12 +547,12 @@ impl Doctor for SimDoctor {
         serde_json::to_string_pretty(contents).ok()
     }
 
-    fn try_scan(&self, _: &Ctx) -> Result<Envelope, ScanFailure> {
+    fn try_scan(&self, ctx: &Ctx) -> Result<Envelope, ScanFailure> {
         if let Some(env) = self.first.lock().unwrap().take() {
             return Ok(env);
         }
         match self.run.get() {
-            Some(run) => self.scan_card(run),
+            Some(run) => self.scan_card(ctx, run),
             None => Err(ScanFailure::new("this command does not read a card")),
         }
     }
@@ -847,7 +865,12 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
         fail_on,
         theme_root: None,
     };
-    let ctx = Ctx::detached(Config::default(), fail_on);
+    let mut ctx = Ctx::detached(Config::default(), fail_on);
+    if std::io::stderr().is_terminal() && !run.json && run.sarif.is_none() {
+        let p = Arc::new(doctor_kit::StderrProgress::new());
+        ctx = ctx.with_progress(p.clone());
+        d.set_progress(p);
+    }
     // Read the baseline before a reader is opened, and refuse before one is: a --baseline that
     // names a file that is not there, is not a doctor/1 envelope or is over a bound has an
     // answer before a card exists.
@@ -1097,6 +1120,7 @@ pub fn run() -> ExitCode {
             first: Mutex::new(None),
             baseline: Mutex::new(None),
             outcome: Mutex::new(None),
+            progress: Mutex::new(None),
         })
     })
 }
@@ -1114,6 +1138,7 @@ mod tests {
             first: Mutex::new(None),
             baseline: Mutex::new(None),
             outcome: Mutex::new(None),
+            progress: Mutex::new(None),
         }
     }
 
