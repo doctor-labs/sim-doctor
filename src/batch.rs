@@ -2846,13 +2846,11 @@ mod tests {
 
     #[test]
     fn the_feeder_handler_runs_its_programs_and_reports_a_failure_as_a_kind() {
-        let handler = External::parse(
-            "get = /bin/true\ndone = /bin/true # the good bin\nerror: /bin/false\n",
-        )
-        .expect("a handler config with all three commands");
-        assert_eq!(handler.program("get"), Some("/bin/true"));
-        assert_eq!(handler.program("done"), Some("/bin/true"));
-        assert_eq!(handler.program("error"), Some("/bin/false"));
+        let handler = External::parse("get = true\ndone = true # the good bin\nerror: false\n")
+            .expect("a handler config with all three commands");
+        assert_eq!(handler.program("get"), Some("true"));
+        assert_eq!(handler.program("done"), Some("true"));
+        assert_eq!(handler.program("error"), Some("false"));
         let mut handler = handler;
         assert!(handler.get(false).is_ok());
         assert!(handler.done().is_ok());
