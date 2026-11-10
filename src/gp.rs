@@ -73,6 +73,14 @@
 //! once and in order, stopping at the first refusal, then a GET STATUS
 //! read-back.
 //!
+//! **SCP02 (issue #255).** `gp establish-scp02` ([`establish_scp02`]) opens an
+//! SCP02 channel to the ISD with two-key 3DES keys: SELECT, INITIALIZE UPDATE,
+//! the card cryptogram checked locally under S-ENC ([`crate::scp02`]), then ONE
+//! EXTERNAL AUTHENTICATE at C-MAC. A dry run unless `--yes`; `--yes` needs keys
+//! from a file or environment variable; a failed attempt is never retried; and
+//! nothing is sent after the handshake. The channel is released with
+//! `gp release-scp`, the same close the SCP03 channel uses.
+//!
 //! **Does not own, and never sends.** SET STATUS, INSTALL
 //! [for extradition / registry update], DELETE [key], PUT KEY
 //! for anything but an SCP03 AES-128 key set (RSA/ECC/DES keys, a lone DAP
@@ -100,6 +108,7 @@ use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use serde_json::{json, Value};
 
 use crate::apdu::{class_on_channel, Command, CorrectedLength, Header, Le, CLA_GET_RESPONSE_ISO};
+use crate::scp02;
 use crate::scp03;
 use crate::session::{self, PendingFollowUp, Policy};
 use crate::transport::CardSession;
@@ -924,6 +933,13 @@ pub enum KeyError {
     /// not a key set.
     #[error("key {0} is {1} bytes and key {2} is {3}: a key set is one AES key length")]
     MixedLength(usize, usize, usize, usize),
+    /// A token that is not 32 hex digits, the length of a two-key 3DES key
+    /// (SCP02), optionally followed by /KCV of 6 hex digits.
+    #[error(
+        "key {0} is not 32 hex digits (a two-key 3DES key for SCP02), optionally followed by \
+         /KCV of 6 hex digits"
+    )]
+    Scp02Format(usize),
     /// A Delegated Management token that is not 2 to 510 hex digits.
     #[error("the Delegated Management token is not 2 to 510 hex digits (1 to 255 bytes)")]
     DmTokenFormat,
@@ -943,6 +959,15 @@ pub enum KeyError {
         /// The KCV the text stated.
         stated: String,
     },
+}
+
+/// Which key length and which KCV function a key text is read with.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeyScheme {
+    /// SCP03: AES-128, -192 or -256, with the AES KCV.
+    Aes,
+    /// SCP02: two-key 3DES, 16 bytes, with the 3DES KCV.
+    Des3,
 }
 
 /// The static AES keys of an SCP03 key set: AES-128, AES-192 or AES-256, and a
@@ -976,6 +1001,21 @@ impl Keys {
     ///
     /// [`KeyError`], whose text never contains the input.
     pub fn parse(text: &str) -> Result<Self, KeyError> {
+        Self::parse_as(text, KeyScheme::Aes)
+    }
+
+    /// Parses an SCP02 key set: two-key 3DES, 32 hex digits (16 bytes) per key,
+    /// with the 3DES KCV of [`des_kcv`] where a token states one. The token syntax
+    /// is [`Keys::parse`]'s.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`], whose text never contains the input.
+    pub fn parse_scp02(text: &str) -> Result<Self, KeyError> {
+        Self::parse_as(text, KeyScheme::Des3)
+    }
+
+    fn parse_as(text: &str, scheme: KeyScheme) -> Result<Self, KeyError> {
         let tokens: Vec<&str> = text
             .lines()
             .filter(|l| !l.trim_start().starts_with('#'))
@@ -996,13 +1036,20 @@ impl Keys {
             let key = hex::decode(key_hex)
                 .ok()
                 .and_then(|v| scp03::Key::new(&v))
-                .ok_or(KeyError::Format(n))?;
+                .filter(|k| scheme == KeyScheme::Aes || k.as_bytes().len() == 16)
+                .ok_or(match scheme {
+                    KeyScheme::Aes => KeyError::Format(n),
+                    KeyScheme::Des3 => KeyError::Scp02Format(n),
+                })?;
             if let Some(kcv_hex) = kcv_hex {
                 let want = hex::decode(kcv_hex)
                     .ok()
                     .and_then(|v| <[u8; 3]>::try_from(v).ok())
                     .ok_or(KeyError::Format(n))?;
-                let got = aes_kcv(key.as_bytes()).expect("16, 24 or 32 bytes");
+                let got = match scheme {
+                    KeyScheme::Aes => aes_kcv(key.as_bytes()).expect("16, 24 or 32 bytes"),
+                    KeyScheme::Des3 => des_kcv(key.as_bytes()).expect("16 bytes, checked above"),
+                };
                 if got != want {
                     return Err(KeyError::Kcv {
                         index: n,
@@ -1050,6 +1097,15 @@ impl Keys {
     /// [`KeyError`].
     pub fn load(source: KeySource<'_>) -> Result<Self, KeyError> {
         Self::parse(&read_key_text(source)?)
+    }
+
+    /// Reads and parses an SCP02 key set from `source`; see [`Keys::parse_scp02`].
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError`].
+    pub fn load_scp02(source: KeySource<'_>) -> Result<Self, KeyError> {
+        Self::parse_scp02(&read_key_text(source)?)
     }
 
     /// Whether a DEK is known: the third key, or the single key.
@@ -1970,6 +2026,23 @@ pub fn select<S: CardSession + ?Sized>(
     })
 }
 
+/// SELECT each AID of [`ISD_AIDS`] in order until one answers `90 00`. Returns the
+/// selected AID in upper hex, if any, and one `{aid, status}` per attempt.
+fn select_isd<S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+) -> Result<(Option<String>, Vec<Value>), session::Error> {
+    let mut attempts = Vec::new();
+    for aid in ISD_AIDS {
+        let ex = read_once(session, steps, "select", select_by_aid(aid))?;
+        attempts.push(json!({ "aid": hex::encode_upper(aid), "status": sw_hex(&ex) }));
+        if ex.is_success() {
+            return Ok((Some(hex::encode_upper(aid)), attempts));
+        }
+    }
+    Ok((None, attempts))
+}
+
 /// `gp status`: SELECT the ISD, GET DATA tag 66 (Card Recognition Data), then
 /// GET STATUS (`80 F2 <scope> 02`, TLV format) for the ISD, applications,
 /// executable load files and load files with modules. Without `auth` it is
@@ -1990,16 +2063,7 @@ fn status_with<S: CardSession + ?Sized>(
     auth: Option<&Auth<'_>>,
 ) -> Result<Report, session::Error> {
     let mut steps = Vec::new();
-    let mut attempts = Vec::new();
-    let mut selected = None;
-    for aid in ISD_AIDS {
-        let ex = read_once(session, &mut steps, "select", select_by_aid(aid))?;
-        attempts.push(json!({ "aid": hex::encode_upper(aid), "status": sw_hex(&ex) }));
-        if ex.is_success() {
-            selected = Some(hex::encode_upper(aid));
-            break;
-        }
-    }
+    let (selected, attempts) = select_isd(session, &mut steps)?;
     let mut data = json!({ "card_touched": true, "isd": selected, "isd_attempts": attempts });
     let mut channel = None;
     if selected.is_some() {
@@ -3423,7 +3487,7 @@ pub fn channel_close<S: CardSession + ?Sized>(
 // ---------------------------------------------------------------------------
 
 /// Said in every `gp release-scp` output, dry run or not.
-pub const RELEASE_SCP_WARNING: &str = "releasing the secure channel destroys the SCP03 session the card holds on that logical channel: the session keys derived at INITIALIZE UPDATE go with it, and the channel is closed and has to be opened again. No file or key on the card is changed, but a session still holding state it had not written is lost";
+pub const RELEASE_SCP_WARNING: &str = "releasing the secure channel destroys the SCP session (SCP03 or SCP02) the card holds on that logical channel: the session keys derived at INITIALIZE UPDATE go with it, and the channel is closed and has to be opened again. No file or key on the card is changed, but a session still holding state it had not written is lost";
 
 /// `gp release-scp --channel N` without `--yes`: the offline dry run.
 ///
@@ -3509,6 +3573,286 @@ pub fn release_scp<S: CardSession + ?Sized>(
     report.data["warning"] = json!(RELEASE_SCP_WARNING);
     report.data["sent"] = json!(sent);
     Ok(report)
+}
+
+// ---------------------------------------------------------------------------
+// SCP02 establish (`gp establish-scp02`, issue #255)
+// ---------------------------------------------------------------------------
+
+/// Said in every `gp establish-scp02` output, dry run or not.
+pub const ESTABLISH_SCP02_WARNING: &str = "establishing SCP02 is one authentication attempt: a failed EXTERNAL AUTHENTICATE counts toward locking the security domain, and the run never retries. The card keeps its end of the secure channel on the logical channel until that channel is released with gp release-scp; keys are never printed";
+
+/// The one SCP02 authentication attempt of [`establish_scp02`]: the keys, the
+/// key version to ask for, the logical channel, and the 8 host challenge bytes
+/// the caller drew (fixed in tests, random in the CLI).
+pub struct Scp02Auth<'a> {
+    /// The static two-key 3DES keys ([`Keys::parse_scp02`]).
+    pub keys: &'a Keys,
+    /// Key version number for INITIALIZE UPDATE P1; 0 lets the card choose.
+    pub key_version: u8,
+    /// The logical channel the secure channel is opened on (0 is the basic channel).
+    pub logical_channel: u8,
+    /// The host challenge of this one attempt.
+    pub host_challenge: [u8; scp02::HOST_CHALLENGE_LEN],
+}
+
+/// What an established SCP02 channel reports about itself.
+pub(crate) struct Established02 {
+    key_version: u8,
+    sequence_counter: u16,
+}
+
+/// A static SCP02 key as the 16 bytes [`scp02`] takes. [`Keys::parse_scp02`]
+/// only builds 16-byte keys.
+fn scp02_key(key: &scp03::Key) -> [u8; scp02::KEY_LEN] {
+    key.as_bytes()
+        .try_into()
+        .expect("parse_scp02 keeps 16-byte keys")
+}
+
+/// The one SCP02 authentication attempt: INITIALIZE UPDATE, the local check of
+/// the card cryptogram, then EXTERNAL AUTHENTICATE at security level C-MAC (01),
+/// the only level [`scp02`] builds. Nothing else is sent. A card cryptogram that
+/// does not verify stops the run before EXTERNAL AUTHENTICATE, so it costs no
+/// attempt; a refused EXTERNAL AUTHENTICATE is not retried. The derivation,
+/// cryptograms and C-MAC are [`scp02`]'s, pinned there by known-answer tests.
+pub(crate) fn authenticate_scp02<S: CardSession + ?Sized>(
+    session: &mut S,
+    steps: &mut Vec<Value>,
+    auth: &Scp02Auth<'_>,
+) -> Result<Result<Established02, Stop>, session::Error> {
+    let policy = read_policy();
+    let stop = |kind, message, key_version| {
+        Ok(Err(Stop {
+            kind,
+            message,
+            key_version,
+        }))
+    };
+    let sw = |ex: &session::Exchange| sw_hex(ex).unwrap_or_else(|| "none".into());
+
+    let Some(cla) = class_on_channel(0x80, auth.logical_channel) else {
+        return stop(
+            "bad-channel",
+            "the logical channel must be 0 to 19; nothing was sent".into(),
+            None,
+        );
+    };
+    if !scp02::kvn_allowed(auth.key_version) {
+        return stop(
+            "key-version-not-scp02",
+            format!(
+                "key version {:02X} is not an SCP02 key version (01, 20 to 2F or 70; 00 asks \
+                 the card for its first key set); nothing else was sent",
+                auth.key_version
+            ),
+            None,
+        );
+    }
+    let init = scp02::initialize_update(auth.key_version, &auth.host_challenge);
+    let ex = session::send(session, &init, &policy)?;
+    push_steps(steps, "initialize_update", &ex);
+    if !ex.is_normal_processing() {
+        return stop(
+            "initialize-update-refused",
+            format!(
+                "INITIALIZE UPDATE answered {}; nothing else was sent",
+                sw(&ex)
+            ),
+            None,
+        );
+    }
+    // An SCP03 card answers with 03 at offset 11. Name it before the length check.
+    if let Some(&scp) = ex.data().get(11).filter(|b| **b != scp02::SCP_IDENTIFIER) {
+        return stop(
+            "not-scp02",
+            format!("the card answered with SCP {scp:02X}, not SCP02; nothing else was sent"),
+            None,
+        );
+    }
+    let iur = match scp02::InitializeUpdateResponse::parse(ex.data()) {
+        Ok(iur) => iur,
+        Err(e) => return stop("initialize-update-unreadable", e.to_string(), None),
+    };
+    let kvn = Some(iur.key_version);
+    // The static DEK keys only C-DECRYPTION, which is not implemented. It falls
+    // back to the MAC key, as `scp02::derive_session_keys` documents.
+    let keys = scp02::derive_session_keys(
+        &scp02_key(&auth.keys.enc),
+        &scp02_key(&auth.keys.mac),
+        &scp02_key(auth.keys.dek.as_ref().unwrap_or(&auth.keys.mac)),
+        iur.sequence_counter,
+    );
+    if !scp02::verify_card_cryptogram(
+        &keys,
+        &auth.host_challenge,
+        &iur.card_challenge,
+        iur.sequence_counter,
+        &iur.card_cryptogram,
+    ) {
+        return stop(
+            "keys-do-not-match",
+            "keys do not match this card: the card cryptogram does not verify with the supplied \
+             keys. EXTERNAL AUTHENTICATE was not sent, so no authentication attempt was counted"
+                .into(),
+            kvn,
+        );
+    }
+    let host_cryptogram = scp02::host_cryptogram(
+        &keys,
+        &auth.host_challenge,
+        &iur.card_challenge,
+        iur.sequence_counter,
+    );
+    let mut channel = scp02::Channel::new(&keys);
+    let external =
+        match scp02::external_authenticate(&mut channel, cla, scp02::LEVEL_C_MAC, &host_cryptogram)
+        {
+            Ok(command) => command,
+            Err(e) => return stop("external-authenticate-unbuildable", e.to_string(), kvn),
+        };
+    let ex = session::send(session, &external, &policy)?;
+    push_steps(steps, "external_authenticate", &ex);
+    if !ex.is_normal_processing() {
+        return stop(
+            "external-authenticate-refused",
+            format!(
+                "EXTERNAL AUTHENTICATE answered {}. It was not retried; the card counts this as \
+                 one failed authentication",
+                sw(&ex)
+            ),
+            kvn,
+        );
+    }
+    Ok(Ok(Established02 {
+        key_version: iur.key_version,
+        sequence_counter: iur.sequence_counter,
+    }))
+}
+
+/// `gp establish-scp02`: SELECT the ISD (the first AID of [`ISD_AIDS`] that
+/// answers `90 00`), then [`authenticate_scp02`]. `isd_found` is whether an ISD
+/// was selected. A failed authentication is `data.error`, with
+/// `data.secure_channel.established` false. Nothing else is sent.
+///
+/// # Errors
+///
+/// Only transport and encoding failures; a refusal is `data.error`.
+pub fn establish_scp02<S: CardSession + ?Sized>(
+    session: &mut S,
+    trace: bool,
+    auth: &Scp02Auth<'_>,
+) -> Result<Report, session::Error> {
+    let mut steps = Vec::new();
+    let (selected, attempts) = select_isd(session, &mut steps)?;
+    let mut data = json!({
+        "card_touched": true,
+        "operation": "establish-scp02",
+        "isd": selected,
+        "isd_attempts": attempts,
+        "target": { "channel": auth.logical_channel, "key_version": auth.key_version },
+        "warning": ESTABLISH_SCP02_WARNING,
+    });
+    if selected.is_some() {
+        match authenticate_scp02(session, &mut steps, auth)? {
+            Ok(est) => {
+                data["secure_channel"] = scp02_channel_report(auth, &est);
+                data["note"] = json!(release_note(auth.logical_channel));
+            }
+            Err(stop) => {
+                data["secure_channel"] = json!({
+                    "protocol": "SCP02",
+                    "established": false,
+                    "stopped": stop.kind,
+                    "key_version": stop.key_version,
+                });
+                data["error"] = json!({ "kind": stop.kind, "message": stop.message });
+            }
+        }
+    }
+    if trace {
+        data["trace"] = Value::Array(steps);
+    }
+    Ok(Report {
+        isd_found: selected.is_some(),
+        data,
+    })
+}
+
+/// The `secure_channel` block of an established SCP02 channel: the public facts,
+/// and the 3DES key check values of the supplied keys. Never a key.
+fn scp02_channel_report(auth: &Scp02Auth<'_>, est: &Established02) -> Value {
+    let kcv = |key: &scp03::Key, stated: bool| {
+        json!({
+            "kcv": hex::encode_upper(des_kcv(key.as_bytes()).expect("16-byte key")),
+            "stated_kcv": if stated { "match" } else { "not-stated" },
+        })
+    };
+    json!({
+        "protocol": "SCP02",
+        "established": true,
+        "security_level": "C-MAC (01)",
+        "key_version": est.key_version,
+        "sequence_counter": format!("{:04X}", est.sequence_counter),
+        "card_cryptogram_verified": true,
+        "enc_key": kcv(&auth.keys.enc, auth.keys.stated[0]),
+        "mac_key": kcv(&auth.keys.mac, auth.keys.stated[1]),
+    })
+}
+
+/// What the card keeps after the handshake, and how it is released, per channel.
+fn release_note(channel: u8) -> String {
+    if channel == 0 {
+        "the secure channel is on the basic channel, which MANAGE CHANNEL cannot close, so this tool cannot release it; open a supplementary channel with gp channel open, establish on it with --channel N, and release it with gp release-scp".into()
+    } else {
+        format!("the card keeps its end of the secure channel until it is released: gp release-scp --channel {channel} --yes")
+    }
+}
+
+/// `gp establish-scp02 --channel N` without `--yes`: the offline dry run. Sends
+/// nothing, opens no reader and reads no keys. The three APDUs are shown with
+/// the channel coded into CLA; the INITIALIZE UPDATE host challenge and the
+/// cryptograms are fresh per run, so they are shown as placeholders.
+pub fn establish_scp02_dry_run(channel: u8, key_version: u8) -> Value {
+    if !scp02::kvn_allowed(key_version) {
+        return json!({
+            "card_touched": false,
+            "operation": "establish-scp02",
+            "dry_run": true,
+            "sent": false,
+            "target": { "channel": channel, "key_version": key_version },
+            "error": { "kind": "key-version-not-scp02", "message": "the key version is not an SCP02 key version (01, 20 to 2F or 70; 00 asks the card for its first key set)" },
+        });
+    }
+    let Some(cla) = class_on_channel(0x80, channel) else {
+        return json!({
+            "card_touched": false,
+            "operation": "establish-scp02",
+            "dry_run": true,
+            "sent": false,
+            "target": { "channel": channel },
+            "error": { "kind": "bad-channel", "message": "the logical channel must be 0 to 19" },
+        });
+    };
+    let select =
+        class_on_channel(0x00, channel).expect("a channel that codes into 0x80 codes into 0x00");
+    json!({
+        "card_touched": false,
+        "operation": "establish-scp02",
+        "dry_run": true,
+        "sent": false,
+        "target": { "channel": channel, "key_version": key_version },
+        "plan": {
+            "apdus": [
+                { "step": "select_isd", "apdu": format!("{select:02X}A4040008A00000015100000000") },
+                { "step": "initialize_update", "apdu": format!("{cla:02X}50{key_version:02X}0008<8 random host challenge bytes>00") },
+                { "step": "external_authenticate", "apdu": format!("{:02X}82{:02X}0010<8-byte host cryptogram><8-byte C-MAC>", cla | scp02::CLA_SM, scp02::LEVEL_C_MAC) },
+            ],
+            "note": "the first ISD AID is shown; the run tries the second AID if the first is not selected. The host challenge is fresh per run, so the cryptograms and the C-MAC are known only when the run is sent",
+        },
+        "warning": ESTABLISH_SCP02_WARNING,
+        "note": "this was a dry run: no reader was opened, the card was not contacted and no keys were read; add --keys-file or --keys-env, and --yes, to send",
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -17346,5 +17690,255 @@ mod dm_tests {
         // 2 + 16 + 1 + 1 + 16 = 36, fine.
         let ok = delete_command_dm(&long, false, Some(&dm)).expect("a delete");
         assert!(ok.data().len() <= 0xFF);
+    }
+}
+
+#[cfg(test)]
+mod establish_scp02_tests {
+    use super::*;
+    use crate::transport::{Error as TransportError, ReaderName};
+
+    /// Answers by INS: SELECT, INITIALIZE UPDATE and EXTERNAL AUTHENTICATE get the
+    /// given responses, anything else `6D00`. Records every command as sent.
+    struct Scripted {
+        reader: ReaderName,
+        select: Vec<u8>,
+        init_update: Vec<u8>,
+        ext_auth: Vec<u8>,
+        sent: Vec<String>,
+    }
+
+    impl Scripted {
+        fn new(select: &str, init_update: &str, ext_auth: &str) -> Self {
+            Self {
+                reader: ReaderName::new("scripted").unwrap(),
+                select: hex::decode(select).unwrap(),
+                init_update: hex::decode(init_update).unwrap(),
+                ext_auth: hex::decode(ext_auth).unwrap(),
+                sent: Vec::new(),
+            }
+        }
+    }
+
+    impl CardSession for Scripted {
+        fn reader(&self) -> &ReaderName {
+            &self.reader
+        }
+        fn transmit(&mut self, command: &[u8]) -> Result<Vec<u8>, TransportError> {
+            self.sent.push(hex::encode_upper(command));
+            Ok(match command.get(1) {
+                Some(0xA4) => self.select.clone(),
+                Some(0x50) => self.init_update.clone(),
+                Some(0x82) => self.ext_auth.clone(),
+                _ => vec![0x6D, 0x00],
+            })
+        }
+        fn disconnect(&mut self) -> Result<(), TransportError> {
+            Ok(())
+        }
+    }
+
+    // SELECT of the first ISD AID with Le 00 (`SCP02_Auth_Test` does not select; this
+    // is the AID `ISD_AIDS` tries first).
+    const SELECT_ISD: &str = "00A4040008A00000015100000000";
+    // pySim SCP02_Auth_Test (test_globalplatform.py:35-36, :42-46): the host
+    // challenge, the INITIALIZE UPDATE built from it, the response, and the
+    // EXTERNAL AUTHENTICATE that follows.
+    const HOST: [u8; 8] = [0x40, 0xA6, 0x2C, 0x37, 0xFA, 0x63, 0x04, 0xF8];
+    const INIT_UPDATE: &str = "805020000840A62C37FA6304F800";
+    const IUR: &str = "00000000000000000000700200016B4524ABEE7CF32EA3838BC148F3";
+    const EXT_AUTH: &str = "8482010010BA6961667737C5BCEBECE14C7D6A4376";
+    // ck_3des_70 (test_globalplatform.py:29-32): ENC, MAC and DEK as 16-byte 3DES keys.
+    const KEYS: &str = "100102030405060708090a0b0c0d0e0f 101102030405060708090a0b0c0d0e0f 102102030405060708090a0b0c0d0e0f";
+    // `GpCardKeyset(0x20, ...)` names key version 20 (test_globalplatform.py:32).
+    const KVN: u8 = 0x20;
+    // Independent KCVs: 3DES-ECB of 8 zero bytes under each key, first 3 bytes
+    // (python3 cryptography, written from GP Card Specification B.6).
+    const ENC_KCV: &str = "E54A63";
+    const MAC_KCV: &str = "1F6BB2";
+    // Session keys of the pySim handshake, from the independent derivation.
+    const S_ENC: &str = "1BA074B31F72A6C44FE8F5D9AFE4DA2F";
+    const C_MAC_KEY: &str = "29A69328E60494982632039DDD47A2F1";
+
+    fn ok_iur() -> String {
+        format!("{IUR}9000")
+    }
+
+    fn keys() -> Keys {
+        Keys::parse_scp02(KEYS).unwrap()
+    }
+
+    fn auth(keys: &Keys, channel: u8) -> Scp02Auth<'_> {
+        Scp02Auth {
+            keys,
+            key_version: KVN,
+            logical_channel: channel,
+            host_challenge: HOST,
+        }
+    }
+
+    #[test]
+    fn establish_sends_one_initialize_update_and_one_external_authenticate() {
+        let keys = keys();
+        let mut card = Scripted::new("9000", &ok_iur(), "9000");
+        let r = establish_scp02(&mut card, true, &auth(&keys, 0)).unwrap();
+        assert!(r.isd_found);
+        assert_eq!(card.sent, [SELECT_ISD, INIT_UPDATE, EXT_AUTH]);
+        let ch = &r.data["secure_channel"];
+        assert_eq!(ch["protocol"], "SCP02");
+        assert_eq!(ch["established"], true);
+        assert_eq!(ch["card_cryptogram_verified"], true);
+        assert_eq!(ch["key_version"], 0x70);
+        assert_eq!(ch["sequence_counter"], "0001");
+        assert_eq!(ch["enc_key"]["kcv"], ENC_KCV);
+        assert_eq!(ch["mac_key"]["kcv"], MAC_KCV);
+        assert_eq!(r.data["operation"], "establish-scp02");
+        assert!(r.data.get("error").is_none());
+    }
+
+    #[test]
+    fn the_report_holds_no_key_or_session_key_material() {
+        let keys = keys();
+        let mut card = Scripted::new("9000", &ok_iur(), "9000");
+        let r = establish_scp02(&mut card, true, &auth(&keys, 0)).unwrap();
+        let text = r.data.to_string();
+        for secret in [
+            "100102030405060708090a0b0c0d0e0f",
+            "101102030405060708090a0b0c0d0e0f",
+            "102102030405060708090a0b0c0d0e0f",
+            S_ENC,
+            C_MAC_KEY,
+        ] {
+            assert!(
+                !text.to_uppercase().contains(&secret.to_uppercase()),
+                "{secret}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_card_cryptogram_that_does_not_verify_stops_before_external_authenticate() {
+        let keys = keys();
+        let mut wrong = hex::decode(IUR).unwrap();
+        wrong[27] = 0xFF;
+        let iur = format!("{}9000", hex::encode_upper(&wrong));
+        let mut card = Scripted::new("9000", &iur, "9000");
+        let r = establish_scp02(&mut card, false, &auth(&keys, 0)).unwrap();
+        assert_eq!(r.data["error"]["kind"], "keys-do-not-match");
+        assert_eq!(r.data["secure_channel"]["established"], false);
+        assert_eq!(card.sent, [SELECT_ISD, INIT_UPDATE]);
+    }
+
+    #[test]
+    fn a_refused_external_authenticate_is_reported_once_and_not_retried() {
+        let keys = keys();
+        let mut card = Scripted::new("9000", &ok_iur(), "6982");
+        let r = establish_scp02(&mut card, false, &auth(&keys, 0)).unwrap();
+        assert_eq!(r.data["error"]["kind"], "external-authenticate-refused");
+        assert_eq!(card.sent, [SELECT_ISD, INIT_UPDATE, EXT_AUTH]);
+    }
+
+    #[test]
+    fn an_scp03_card_is_refused_before_external_authenticate() {
+        let keys = keys();
+        let mut scp03 = hex::decode(IUR).unwrap();
+        scp03[11] = 0x03;
+        let iur = format!("{}9000", hex::encode_upper(&scp03));
+        let mut card = Scripted::new("9000", &iur, "9000");
+        let r = establish_scp02(&mut card, false, &auth(&keys, 0)).unwrap();
+        assert_eq!(r.data["error"]["kind"], "not-scp02");
+        assert_eq!(card.sent, [SELECT_ISD, INIT_UPDATE]);
+    }
+
+    #[test]
+    fn a_key_version_outside_the_scp02_ranges_sends_no_initialize_update() {
+        let keys = keys();
+        let mut card = Scripted::new("9000", &ok_iur(), "9000");
+        let bad = Scp02Auth {
+            key_version: 0x30,
+            ..auth(&keys, 0)
+        };
+        let r = establish_scp02(&mut card, false, &bad).unwrap();
+        assert_eq!(r.data["error"]["kind"], "key-version-not-scp02");
+        assert_eq!(card.sent, [SELECT_ISD]);
+    }
+
+    #[test]
+    fn with_no_isd_only_the_two_selects_are_sent() {
+        let keys = keys();
+        let mut card = Scripted::new("6A82", &ok_iur(), "9000");
+        let r = establish_scp02(&mut card, false, &auth(&keys, 0)).unwrap();
+        assert!(!r.isd_found);
+        assert_eq!(card.sent.len(), 2);
+        assert!(card.sent.iter().all(|c| &c[2..4] == "A4"));
+    }
+
+    #[test]
+    fn on_a_logical_channel_external_authenticate_has_the_channel_in_cla_and_in_its_mac() {
+        let keys = keys();
+        let mut inner = Scripted::new("9000", &ok_iur(), "9000");
+        let r = {
+            let mut card = OnChannel::new(&mut inner, 2);
+            establish_scp02(&mut card, false, &auth(&keys, 2)).unwrap()
+        };
+        assert_eq!(r.data["secure_channel"]["established"], true);
+        // The MAC covers the class byte, so the builder with the channel-coded class
+        // must produce exactly the bytes the wrapper sent.
+        let (session, host_cg) = {
+            let (k, iur) = (
+                scp02::derive_session_keys(
+                    &scp02_key(&keys.enc),
+                    &scp02_key(&keys.mac),
+                    &scp02_key(&keys.mac),
+                    1,
+                ),
+                scp02::InitializeUpdateResponse::parse(&hex::decode(IUR).unwrap()).unwrap(),
+            );
+            let cg = scp02::host_cryptogram(&k, &HOST, &iur.card_challenge, iur.sequence_counter);
+            (k, cg)
+        };
+        let cla = class_on_channel(0x80, 2).unwrap();
+        let expected = scp02::external_authenticate(
+            &mut scp02::Channel::new(&session),
+            cla,
+            scp02::LEVEL_C_MAC,
+            &host_cg,
+        )
+        .unwrap();
+        assert_eq!(inner.sent[2], hex::encode_upper(expected.encode().unwrap()));
+        assert_eq!(&inner.sent[2][..2], format!("{:02X}", cla | scp02::CLA_SM));
+    }
+
+    #[test]
+    fn scp02_keys_are_two_key_3des_checked_with_the_3des_kcv() {
+        let k = Keys::parse_scp02(&format!("100102030405060708090a0b0c0d0e0f/{ENC_KCV}")).unwrap();
+        assert_eq!(k.count, 1);
+        assert_eq!(k.stated, [true, true]);
+        // An AES KCV of the same bytes is not the 3DES KCV, so a stated AES KCV is refused.
+        assert!(matches!(
+            Keys::parse_scp02("100102030405060708090a0b0c0d0e0f/000000"),
+            Err(KeyError::Kcv { index: 1, .. })
+        ));
+        // A 32-byte AES-256 key is not an SCP02 key.
+        assert_eq!(
+            Keys::parse_scp02(&"00".repeat(32)).err(),
+            Some(KeyError::Scp02Format(1))
+        );
+    }
+
+    #[test]
+    fn the_dry_run_sends_nothing_and_names_the_three_apdus() {
+        let d = establish_scp02_dry_run(0, KVN);
+        assert_eq!(d["sent"], false);
+        assert_eq!(d["card_touched"], false);
+        let apdus = d["plan"]["apdus"].as_array().unwrap();
+        assert_eq!(apdus.len(), 3);
+        assert_eq!(apdus[0]["apdu"], SELECT_ISD);
+        assert!(apdus[1]["apdu"].as_str().unwrap().starts_with("8050200008"));
+        assert!(apdus[2]["apdu"].as_str().unwrap().starts_with("8482010010"));
+        assert_eq!(
+            establish_scp02_dry_run(20, KVN)["error"]["kind"],
+            "bad-channel"
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! GlobalPlatform Secure Channel Protocol 02 (SCP02): the pure crypto core, the
 //! handshake APDU builders, the secure-messaging wrapper and the release
-//! command. Sends nothing; the live path is `gp scp02` in [`crate::gp`].
+//! command. Sends nothing; the live path is `gp establish-scp02` in [`crate::gp`].
 //!
 //! **Owns.** Session key derivation (two-key 3DES-CBC over
 //! `constant || seq-counter || 0x00 x 12`), the card and host cryptograms (3DES
@@ -436,18 +436,21 @@ impl InitializeUpdateResponse {
 }
 
 /// EXTERNAL AUTHENTICATE (`84 82 <level> 00 10 <host cryptogram> <C-MAC>`),
-/// MAC-ed through `channel`, whose ICV must be the zero it starts at.
+/// MAC-ed through `channel`, whose ICV must be the zero it starts at. `cla` is
+/// `0x80`, or the class of a supplementary channel (`apdu::class_on_channel`),
+/// which the MAC covers.
 ///
 /// # Errors
 ///
 /// Never in practice; mirrors [`Channel::wrap`].
 pub fn external_authenticate(
     channel: &mut Channel,
+    cla: u8,
     security_level: u8,
     host_cryptogram: &[u8; MAC_LEN],
 ) -> Result<Command, Error> {
     channel.wrap(&Command::case3(
-        Header::new(0x80, INS_EXTERNAL_AUTHENTICATE, security_level, 0x00),
+        Header::new(cla, INS_EXTERNAL_AUTHENTICATE, security_level, 0x00),
         host_cryptogram.to_vec(),
     ))
 }
@@ -480,6 +483,19 @@ pub fn release(channel: &mut Channel) -> Result<Command, Error> {
 mod tests {
     use super::*;
 
+    // Source map for the vectors below. Line numbers are in the pySim files as
+    // fetched from osmocom/pysim master, and in GlobalPlatformPro as fetched from
+    // martinpaljak/GlobalPlatformPro master:
+    // - test_globalplatform.py:29-32 the keyset `ck_3des_70`; :34-55 SCP02_Auth_Test
+    //   (:35-36 host challenge and init_update_resp, :41-46 test_mutual_auth_success);
+    //   :57-84 SCP02_Test (test_mac_command, :67-84).
+    // - pySim/global_platform/scp.py:34-42 scp02_key_derivation, :66-83 calc_mac_1des,
+    //   :85-93 calc_mac_3des, :286-395 class SCP02 (constr_iur at :290,
+    //   _compute_cryptograms :307-311, gen_ext_auth_apdu :328-339, _wrap_cmd_apdu :341-395).
+    // - library/src/main/java/pro/javacard/gp/SCP02Wrapper.java:61-64 (ICV encryption
+    //   on), :102-123 (the ICV chain and the C-MAC of wrap). GlobalPlatformPro has no
+    //   SCP02 test vectors (its test directory was listed and none is SCP02), so the
+    //   wrapper is cross-read only.
     fn h<const N: usize>(s: &str) -> [u8; N] {
         hex::decode(s).unwrap().try_into().unwrap()
     }
@@ -571,8 +587,27 @@ mod tests {
         assert_ne!(&host_cg[..], &iur.card_cryptogram[..]);
         let mut channel = Channel::new(&keys);
         assert_eq!(channel.icv(), [0u8; 8]);
-        let ext_auth = external_authenticate(&mut channel, LEVEL_C_MAC, &host_cg).unwrap();
+        let ext_auth = external_authenticate(&mut channel, 0x80, LEVEL_C_MAC, &host_cg).unwrap();
         assert_eq!(hex::encode_upper(ext_auth.encode().unwrap()), EXT_AUTH);
+    }
+
+    // Independent check, not a published vector. The S-ENC and C-MAC session keys
+    // of the handshake above, re-derived by a separate python3 implementation
+    // (cryptography's TripleDES, CBC with a zero IV) written from the GP Card
+    // Specification SCP02 derivation (`constant || sequence counter || 12 x 00`,
+    // B.1.1.1). It shares no code with this module or with pySim. Every cryptogram and
+    // C-MAC above depends on these two keys, so this pins the derivation on its own.
+    #[test]
+    fn session_keys_match_an_independent_derivation() {
+        let (keys, _) = session_keys();
+        assert_eq!(
+            hex::encode_upper(keys.enc),
+            "1BA074B31F72A6C44FE8F5D9AFE4DA2F"
+        );
+        assert_eq!(
+            hex::encode_upper(keys.mac),
+            "29A69328E60494982632039DDD47A2F1"
+        );
     }
 
     // Replay of `SCP02_Auth_Test.test_mutual_auth_fail_card_cryptogram`: pySim
@@ -625,7 +660,7 @@ mod tests {
         let (keys, iur) = session_keys();
         let host_cg = host_cryptogram(&keys, &host, &iur.card_challenge, iur.sequence_counter);
         let mut channel = Channel::new(&keys);
-        external_authenticate(&mut channel, LEVEL_C_MAC, &host_cg).unwrap();
+        external_authenticate(&mut channel, 0x80, LEVEL_C_MAC, &host_cg).unwrap();
         for (plain, wire) in [
             ("80F22002", "84F220020814DB34FA4341DCA8"),
             ("80ca006600", "84CA00660855ED7C5FF069512B00"),
@@ -652,7 +687,7 @@ mod tests {
         let (keys, iur) = session_keys();
         let host_cg = host_cryptogram(&keys, &host, &iur.card_challenge, iur.sequence_counter);
         let mut channel = Channel::new(&keys);
-        external_authenticate(&mut channel, LEVEL_C_MAC, &host_cg).unwrap();
+        external_authenticate(&mut channel, 0x80, LEVEL_C_MAC, &host_cg).unwrap();
         let before = channel.icv();
         let rel = release(&mut channel).unwrap();
         let wire = rel.encode().unwrap();

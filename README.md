@@ -198,6 +198,7 @@ exit codes do not change. `scan --tui` is still the findings view described abov
 | `cat decode [HEX...] [--json]` | decode Card Application Toolkit data offline: proactive commands, envelopes, terminal responses, comprehension TLVs; see below |
 | `gp info\|ara\|status [--json] [--reader NAME] [--trace]` | read-only GlobalPlatform reads, see below |
 | `gp status --keys-file PATH \| --keys-env VAR [--key-version HEX]` | registry over an SCP03 secure channel, one authentication attempt, see below |
+| `gp establish-scp02 --keys-file PATH \| --keys-env VAR [--key-version HEX] [--channel N] [--yes]` | SCP02 secure channel: one authentication attempt, **changes card session state**, dry run unless `--yes`, see below |
 | `gp select --aid HEX [--json] [--reader NAME] [--trace]` | SELECT an application by AID, see below |
 | `gp channel open\|close --channel N [--json] [--reader NAME] [--trace]` | MANAGE CHANNEL; every `gp` command takes `--channel N` (0 to 19) to run on that channel, see below |
 | `gp delete --aid HEX [--related] [--keys-file PATH \| --keys-env VAR] [--yes]` | DELETE over SCP03, **changes the card**, dry run unless `--yes`, see below |
@@ -370,6 +371,22 @@ UPDATE is checked locally first (GP Amendment D 6.2.2); if it does not verify, t
 counter attempt. A refused EXTERNAL AUTHENTICATE is reported (`data.error`, exit 1) and not retried.
 The card cryptogram proves the MAC key; the ENC key is not exercised at C-MAC level
 (`enc_key_exercised: false`).
+
+**SCP02 (issue #255).** `gp establish-scp02` opens an SCP02 secure channel (two-key 3DES keys,
+C-MAC at level `01`) under the same rules as the SCP03 reads and writes: SELECT the ISD, INITIALIZE
+UPDATE, the card cryptogram checked locally under S-ENC (wrong keys stop before EXTERNAL AUTHENTICATE),
+then one EXTERNAL AUTHENTICATE. It is a dry run unless `--yes`, which needs `--keys-file` or
+`--keys-env`, and the keys are never printed. Nothing is sent after the handshake, so a `9000` shows that
+the card accepted the host cryptogram and the C-MAC of EXTERNAL AUTHENTICATE and nothing more. Release a
+supplementary channel with `gp release-scp`; the basic channel has no MANAGE CHANNEL close. Not exposed
+over MCP. The derivation and cryptograms are pinned to pySim's SCP02 vectors and to an independent
+re-derivation, see `src/scp02.rs`.
+
+```
+sim-doctor gp channel open
+sim-doctor gp establish-scp02 --channel 1 --keys-file ./isd.keys --yes
+sim-doctor gp release-scp --channel 1 --yes
+```
 
 **Card writes: `gp channel`, `gp delete`, `gp install`, `gp put-key` (issues #133, #19, #115).** These change the card.
 
@@ -620,8 +637,7 @@ block. `--print-only` shows what would be written.
   `src/scp03.rs` stays a library (key derivation, cryptograms, C-MAC, INITIALIZE UPDATE /
   EXTERNAL AUTHENTICATE builders) verified by known-answer vectors. The `auth/scp03-missing-mac`
   rule is registered, but a scan has no recorded SCP03 exchange to hand it, so it reports no
-  evidence. Milenage (`src/aka.rs`) is likewise vector-tested only. SCP02 and SCP11 are not
-  implemented.
+  evidence. Milenage (`src/aka.rs`) is likewise vector-tested only. SCP11 is not implemented (SCP02 is, issue #255).
 
 ## Status
 

@@ -850,6 +850,22 @@ esac
     ;;
 esac
 ;;
+(establish-scp02)
+_arguments "${_arguments_options[@]}" : \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--channel=[Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it]:N:_default' \
+'--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
+'--keys-env=[Environment variable holding the keys]:VAR:_default' \
+'--key-version=[Key version number for INITIALIZE UPDATE, two hex digits; 00 (default) lets the card choose. SCP02 key versions are 01, 20 to 2F and 70]:HEX:_default' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--json[Emit one JSON envelope of kind "gp" on stdout]' \
+'--trace[Add every APDU exchange (command and response hex) as data.trace]' \
+'--yes[Send the commands. Without it nothing is written. Needs --keys-file or --keys-env]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (release-scp)
 _arguments "${_arguments_options[@]}" : \
 '--channel=[The logical channel whose secure channel is released, 1 to 19]:N:_default' \
@@ -1497,6 +1513,10 @@ _arguments "${_arguments_options[@]}" : \
         esac
     ;;
 esac
+;;
+(establish-scp02)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
 ;;
 (release-scp)
 _arguments "${_arguments_options[@]}" : \
@@ -2792,6 +2812,10 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(establish-scp02)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (release-scp)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -3705,7 +3729,8 @@ _sim-doctor__subcmd__gp_commands() {
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
 'crs:Contactless Registry Service (CRS, GlobalPlatform Amendment C)\: list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
-'release-scp:Release the SCP03 secure channel on a logical channel\: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE' \
+'establish-scp02:Establish an SCP02 secure channel to the issuer security domain\: SELECT the ISD, INITIALIZE UPDATE, the local check of the card cryptogram, then ONE EXTERNAL AUTHENTICATE at security level 01 (C-MAC). Nothing else is sent. CHANGES CARD SESSION STATE' \
+'release-scp:Release the SCP02 or SCP03 secure channel on a logical channel\: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
@@ -3981,6 +4006,11 @@ _sim-doctor__subcmd__gp__subcmd__delete-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp delete-key commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__establish-scp02_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__establish-scp02_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp establish-scp02 commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help_commands() {
     local commands; commands=(
@@ -3991,7 +4021,8 @@ _sim-doctor__subcmd__gp__subcmd__help_commands() {
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
 'crs:Contactless Registry Service (CRS, GlobalPlatform Amendment C)\: list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
-'release-scp:Release the SCP03 secure channel on a logical channel\: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE' \
+'establish-scp02:Establish an SCP02 secure channel to the issuer security domain\: SELECT the ISD, INITIALIZE UPDATE, the local check of the card cryptogram, then ONE EXTERNAL AUTHENTICATE at security level 01 (C-MAC). Nothing else is sent. CHANGES CARD SESSION STATE' \
+'release-scp:Release the SCP02 or SCP03 secure channel on a logical channel\: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
@@ -4136,6 +4167,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__delete_commands() {
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__delete-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help delete-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__establish-scp02_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__establish-scp02_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help establish-scp02 commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__help_commands() {
@@ -4534,7 +4570,8 @@ _sim-doctor__subcmd__help__subcmd__gp_commands() {
 'select:SELECT a GlobalPlatform (or any) application by AID and report the status word and the FCI. Read-only, no keys; it only changes the card'\''s current selection' \
 'crs:Contactless Registry Service (CRS, GlobalPlatform Amendment C)\: list the applications held for contactless, read the service version and event counter, and activate or deactivate one application for contactless' \
 'channel:Open or close a supplementary logical channel (MANAGE CHANNEL). A channel stays open on the card until it is closed or the card loses power, and the other gp commands can then run on it with --channel N' \
-'release-scp:Release the SCP03 secure channel on a logical channel\: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE' \
+'establish-scp02:Establish an SCP02 secure channel to the issuer security domain\: SELECT the ISD, INITIALIZE UPDATE, the local check of the card cryptogram, then ONE EXTERNAL AUTHENTICATE at security level 01 (C-MAC). Nothing else is sent. CHANGES CARD SESSION STATE' \
+'release-scp:Release the SCP02 or SCP03 secure channel on a logical channel\: close that logical channel with MANAGE CHANNEL, which is what ends the secure channel the card holds there. CHANGES CARD SESSION STATE' \
 'delete:Delete an application or an executable load file over an SCP03 channel (DELETE, GlobalPlatform Card Spec v2.3.1 11.2). CHANGES CARD CONTENT' \
 'make-default:Make an installed application Default Selected over an SCP03 channel\: INSTALL \[for make selectable\] with the Card Reset privilege (GlobalPlatform Card Spec v2.3.1 11.5, Table 11-7). CHANGES CARD CONTENT' \
 'rename-isd:Rename the Issuer Security Domain over an SCP03 channel\: STORE DATA \`4F LEN AID\` (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT' \
@@ -4678,6 +4715,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__delete_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__delete-key_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp delete-key commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__establish-scp02_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__establish-scp02_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp establish-scp02 commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__info_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__info_commands() {
