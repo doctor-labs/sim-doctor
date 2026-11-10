@@ -334,6 +334,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp,delete-key)
                 cmd="sim__doctor__subcmd__gp__subcmd__delete__subcmd__key"
                 ;;
+            sim__doctor__subcmd__gp,establish-scp02)
+                cmd="sim__doctor__subcmd__gp__subcmd__establish__subcmd__scp02"
+                ;;
             sim__doctor__subcmd__gp,help)
                 cmd="sim__doctor__subcmd__gp__subcmd__help"
                 ;;
@@ -504,6 +507,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,delete-key)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__delete__subcmd__key"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help,establish-scp02)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__establish__subcmd__scp02"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help,help)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__help"
@@ -774,6 +780,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__gp,delete-key)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__delete__subcmd__key"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp,establish-scp02)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__establish__subcmd__scp02"
                 ;;
             sim__doctor__subcmd__help__subcmd__gp,info)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__info"
@@ -2595,7 +2604,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp)
-            opts="-P -h --profile --help cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu help"
+            opts="-P -h --profile --help cert info ara status select crs channel establish-scp02 release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3894,8 +3903,50 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__establish__subcmd__scp02)
+            opts="-P -h --reader --json --trace --channel --keys-file --keys-env --key-version --yes --profile --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --reader)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --channel)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --key-version)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help)
-            opts="cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu help"
+            opts="cert info ara status select crs channel establish-scp02 release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4203,6 +4254,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__delete__subcmd__key)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__establish__subcmd__scp02)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -5723,7 +5788,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp)
-            opts="cert info ara status select crs channel release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu"
+            opts="cert info ara status select crs channel establish-scp02 release-scp delete make-default rename-isd delete-key install create-sd put-key cplc-set personalize aram move receipt store-data secure-apdu"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -6031,6 +6096,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__delete__subcmd__key)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__establish__subcmd__scp02)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

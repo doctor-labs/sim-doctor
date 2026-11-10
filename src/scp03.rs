@@ -28,7 +28,7 @@
 //! decrypts the response data), at the five levels in [`SecurityLevel`]. S16 is
 //! C-MAC only (level `01`): the S16 R-MAC length and C-ENC padding are not
 //! verifiable from the repo refmap [U], so a higher level with S16 is refused.
-//! SCP02 and SCP11 are not implemented (tracked as a follow-up to issue #22).
+//! SCP02 is in [`crate::scp02`] (issue #255). SCP11 is not implemented (issue #74).
 
 /// This module's name, as recorded in [`crate::MODULES`].
 pub const NAME: &str = "scp03";

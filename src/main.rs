@@ -1174,7 +1174,42 @@ enum GpAction {
         #[command(subcommand)]
         action: GpChannelAction,
     },
-    /// Release the SCP03 secure channel on a logical channel: close that
+    /// Establish an SCP02 secure channel to the issuer security domain: SELECT
+    /// the ISD, INITIALIZE UPDATE, the local check of the card cryptogram, then
+    /// ONE EXTERNAL AUTHENTICATE at security level 01 (C-MAC). Nothing else is
+    /// sent. CHANGES CARD SESSION STATE.
+    ///
+    /// A dry run unless --yes, which needs --keys-file or --keys-env. The keys
+    /// are two-key 3DES (32 hex digits each) and are never printed. A failed
+    /// attempt is never retried. Release a supplementary channel afterwards with
+    /// `gp release-scp --channel N --yes`. Not available over MCP.
+    ///
+    /// Exit 0 for a dry run or an established channel, 1 when the card refuses,
+    /// 2 when the keys cannot be read.
+    EstablishScp02 {
+        /// The reader to use, matched against the driver's own name.
+        #[arg(long, value_name = "NAME")]
+        reader: Option<String>,
+        /// Emit one JSON envelope of kind "gp" on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Add every APDU exchange (command and response hex) as data.trace.
+        #[arg(long)]
+        trace: bool,
+        #[command(flatten)]
+        channel: GpChannelArg,
+        #[command(flatten)]
+        keys: GpKeySourceArgs,
+        /// Key version number for INITIALIZE UPDATE, two hex digits; 00 (default)
+        /// lets the card choose. SCP02 key versions are 01, 20 to 2F and 70.
+        #[arg(long, value_name = "HEX", default_value = "00", value_parser = parse_hex_byte)]
+        key_version: u8,
+        /// Send the commands. Without it nothing is written. Needs --keys-file or
+        /// --keys-env.
+        #[arg(long, requires = "delete_key_source")]
+        yes: bool,
+    },
+    /// Release the SCP02 or SCP03 secure channel on a logical channel: close that
     /// logical channel with MANAGE CHANNEL, which is what ends the secure
     /// channel the card holds there. CHANGES CARD SESSION STATE.
     ///
@@ -3684,6 +3719,23 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     CrsAction::Activate { aid, write } => run_gp_crs_set(&aid, true, &write),
                     CrsAction::Deactivate { aid, write } => run_gp_crs_set(&aid, false, &write),
                 },
+                GpAction::EstablishScp02 {
+                    reader,
+                    json,
+                    trace,
+                    channel,
+                    keys,
+                    key_version,
+                    yes,
+                } => run_gp_establish_scp02(
+                    reader.as_deref(),
+                    json,
+                    trace,
+                    channel.channel,
+                    &keys,
+                    key_version,
+                    yes,
+                ),
                 GpAction::ReleaseScp {
                     channel,
                     reader,
@@ -4738,6 +4790,75 @@ fn gp_auth<'a>(keys: &'a gp::Keys, args: &GpKeyArgs, channel: u8) -> gp::Auth<'a
         host_challenge: gp::HostChallenge::random(args.s16),
         logical_channel: channel,
     }
+}
+
+/// `sim-doctor gp establish-scp02`: a dry run unless `--yes`, which is offline.
+/// With `--yes` the keys are read first, so a refusal opens no reader; then one
+/// SCP02 authentication runs on `channel`.
+fn run_gp_establish_scp02(
+    reader: Option<&str>,
+    json: bool,
+    trace: bool,
+    channel: u8,
+    args: &GpKeySourceArgs,
+    key_version: u8,
+    yes: bool,
+) -> contract::ExitCode {
+    const WHAT: &str = "gp establish-scp02";
+    // A plan the card cannot be asked for (a bad channel or key version) is refused
+    // here, before any reader is opened, dry run or not.
+    let plan = gp::establish_scp02_dry_run(channel, key_version);
+    if let Some(message) = plan["error"]["message"].as_str().map(str::to_owned) {
+        return report_refusal("gp", &message, plan, json);
+    }
+    if !yes {
+        return emit_gp(WHAT, plan, json);
+    }
+    let keys = match load_scp02_keys(args, json) {
+        Ok(keys) => keys,
+        Err(code) => return code,
+    };
+    let mut host_challenge = [0u8; sim_doctor::scp02::HOST_CHALLENGE_LEN];
+    rand::fill(&mut host_challenge);
+    let auth = gp::Scp02Auth {
+        keys: &keys,
+        key_version,
+        logical_channel: channel,
+        host_challenge,
+    };
+    run_gp_with(
+        WHAT,
+        reader,
+        json,
+        trace,
+        channel,
+        &gp::profile::DEFAULT,
+        |s, t| gp::establish_scp02(s, t, &auth),
+    )
+}
+
+/// The SCP02 key set named by `--keys-file` or `--keys-env`, or the refusal.
+/// Two-key 3DES, so the KCV is the 3DES one. Errors never quote the key text.
+fn load_scp02_keys(args: &GpKeySourceArgs, json: bool) -> Result<gp::Keys, contract::ExitCode> {
+    let source = match (&args.keys_file, &args.keys_env) {
+        (Some(path), _) => gp::KeySource::File(path),
+        (None, Some(name)) => gp::KeySource::Env(name),
+        (None, None) => {
+            let message = "--yes needs --keys-file or --keys-env; nothing was sent";
+            let data =
+                serde_json::json!({ "error": { "kind": "keys-required", "message": message } });
+            return Err(report_refusal("gp", message, data, json));
+        }
+    };
+    gp::Keys::load_scp02(source).map_err(|err| {
+        let kind = match err {
+            gp::KeyError::Kcv { .. } => "key-kcv-mismatch",
+            _ => "keys-unusable",
+        };
+        let message = err.to_string();
+        let data = serde_json::json!({ "error": { "kind": kind, "message": message } });
+        report_refusal("gp", &message, data, json)
+    })
 }
 
 /// `sim-doctor gp status [--keys-file PATH | --keys-env VAR]`.
