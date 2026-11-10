@@ -197,6 +197,9 @@ fn ef_for(kind: &str, name: &str) -> Option<Ef> {
         ("loci", "EF.PSLOCI") => Ef::Psloci,
         ("loci", "EF.EPSLOCI") => Ef::Epsloci,
         ("plmn-list", "EF.FPLMN") => Ef::Fplmn,
+        ("plmn-list", "EF.PLMNSEL") => Ef::Plmnsel,
+        ("plmn-list", "EF.EHPLMN") => Ef::Ehplmn,
+        ("uint", "EF.HPPLMN") => Ef::Hpplmn,
         ("plmn-act", "EF.OPLMNWACT") => Ef::OplmnWact,
         ("plmn-act", "EF.HPLMNWACT") => Ef::HplmnWact,
         ("suci", _) => Ef::SuciCalcInfo,
@@ -969,7 +972,10 @@ mod tests {
             "EF.PLMNsel",
             &[&[0x62, 0xF2, 0x10, 0xFF, 0xFF, 0xFF]],
         );
-        assert_eq!(plmn["plmns"], json!(["26201"]));
+        // EF.PLMNsel now takes the typed FPLMN-style shape (ef.rs Plmns), like EF.FPLMN.
+        assert_eq!(plmn["count"], 1);
+        assert_eq!(plmn["plmns"][0]["mcc"], "262");
+        assert_eq!(plmn["plmns"][0]["mnc"], "01");
         let act = d(
             "plmn-act",
             "EF.PLMNwAcT",
@@ -1006,5 +1012,24 @@ mod tests {
         // A BER-TLV file nests.
         let tl = d("tlv", "EF.PNN", &[&[0x43, 0x03, 0x80, 0x01, 0x41]]);
         assert_eq!(tl["tlv"][0]["tag"], "43");
+    }
+}
+
+#[cfg(test)]
+mod plmn_catalog_tests {
+    use super::*;
+
+    // The catalog kinds of EF.PLMNsel and EF.EHPLMN (plmn-list) and EF.HPPLMN (uint) reach the
+    // typed decoders of ef.rs: pySim vectors 22F860 (228/06) and 05 (5).
+    #[test]
+    fn plmn_selector_files_go_through_the_typed_decoders() {
+        let plmns = vec![vec![0x22, 0xF8, 0x60, 0xFF, 0xFF, 0xFF]];
+        for name in ["EF.PLMNsel", "EF.EHPLMN"] {
+            let v = decode_ef("plmn-list", name, &plmns);
+            assert_eq!(v["count"], 1, "{name}");
+            assert_eq!(v["plmns"][0]["mnc"], "06", "{name}");
+        }
+        let v = decode_ef("uint", "EF.HPPLMN", &[vec![0x05]]);
+        assert_eq!(v["value"], 5);
     }
 }
