@@ -108,6 +108,12 @@ pub enum Ef {
     KeysPs,
     /// EF.FPLMN `6F7B`.
     Fplmn,
+    /// EF.PLMNsel `6F30` (DF GSM): 3-octet PLMN entries as FPLMN, FFFFFF unused (TS 51.011 10.3.4).
+    Plmnsel,
+    /// EF.EHPLMN `6FD9` (ADF USIM): 3-octet PLMN entries as FPLMN.
+    Ehplmn,
+    /// EF.HPPLMN `6F31` (DF GSM and ADF USIM): one octet, the higher priority PLMN search period, kept raw.
+    Hpplmn,
     /// EF.OPLMNwAcT `6F61`.
     OplmnWact,
     /// EF.HPLMNwAcT `6F62`.
@@ -196,6 +202,9 @@ impl Ef {
             Self::Keys => "EF.Keys",
             Self::KeysPs => "EF.KeysPS",
             Self::Fplmn => "EF.FPLMN",
+            Self::Plmnsel => "EF.PLMNsel",
+            Self::Ehplmn => "EF.EHPLMN",
+            Self::Hpplmn => "EF.HPPLMN",
             Self::OplmnWact => "EF.OPLMNwAcT",
             Self::HplmnWact => "EF.HPLMNwAcT",
             Self::Loci => "EF.LOCI",
@@ -297,6 +306,9 @@ pub fn classify(path: &Path) -> Option<Ef> {
         [0x6F, 0x08] if adf => Some(Ef::Keys),
         [0x6F, 0x09] if adf => Some(Ef::KeysPs),
         [0x6F, 0x7B] if adf || gsm => Some(Ef::Fplmn),
+        [0x6F, 0x30] if gsm => Some(Ef::Plmnsel),
+        [0x6F, 0x31] if adf || gsm => Some(Ef::Hpplmn),
+        [0x6F, 0xD9] if adf => Some(Ef::Ehplmn),
         [0x6F, 0x61] if adf => Some(Ef::OplmnWact),
         [0x6F, 0x62] if adf => Some(Ef::HplmnWact),
         [0x6F, 0x7E] if adf || gsm => Some(Ef::Loci),
@@ -659,6 +671,15 @@ impl PlmnEntry {
             out.push("cdma2000 1xRTT");
         }
         out
+    }
+}
+
+/// EF.HPPLMN (TS 51.011 and TS 31.102): exactly one octet. It is returned raw, as pySim reads it
+/// (`Int8ub`); the unit of the period is not applied here.
+pub fn decode_hpplmn(bytes: &[u8]) -> Result<u8, Malformed> {
+    match bytes {
+        [v] => Ok(*v),
+        _ => Err(Malformed("EF.HPPLMN is one octet")),
     }
 }
 
@@ -1436,8 +1457,10 @@ pub enum Decoded {
     Raw(Vec<u8>),
     /// EF.UST or EF.EST.
     Services(Services),
-    /// EF.FPLMN, EF.OPLMNwAcT or EF.HPLMNwAcT: the used entries.
+    /// EF.FPLMN, EF.PLMNsel, EF.EHPLMN, EF.OPLMNwAcT or EF.HPLMNwAcT: the used entries.
     Plmns(Ef, Vec<PlmnEntry>),
+    /// EF.HPPLMN: the one raw octet, the higher priority PLMN search period.
+    Hpplmn(u8),
     /// EF.ACC: the access classes set.
     Acc(Vec<u8>),
     /// EF.LOCI, EF.PSLOCI or EF.EPSLOCI.
@@ -1506,7 +1529,8 @@ pub fn decode(ef: Ef, records: &[Vec<u8>], mnc_len: Option<u8>) -> Result<Decode
                 .flatten()
                 .collect(),
         ),
-        Ef::Fplmn => Decoded::Plmns(ef, decode_plmn_list(first, 3)?),
+        Ef::Fplmn | Ef::Plmnsel | Ef::Ehplmn => Decoded::Plmns(ef, decode_plmn_list(first, 3)?),
+        Ef::Hpplmn => Decoded::Hpplmn(decode_hpplmn(first)?),
         Ef::OplmnWact | Ef::HplmnWact => Decoded::Plmns(ef, decode_plmn_list(first, 5)?),
         Ef::Acc => Decoded::Acc(decode_acc(first)?),
         Ef::Loci => Decoded::Registration(ef, decode_loci(first)?),
@@ -1623,6 +1647,7 @@ impl Decoded {
                     m.number.as_str()
                 ))
             ),
+            Self::Hpplmn(v) => format!("higher priority PLMN search period {v:02X} (raw octet)"),
             Self::Plmns(_, list) => {
                 let shown: Vec<String> = list
                     .iter()
@@ -1852,6 +1877,7 @@ impl Decoded {
                     "number": m.number.as_str(),
                 })).collect::<Vec<_>>(),
             }),
+            Self::Hpplmn(v) => json!({ "value": v, "hex": format!("{v:02X}") }),
             Self::Plmns(_, list) => json!({
                 "count": list.len(),
                 "plmns": list.iter().map(|e| json!({
@@ -2939,5 +2965,47 @@ mod tests {
         let d = decode(Ef::ProseRadioCom, &[vec![0xDE, 0xAD, 0xBE, 0xEF]], None).unwrap();
         assert_eq!(d.evidence(), "DEADBEEF");
         assert_eq!(d.fields()["hex"], "DEADBEEF");
+    }
+}
+
+#[cfg(test)]
+mod plmn_selector_tests {
+    use super::*;
+
+    // pySim ts_51_011.py EF_PLMNsel._test_de_encode (TS 51.011 10.3.4): 22F860 is 228/06 and
+    // 330420 is 334/020. EF.EHPLMN is the same layout (ts_31_102.py EF_PLMNsel for 6fd9).
+    #[test]
+    fn plmnsel_and_ehplmn_decode_the_pysim_vectors_and_drop_unused_entries() {
+        let bytes = hex::decode("22F860330420FFFFFF").unwrap();
+        for ef in [Ef::Plmnsel, Ef::Ehplmn] {
+            let d = decode(ef, std::slice::from_ref(&bytes), None)
+                .unwrap()
+                .fields();
+            assert_eq!(d["count"], 2, "{ef:?}");
+            assert_eq!(d["plmns"][0]["mcc"], "228");
+            assert_eq!(d["plmns"][0]["mnc"], "06");
+            assert_eq!(d["plmns"][1]["mcc"], "334");
+            assert_eq!(d["plmns"][1]["mnc"], "020");
+        }
+        assert!(decode(Ef::Plmnsel, &[vec![0x22, 0xF8]], None).is_err());
+    }
+
+    // pySim ts_51_011.py and ts_31_102.py: EF.HPPLMN is an Int8ub; its test vector is 05 -> 5.
+    #[test]
+    fn hpplmn_is_one_raw_octet_as_pysim_reads_it() {
+        let d = decode(Ef::Hpplmn, &[vec![0x05]], None).unwrap().fields();
+        assert_eq!(d["value"], 5);
+        assert_eq!(d["hex"], "05");
+        assert!(decode(Ef::Hpplmn, &[vec![0x05, 0x06]], None).is_err());
+        assert!(decode(Ef::Hpplmn, &[vec![]], None).is_err());
+    }
+
+    #[test]
+    fn plmnsel_hpplmn_and_ehplmn_are_classified_where_the_specs_put_them() {
+        let p = |s: &str| s.parse::<Path>().unwrap();
+        assert_eq!(classify(&p("3F00/7F20/6F30")), Some(Ef::Plmnsel));
+        assert_eq!(classify(&p("3F00/7F20/6F31")), Some(Ef::Hpplmn));
+        assert_eq!(classify(&p("3F00/7FFF/6F31")), Some(Ef::Hpplmn));
+        assert_eq!(classify(&p("3F00/7FFF/6FD9")), Some(Ef::Ehplmn));
     }
 }
