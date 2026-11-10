@@ -553,6 +553,18 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
+(verify)
+_arguments "${_arguments_options[@]}" : \
+'--cert=[The \`7F21\` certificate as the binary TLV that \`--cert-out\` writes]:PATH:_files' \
+'--cert-issuer-hex=[The public key of the issuer\: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y)]:HEX:_default' \
+'--cert-issuer-file=[File holding the same point as hex text]:PATH:_files' \
+'-P+[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--profile=[Use a named card profile instead of the built-in default (#238)]:NAME:_default' \
+'--json[Print the result as one JSON object instead of the table]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help_commands" \
@@ -574,6 +586,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(verify)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1435,6 +1451,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (sign)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(verify)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2736,6 +2756,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(verify)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3827,6 +3851,7 @@ _sim-doctor__subcmd__gp__subcmd__cert_commands() {
 'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
 'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
 'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+'verify:Check the \`5F37\` signature of a \`7F21\` card certificate against the public key of its issuer. Offline\: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp cert commands' commands "$@"
@@ -3842,6 +3867,7 @@ _sim-doctor__subcmd__gp__subcmd__cert__subcmd__help_commands() {
 'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
 'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
 'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+'verify:Check the \`5F37\` signature of a \`7F21\` card certificate against the public key of its issuer. Offline\: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor gp cert help commands' commands "$@"
@@ -3866,6 +3892,11 @@ _sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp cert help sign commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert help verify commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__read_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__cert__subcmd__read_commands() {
     local commands; commands=()
@@ -3875,6 +3906,11 @@ _sim-doctor__subcmd__gp__subcmd__cert__subcmd__read_commands() {
 _sim-doctor__subcmd__gp__subcmd__cert__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp cert sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__cert__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__cert__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp cert verify commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__channel_commands() {
@@ -4082,6 +4118,7 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__cert_commands() {
 'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
 'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
 'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+'verify:Check the \`5F37\` signature of a \`7F21\` card certificate against the public key of its issuer. Offline\: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer' \
     )
     _describe -t commands 'sim-doctor gp help cert commands' commands "$@"
 }
@@ -4099,6 +4136,11 @@ _sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__read_commands() {
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor gp help cert sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor gp help cert verify commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__gp__subcmd__help__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__gp__subcmd__help__subcmd__channel_commands() {
@@ -4630,6 +4672,7 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__cert_commands() {
 'read:Select the issuer security domain and READ BINARY the \`7F21\` card certificate, then decode it. Read-only\: no writing command is sent and no key is needed' \
 'construct:Build a \`7F21\` card certificate offline, from the fields given. No card, no network and no clock\: the dates are yours, and the same inputs produce the same octets every run' \
 'sign:Build a \`7F21\` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed' \
+'verify:Check the \`5F37\` signature of a \`7F21\` card certificate against the public key of its issuer. Offline\: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer' \
     )
     _describe -t commands 'sim-doctor help gp cert commands' commands "$@"
 }
@@ -4647,6 +4690,11 @@ _sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__read_commands() {
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help gp cert sign commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__verify_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help gp cert verify commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__gp__subcmd__channel_commands() {

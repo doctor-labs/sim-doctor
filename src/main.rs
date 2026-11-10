@@ -9213,6 +9213,34 @@ enum GpCertAction {
         #[arg(long)]
         json: bool,
     },
+    /// Check the `5F37` signature of a `7F21` card certificate against the public key of its
+    /// issuer. Offline: no card, no clock. It says whether the signature verifies. It does not
+    /// say whether the dates are current or whether the card trusts that issuer.
+    ///
+    /// Exit 0 when the signature verifies, 1 when it does not, 129 for unusable input.
+    Verify {
+        /// The `7F21` certificate as the binary TLV that `--cert-out` writes.
+        #[arg(long, value_name = "PATH")]
+        cert: std::path::PathBuf,
+        #[command(flatten)]
+        issuer: GpCertIssuerArgs,
+        /// Print the result as one JSON object instead of the table.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Where `gp cert verify` gets the public key of the issuer. Public, so the command line is fine.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("cert_issuer_source").required(true)
+    .args(["cert_issuer_hex", "cert_issuer_file"])))]
+struct GpCertIssuerArgs {
+    /// The public key of the issuer: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y).
+    #[arg(long, value_name = "HEX")]
+    cert_issuer_hex: Option<String>,
+    /// File holding the same point as hex text.
+    #[arg(long, value_name = "PATH")]
+    cert_issuer_file: Option<std::path::PathBuf>,
 }
 
 /// The `7F21` fields `gp cert construct` and `gp cert sign` share.
@@ -9325,6 +9353,72 @@ fn run_gp_cert(args: GpCertArgs) -> contract::ExitCode {
         ),
         GpCertAction::Construct { fields, json } => gp_cert_build(&fields, None, json),
         GpCertAction::Sign { fields, key, json } => gp_cert_build(&fields, Some(&key), json),
+        GpCertAction::Verify { cert, issuer, json } => gp_cert_verify(&cert, &issuer, json),
+    }
+}
+
+/// `gp cert verify`: checks the `5F37` signature of a `7F21` certificate against an issuer public
+/// key. Offline: no card, no clock.
+fn gp_cert_verify(
+    cert: &std::path::Path,
+    issuer: &GpCertIssuerArgs,
+    json: bool,
+) -> contract::ExitCode {
+    let fail = |message: String| {
+        eprintln!("sim-doctor gp cert: {message}");
+        contract::ExitCode::InvalidUsage
+    };
+    let octets = match std::fs::read(cert) {
+        Ok(octets) => octets,
+        Err(err) => return fail(format!("cannot read {}: {err}", cert.display())),
+    };
+    let certificate = match sim_doctor::gpcert::parse(&octets) {
+        Ok(certificate) => certificate,
+        Err(err) => return fail(format!("{}: {err}", cert.display())),
+    };
+    let (point_text, issuer_source) = match (&issuer.cert_issuer_hex, &issuer.cert_issuer_file) {
+        (Some(text), _) => (text.clone(), "--cert-issuer-hex, as given".to_string()),
+        (None, Some(path)) => match std::fs::read_to_string(path) {
+            Ok(text) => (text, path.display().to_string()),
+            Err(err) => return fail(format!("cannot read {}: {err}", path.display())),
+        },
+        // The clap group above requires exactly one of the two.
+        (None, None) => return fail("give --cert-issuer-hex or --cert-issuer-file".to_string()),
+    };
+    let point = match hex::decode(point_text.trim()) {
+        Ok(point) => point,
+        Err(err) => return fail(format!("the issuer public key is not hex: {err}")),
+    };
+    if let Err(err) = sim_doctor::gpcert::check_issuer_point(&point) {
+        return fail(err.to_string());
+    }
+    let valid = matches!(
+        certificate.verify_signature(&point),
+        sim_doctor::cert::SignatureCheck::Valid
+    );
+    let verdict = if valid { "valid" } else { "INVALID" };
+
+    let mut data = sim_doctor::gpcert::to_json(&certificate);
+    data["signature"] = serde_json::json!(verdict.to_lowercase());
+    data["issuer_key_source"] = serde_json::json!(issuer_source);
+    data["cert_file"] = serde_json::json!(cert.display().to_string());
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&data).unwrap_or_else(|e| e.to_string())
+        );
+    } else {
+        print!("{}", sim_doctor::gpcert::render(&certificate));
+        println!("signature: {verdict}");
+        println!("issuer public key: {issuer_source}");
+        println!(
+            "This checks the 5F37 signature only: not the dates, not who the issuer is, and not whether the card trusts that issuer."
+        );
+    }
+    if valid {
+        contract::ExitCode::Success
+    } else {
+        contract::ExitCode::Findings
     }
 }
 
