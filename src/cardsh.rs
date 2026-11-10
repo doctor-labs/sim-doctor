@@ -3937,6 +3937,15 @@ pub fn grammar() -> clap::Command {
                 ),
         )
         .subcommand(
+            C::new("switch_channel")
+                .about("Use open logical channel N (1 to 15) for the commands that follow; same as channel N")
+                .arg(
+                    Arg::new("channel")
+                        .required(true)
+                        .value_parser(clap::value_parser!(u8).range(1..=15)),
+                ),
+        )
+        .subcommand(
             C::new("apdu")
                 .about(
                     "Send one APDU (hex). Reads are sent; anything else is a dry run unless --yes",
@@ -4801,6 +4810,7 @@ impl Shell {
             "open_channel" => self.cmd_open_channel(),
             "close_channel" => self.cmd_close_channel(args),
             "channel" => self.cmd_channel(args),
+            "switch_channel" => self.cmd_channel(args),
             "activate_file" => self.cmd_activate_file(args),
             "create_ef" => self.cmd_create_ef(args),
             "create_df" => self.cmd_create_df(args),
@@ -6551,6 +6561,22 @@ mod tests {
         );
         assert!(split_words("a 'b").is_err());
         assert_eq!(split_commands("a; b 'c;d' ;e"), ["a", " b 'c;d' ", "e"]);
+    }
+
+    #[test]
+    fn switch_channel_takes_only_an_open_channel_from_one_to_fifteen() {
+        let mut sh = shell_on(TestCard::usim());
+        assert!(sh.exec("open_channel").ok);
+        assert_eq!(sh.channel(), Some(1));
+        // 0 is the basic channel, and 16 is past the 1 to 15 range: both refused by the parser.
+        assert!(!sh.exec("switch_channel 0").ok);
+        assert!(!sh.exec("switch_channel 16").ok);
+        // Not open: refused, and the channel in use does not move.
+        assert!(!sh.exec("switch_channel 2").ok);
+        assert_eq!(sh.channel(), Some(1));
+        assert!(sh.exec("channel 0").ok);
+        assert!(sh.exec("switch_channel 1").ok);
+        assert_eq!(sh.channel(), Some(1));
     }
 
     #[test]
