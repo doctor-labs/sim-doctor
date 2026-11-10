@@ -1546,6 +1546,11 @@ enum GpAction {
         /// session authenticated with. Without it such a request is refused.
         #[arg(long)]
         replace_current_keyset: bool,
+        /// Diversify the ONE master key in the new-keys text with this KDF template (kdf3
+        /// is the SCP03 one) from the KDD the card returns in INITIALIZE UPDATE, then write
+        /// the three keys it derives. The derived keys are never printed.
+        #[arg(long, value_name = "TEMPLATE", value_parser = parse_kdf_template)]
+        lock_kdf: Option<&'static str>,
         #[command(flatten)]
         write: GpWriteFlags,
     },
@@ -3836,6 +3841,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     key_id,
                     new_keys,
                     replace_current_keyset,
+                    lock_kdf,
                     write,
                 } => run_gp_put_key(
                     new_key_version,
@@ -3843,6 +3849,7 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
                     key_id,
                     &new_keys,
                     replace_current_keyset,
+                    lock_kdf,
                     &write,
                 ),
                 GpAction::CplcSet {
@@ -6209,6 +6216,7 @@ fn run_gp_put_key(
     key_id: u8,
     new: &GpNewKeyArgs,
     replace_current: bool,
+    lock_kdf: Option<&'static str>,
     w: &GpWriteFlags,
 ) -> contract::ExitCode {
     let refuse = |kind: &str, message: String| {
@@ -6221,12 +6229,13 @@ fn run_gp_put_key(
         (None, None) => unreachable!("clap requires one of the two"),
     };
     let new_keys = match gp::Keys::load(source) {
-        Ok(keys) if keys.is_key_set() => keys,
+        Ok(keys) if keys.is_key_set() == lock_kdf.is_none() => keys,
         Ok(_) => {
-            return refuse(
-                "keys-unusable",
-                "the new key set is three keys, ENC MAC DEK".into(),
-            )
+            let message = match lock_kdf {
+                Some(_) => "--lock-kdf takes ONE AES-128 master key in the new-keys text, not a key set of three".into(),
+                None => "the new key set is three keys, ENC MAC DEK".into(),
+            };
+            return refuse("keys-unusable", message);
         }
         Err(e) => {
             let kind = match e {
@@ -6242,6 +6251,7 @@ fn run_gp_put_key(
         key_id,
         new_keys,
         replace_current,
+        lock_kdf,
     };
     let keys = match load_gp_keys(&w.keys, w.json) {
         Ok(keys) => keys,

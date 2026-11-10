@@ -1491,6 +1491,8 @@ pub(crate) struct Established {
     /// diversified a master key. The reported key check values are these, not
     /// the master key's.
     keys: Option<Keys>,
+    /// The KDD the card returned in INITIALIZE UPDATE: what `--lock-kdf` diversifies a new master key with.
+    diversification: [u8; 10],
 }
 
 /// The ONE authentication attempt: INITIALIZE UPDATE, the local check of the
@@ -1718,6 +1720,7 @@ fn authenticate_profile<const N: usize, S: CardSession + ?Sized>(
         key_version: iur.key_version,
         i_parameter,
         keys: diversified,
+        diversification: iur.diversification,
     }))
 }
 
@@ -5469,6 +5472,8 @@ struct Prepared {
     card_keys: Option<Value>,
     /// The key version the channel was authenticated with (from INITIALIZE UPDATE).
     current_kvn: u8,
+    /// The KDD from INITIALIZE UPDATE, for `--lock-kdf`.
+    diversification: [u8; 10],
 }
 
 /// SELECT the ISD, the ONE authentication attempt of [`authenticate`], then
@@ -5517,10 +5522,11 @@ fn prepare_write<S: CardSession + ?Sized>(
     } else {
         None
     };
-    let (mut channel, current_kvn) = match authenticate(session, &mut steps, auth)? {
+    let (mut channel, current_kvn, diversification) = match authenticate(session, &mut steps, auth)?
+    {
         Ok(est) => {
             data["secure_channel"] = channel_report(auth, &est, card_keys.as_ref());
-            (est.channel, est.key_version)
+            (est.channel, est.key_version, est.diversification)
         }
         Err(stop) => {
             data["secure_channel"] = json!({
@@ -5542,6 +5548,7 @@ fn prepare_write<S: CardSession + ?Sized>(
         data,
         card_keys,
         current_kvn,
+        diversification,
     }))
 }
 
@@ -6456,10 +6463,15 @@ pub struct PutKeyRequest {
     pub new_keys: Keys,
     /// Allow touching the key version the session authenticated with.
     pub replace_current: bool,
+    /// `--lock-kdf`: when set, `new_keys` is ONE AES-128 master key and the new key set is that key
+    /// diversified with this KDF template (only kdf3 is accepted) and the KDD the card returns in
+    /// INITIALIZE UPDATE. The derived keys are never printed.
+    pub lock_kdf: Option<&'static str>,
 }
 
-/// Checks the parameters against GP Card Spec v2.3.1 11.8.2.1 to 11.8.2.3.
-fn put_key_params(req: &PutKeyRequest) -> Result<[[u8; 16]; 3], BuildError> {
+/// The version, replace and key identifier checks of PUT KEY (11.8.2.1 to 11.8.2.3), shared by the
+/// given-keys form and the --lock-kdf form.
+fn put_key_header_checks(req: &PutKeyRequest) -> Result<(), BuildError> {
     if !(1..=0x7F).contains(&req.new_version) {
         return Err(BuildError::PutKey(
             "the new key version number is coded from 01 to 7F (11.8.2.3)",
@@ -6475,6 +6487,47 @@ fn put_key_params(req: &PutKeyRequest) -> Result<[[u8; 16]; 3], BuildError> {
             "the first key identifier is 00 to 7D so that the second and third key identifiers stay within 7F (11.8.2.2)",
         ));
     }
+    Ok(())
+}
+
+/// `--lock-kdf` takes ONE AES-128 master key, not a key set of three.
+fn lock_master_check(req: &PutKeyRequest) -> Result<(), BuildError> {
+    if req.new_keys.count != 1 || req.new_keys.enc.as_aes128().is_none() {
+        return Err(BuildError::PutKey(
+            "--lock-kdf takes ONE AES-128 master key in the new-keys text, not a key set of three",
+        ));
+    }
+    Ok(())
+}
+
+/// `--lock-kdf`: the new key set is ONE AES-128 master key, diversified on the card with the KDD
+/// the INITIALIZE UPDATE of this session returned, under the named template. Returns the request
+/// with the derived set in place of the master. `diversified_keys` reports the authentication form
+/// (count 1), so the count is set to 3 here: the derived set is three keys.
+fn lock_request(
+    req: &PutKeyRequest,
+    name: &str,
+    kdd: &[u8; 10],
+) -> Result<PutKeyRequest, BuildError> {
+    put_key_header_checks(req)?;
+    lock_master_check(req)?;
+    let mut new_keys = diversified_keys(&req.new_keys, name, kdd).map_err(|_| {
+        BuildError::PutKey("the master key could not be diversified with the KDD the card returned")
+    })?;
+    new_keys.count = 3;
+    Ok(PutKeyRequest {
+        new_version: req.new_version,
+        replace_version: req.replace_version,
+        key_id: req.key_id,
+        new_keys,
+        replace_current: req.replace_current,
+        lock_kdf: None,
+    })
+}
+
+/// Checks the parameters against GP Card Spec v2.3.1 11.8.2.1 to 11.8.2.3.
+fn put_key_params(req: &PutKeyRequest) -> Result<[[u8; 16]; 3], BuildError> {
+    put_key_header_checks(req)?;
     let (true, Some(dek)) = (req.new_keys.is_key_set(), req.new_keys.dek) else {
         return Err(BuildError::PutKey(
             "a new key set is three keys, ENC MAC DEK",
@@ -6593,6 +6646,27 @@ fn put_key_target(req: &PutKeyRequest, keys: &[[u8; 16]; 3]) -> Value {
 ///
 /// [`BuildError`] for a parameter outside what the specification allows.
 pub fn put_key_dry_run(req: &PutKeyRequest) -> Result<Value, BuildError> {
+    if let Some(name) = req.lock_kdf {
+        put_key_header_checks(req)?;
+        lock_master_check(req)?;
+        let target = json!({
+            "new_key_version": format!("{:02X}", req.new_version),
+            "replace_key_version": format!("{:02X}", req.replace_version),
+            "key_id": format!("{:02X}", req.key_id),
+            "key_type": "AES-128 (88), SCP03 key set ENC, MAC, DEK",
+            "new_keys": format!("derived on the card from one master key with {name} and the KDD the card returns in INITIALIZE UPDATE; their check values are shown once the card has answered"),
+            "replace_current_keyset": req.replace_current,
+        });
+        let mut data = offline_dry_run(
+            "put-key",
+            target,
+            &[],
+            "no keys were given, so the card was not contacted, whether this replaces the keys in use was not checked and no APDU was built (it needs the current DEK and the KDD); add --keys-file or --keys-env to check against the card, and --yes to send",
+        );
+        data["plan"]["note"] = json!("the PUT KEY APDU holds the derived keys encrypted under the current DEK; it is built, and shown with its data withheld, only once the card has returned its KDD");
+        data["warning"] = json!(PUT_KEY_WARNING);
+        return Ok(data);
+    }
     let keys = put_key_params(req)?;
     let mut data = offline_dry_run(
         "put-key",
@@ -6683,6 +6757,7 @@ pub fn put_key<S: CardSession + ?Sized>(
         mut data,
         card_keys,
         current_kvn,
+        diversification,
         ..
     } = match prepare_write(session, trace, auth)? {
         Ok(p) => p,
@@ -6696,6 +6771,22 @@ pub fn put_key<S: CardSession + ?Sized>(
             isd_found: true,
             data,
         })
+    };
+    // `--lock-kdf`: the new key set is the one master key diversified with the KDD the INITIALIZE
+    // UPDATE of this session returned. It is derived here, before any write is built or sent.
+    let derived;
+    let req = match req.lock_kdf {
+        None => req,
+        Some(name) => match lock_request(req, name, &diversification) {
+            Ok(request) => {
+                derived = request;
+                &derived
+            }
+            Err(e) => {
+                data["error"] = json!({ "kind": "unbuildable", "message": e.to_string() });
+                return finish(data, steps);
+            }
+        },
     };
     data["operation"] = json!("put-key");
     data["dry_run"] = json!(!yes);
@@ -10727,6 +10818,7 @@ mod tests {
             key_id: 1,
             new_keys: Keys::parse(&format!("{NEW_ENC} {NEW_MAC} {NEW_DEK}")).unwrap(),
             replace_current,
+            lock_kdf: None,
         }
     }
 
@@ -10836,6 +10928,72 @@ mod tests {
             Keys::parse(&format!("{NEW_ENC} {NEW_MAC} {NEW_DEK}/504A77")),
             Err(KeyError::Kcv { index: 3, .. })
         ));
+    }
+
+    /// The KDD the mock card returns in place of the all-zero one of [`INIT_UPDATE_RESP`], so the
+    /// byte order of the KDD inside the KDF is under test.
+    const LOCK_KDD_HEX: &str = "0102030405060708090A";
+
+    /// `--lock-kdf` vectors, re-derived in python with the `cryptography` CMAC, not with this code:
+    /// AES-CMAC under the master NEW_ENC of 01 || 00 00 00 k 00 || KDD, which is the kdf3 template
+    /// of src/gp/kdd.rs:59-76, with k = 01 (ENC), 02 (MAC), 03 (DEK), for KDD LOCK_KDD_HEX.
+    const LOCK_ENC: &str = "6B0EFADF894D93744D143164B81FDF44";
+    const LOCK_MAC: &str = "10732518F8CD7588587E54C9A15A830E";
+    const LOCK_DEK: &str = "88A793B9C964B1B3E2D80AA787497C0C";
+
+    fn put_request_with(new_keys: &str, lock_kdf: Option<&'static str>) -> PutKeyRequest {
+        PutKeyRequest {
+            new_version: 0x31,
+            replace_version: 0,
+            key_id: 1,
+            new_keys: Keys::parse(new_keys).unwrap(),
+            replace_current: false,
+            lock_kdf,
+        }
+    }
+
+    #[test]
+    fn put_key_lock_kdf_sends_the_same_bytes_as_the_key_set_it_derives() {
+        let keys = current_keys();
+        let card_with_kdd = || {
+            let mut card = card_for_put_key(&[0x30, 0x31]);
+            // The same challenge and cryptogram as INIT_UPDATE_RESP; only the KDD (first ten
+            // octets) changes. The static keys do not use the KDD, so the channel still opens.
+            set(
+                &mut card,
+                INIT_UPDATE,
+                &format!("{LOCK_KDD_HEX}{}9000", &INIT_UPDATE_RESP[20..]),
+            );
+            card
+        };
+        let mut locked = card_with_kdd();
+        put_key(
+            &mut locked,
+            true,
+            &put_request_with(NEW_ENC, Some("kdf3")),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        let mut explicit = card_with_kdd();
+        put_key(
+            &mut explicit,
+            true,
+            &put_request_with(&format!("{LOCK_ENC} {LOCK_MAC} {LOCK_DEK}"), None),
+            &auth(&keys),
+            true,
+        )
+        .unwrap();
+        assert_eq!(sent_ins(&locked, "D8"), 1, "PUT KEY was not sent");
+        assert_eq!(wire(&locked), wire(&explicit));
+    }
+
+    #[test]
+    fn put_key_lock_kdf_takes_one_master_key_and_is_dry_run_offline() {
+        let data = put_key_dry_run(&put_request_with(NEW_ENC, Some("kdf3"))).unwrap();
+        assert!(data.to_string().contains("derived on the card"), "{data}");
+        let three = put_request_with(&format!("{NEW_ENC} {NEW_MAC} {NEW_DEK}"), Some("kdf3"));
+        assert!(put_key_dry_run(&three).is_err());
     }
 
     #[test]

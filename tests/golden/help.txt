@@ -897,6 +897,7 @@ Options:
       --new-keys-file <PATH>       File holding the new keys (keep it chmod 600)
       --new-keys-env <VAR>         Environment variable holding the new keys
       --replace-current-keyset     Allow the request to add, replace or overwrite the key version this session authenticated with. Without it such a request is refused
+      --lock-kdf <TEMPLATE>        Diversify the ONE master key in the new-keys text with this KDF template (kdf3 is the SCP03 one) from the KDD the card returns in INITIALIZE UPDATE, then write the three keys it derives. The derived keys are never printed
       --reader <NAME>              The reader to use, matched against the driver's own name
       --json                       Emit one JSON envelope of kind "gp" on stdout
       --trace                      Add every APDU exchange (command and response hex) as data.trace
