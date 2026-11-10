@@ -426,6 +426,7 @@ Commands:
   read       Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed
   construct  Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run
   sign       Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed
+  verify     Check the `5F37` signature of a `7F21` card certificate against the public key of its issuer. Offline: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -488,6 +489,19 @@ Options:
       --cert-key-env <VAR>         Environment variable holding the P-256 signing key
       --json                       Print the certificate as one JSON object instead of the table
   -h, --help                       Print help (see more with '--help')
+
+$ sim-doctor gp cert verify -h [exit 0]
+Check the `5F37` signature of a `7F21` card certificate against the public key of its issuer. Offline: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer
+
+Usage: sim-doctor gp cert verify [OPTIONS] --cert <PATH> <--cert-issuer-hex <HEX>|--cert-issuer-file <PATH>>
+
+Options:
+      --cert <PATH>              The `7F21` certificate as the binary TLV that `--cert-out` writes
+  -P, --profile <NAME>           Use a named card profile instead of the built-in default (#238)
+      --cert-issuer-hex <HEX>    The public key of the issuer: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y)
+      --cert-issuer-file <PATH>  File holding the same point as hex text
+      --json                     Print the result as one JSON object instead of the table
+  -h, --help                     Print help (see more with '--help')
 
 $ sim-doctor gp info -h [exit 0]
 Select the issuer security domain and read CPLC, card data, key information, IIN and CIN with GET DATA

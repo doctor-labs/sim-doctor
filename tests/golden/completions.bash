@@ -421,6 +421,9 @@ _sim__doctor() {
             sim__doctor__subcmd__gp__subcmd__cert,sign)
                 cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__sign"
                 ;;
+            sim__doctor__subcmd__gp__subcmd__cert,verify)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__verify"
+                ;;
             sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,construct)
                 cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__construct"
                 ;;
@@ -432,6 +435,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,sign)
                 cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__cert__subcmd__help,verify)
+                cmd="sim__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__verify"
                 ;;
             sim__doctor__subcmd__gp__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__gp__subcmd__channel__subcmd__close"
@@ -573,6 +579,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__gp__subcmd__help__subcmd__cert,sign)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign"
+                ;;
+            sim__doctor__subcmd__gp__subcmd__help__subcmd__cert,verify)
+                cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__verify"
                 ;;
             sim__doctor__subcmd__gp__subcmd__help__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__gp__subcmd__help__subcmd__channel__subcmd__close"
@@ -843,6 +852,9 @@ _sim__doctor() {
                 ;;
             sim__doctor__subcmd__help__subcmd__gp__subcmd__cert,sign)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign"
+                ;;
+            sim__doctor__subcmd__help__subcmd__gp__subcmd__cert,verify)
+                cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__verify"
                 ;;
             sim__doctor__subcmd__help__subcmd__gp__subcmd__channel,close)
                 cmd="sim__doctor__subcmd__help__subcmd__gp__subcmd__channel__subcmd__close"
@@ -2998,7 +3010,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert)
-            opts="-P -h --profile --help read construct sign help"
+            opts="-P -h --profile --help read construct sign verify help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3086,7 +3098,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help)
-            opts="read construct sign help"
+            opts="read construct sign verify help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3142,6 +3154,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__sign)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__help__subcmd__verify)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -3241,6 +3267,40 @@ _sim__doctor() {
                     return 0
                     ;;
                 --cert-key-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -P)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__cert__subcmd__verify)
+            opts="-P -h --cert --cert-issuer-hex --cert-issuer-file --json --profile --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --cert)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-issuer-hex)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --cert-issuer-file)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -4044,7 +4104,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert)
-            opts="read construct sign"
+            opts="read construct sign verify"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4086,6 +4146,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__sign)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__gp__subcmd__help__subcmd__cert__subcmd__verify)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -5886,7 +5960,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert)
-            opts="read construct sign"
+            opts="read construct sign verify"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5928,6 +6002,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__sign)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__gp__subcmd__cert__subcmd__verify)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

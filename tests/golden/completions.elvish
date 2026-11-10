@@ -342,6 +342,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand read 'Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed'
             cand construct 'Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run'
             cand sign 'Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed'
+            cand verify 'Check the `5F37` signature of a `7F21` card certificate against the public key of its issuer. Offline: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;gp;cert;read'= {
@@ -392,10 +393,21 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help (see more with ''--help'')'
             cand --help 'Print help (see more with ''--help'')'
         }
+        &'sim-doctor;gp;cert;verify'= {
+            cand --cert 'The `7F21` certificate as the binary TLV that `--cert-out` writes'
+            cand --cert-issuer-hex 'The public key of the issuer: the uncompressed NIST P-256 point as 130 hex digits (04 || X || Y)'
+            cand --cert-issuer-file 'File holding the same point as hex text'
+            cand -P 'Use a named card profile instead of the built-in default (#238)'
+            cand --profile 'Use a named card profile instead of the built-in default (#238)'
+            cand --json 'Print the result as one JSON object instead of the table'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
+        }
         &'sim-doctor;gp;cert;help'= {
             cand read 'Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed'
             cand construct 'Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run'
             cand sign 'Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed'
+            cand verify 'Check the `5F37` signature of a `7F21` card certificate against the public key of its issuer. Offline: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;gp;cert;help;read'= {
@@ -403,6 +415,8 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         &'sim-doctor;gp;cert;help;construct'= {
         }
         &'sim-doctor;gp;cert;help;sign'= {
+        }
+        &'sim-doctor;gp;cert;help;verify'= {
         }
         &'sim-doctor;gp;cert;help;help'= {
         }
@@ -1030,12 +1044,15 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand read 'Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed'
             cand construct 'Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run'
             cand sign 'Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed'
+            cand verify 'Check the `5F37` signature of a `7F21` card certificate against the public key of its issuer. Offline: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer'
         }
         &'sim-doctor;gp;help;cert;read'= {
         }
         &'sim-doctor;gp;help;cert;construct'= {
         }
         &'sim-doctor;gp;help;cert;sign'= {
+        }
+        &'sim-doctor;gp;help;cert;verify'= {
         }
         &'sim-doctor;gp;help;info'= {
         }
@@ -1773,12 +1790,15 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand read 'Select the issuer security domain and READ BINARY the `7F21` card certificate, then decode it. Read-only: no writing command is sent and no key is needed'
             cand construct 'Build a `7F21` card certificate offline, from the fields given. No card, no network and no clock: the dates are yours, and the same inputs produce the same octets every run'
             cand sign 'Build a `7F21` card certificate offline and sign it with a P-256 key read from a file or an environment variable. Never from the command line, and never printed'
+            cand verify 'Check the `5F37` signature of a `7F21` card certificate against the public key of its issuer. Offline: no card, no clock. It says whether the signature verifies. It does not say whether the dates are current or whether the card trusts that issuer'
         }
         &'sim-doctor;help;gp;cert;read'= {
         }
         &'sim-doctor;help;gp;cert;construct'= {
         }
         &'sim-doctor;help;gp;cert;sign'= {
+        }
+        &'sim-doctor;help;gp;cert;verify'= {
         }
         &'sim-doctor;help;gp;info'= {
         }

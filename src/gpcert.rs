@@ -232,6 +232,10 @@ pub enum Error {
     /// Reading the key file failed.
     #[error("cannot read the signing key: {0}")]
     KeyIo(String),
+
+    /// The issuer public key is not a point on the P-256 curve.
+    #[error("issuer public key is not a point on P-256: {0}")]
+    IssuerKey(String),
 }
 
 /// One GP card certificate: the `7F21` body, its fields in canonical order, and the signature.
@@ -352,6 +356,24 @@ impl Certificate {
             SignatureCheck::Invalid
         }
     }
+}
+
+/// Checks an issuer public key point for `gp cert verify`: an uncompressed P-256 point, 65
+/// octets starting `04`, on the curve. The key is public, so the caller may take it from the
+/// command line. A point that is not on the curve is refused here, not reported as a bad
+/// signature.
+///
+/// # Errors
+///
+/// [`Error::Point`] for the wrong length or prefix, [`Error::IssuerKey`] for a point that is not
+/// on the curve.
+pub fn check_issuer_point(point: &[u8]) -> Result<(), Error> {
+    if point.len() != 65 || point.first() != Some(&0x04) {
+        return Err(Error::Point { len: point.len() });
+    }
+    p256::ecdsa::VerifyingKey::from_sec1_bytes(point)
+        .map(|_| ())
+        .map_err(|e| Error::IssuerKey(e.to_string()))
 }
 
 /// The doctor/1 `data` object for a read or constructed certificate.
@@ -886,6 +908,64 @@ mod tests {
     /// A scalar that is not valid UTF-8, so the raw-octet form of [`signing_key_from_bytes`] is
     /// the one under test.
     const TEST_SCALAR: [u8; 32] = [0xABu8; 32];
+
+    /// Known answer from an independent signer. Python `cryptography` (ECDSA P-256, SHA-256)
+    /// signed a DTBS laid out by hand in the field order of GPCertificate.java:44-48, with the
+    /// scalar 0xAB repeated 32 times. Neither the point nor the signature was produced by this
+    /// code, and the signature was checked by the library as well.
+    const PY_ISSUER_POINT: &str = "048d43169b9491aa74b9c5239ec81075a91449ed647b210441d9c75ec7f82151d25d5f15eed37545fd6fe1c904fb5f16671482ccd0bb150d7c4423e7c11c677c43";
+    const PY_CERT: &str = "7f2181ab93010142031122335f20024455950282005f2504202601155f2404202701157f4946b041048d43169b9491aa74b9c5239ec81075a91449ed647b210441d9c75ec7f82151d25d5f15eed37545fd6fe1c904fb5f16671482ccd0bb150d7c4423e7c11c677c43f001005f3740dac544acab49e63349efe0903c2221779402d8d58a58c82ef1b7d7180c04e4daae99cacbab49bec2d359cec532d4cd4dd1a5fb18b8c172d9437335e2dc5f039b";
+
+    #[test]
+    fn a_certificate_signed_by_an_independent_library_verifies_under_its_issuer() {
+        let cert = parse(&hex::decode(PY_CERT).unwrap()).unwrap();
+        let point = hex::decode(PY_ISSUER_POINT).unwrap();
+        assert_eq!(cert.verify_signature(&point), SignatureCheck::Valid);
+        assert_eq!(cert.serial(), Some(&[0x01][..]));
+        assert_eq!(cert.expires().as_deref(), Some("20270115"));
+        assert_eq!(cert.public_key_point(), Some(point.as_slice()));
+        check_issuer_point(&point).unwrap();
+    }
+
+    #[test]
+    fn a_tampered_certificate_or_a_wrong_issuer_does_not_verify() {
+        let point = hex::decode(PY_ISSUER_POINT).unwrap();
+        // 7F 21 81 AB, then 93 01 01: the serial value is octet 6. Changing it changes the
+        // signed octets, so the signature must fail.
+        let mut octets = hex::decode(PY_CERT).unwrap();
+        assert_eq!(octets[6], 0x01);
+        octets[6] = 0x02;
+        assert_eq!(
+            parse(&octets).unwrap().verify_signature(&point),
+            SignatureCheck::Invalid
+        );
+
+        let good = parse(&hex::decode(PY_CERT).unwrap()).unwrap();
+        let other = public_point(&signing_key_from_bytes(&[0xCDu8; 32]).unwrap());
+        assert_eq!(good.verify_signature(&other), SignatureCheck::Invalid);
+    }
+
+    #[test]
+    fn an_issuer_point_must_be_an_uncompressed_point_on_the_curve() {
+        let point = hex::decode(PY_ISSUER_POINT).unwrap();
+        check_issuer_point(&point).unwrap();
+        assert!(matches!(
+            check_issuer_point(&point[..64]),
+            Err(Error::Point { len: 64 })
+        ));
+        let mut compressed = point.clone();
+        compressed[0] = 0x02;
+        assert!(matches!(
+            check_issuer_point(&compressed),
+            Err(Error::Point { len: 65 })
+        ));
+        let mut off_curve = point;
+        off_curve[64] ^= 0x01;
+        assert!(matches!(
+            check_issuer_point(&off_curve),
+            Err(Error::IssuerKey(_))
+        ));
+    }
 
     fn synthetic_point() -> Vec<u8> {
         let mut point = vec![0x04];
