@@ -447,6 +447,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l key-id -d 'The Key Identifier of the first key (the other two follow at +1 and +2)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l new-keys-file -d 'File holding the new keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l new-keys-env -d 'Environment variable holding the new keys' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l lock-kdf -d 'Diversify the ONE master key in the new-keys text with this KDF template (kdf3 is the SCP03 one) from the KDD the card returns in INITIALIZE UPDATE, then write the three keys it derives. The derived keys are never printed' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l reader -d 'The reader to use, matched against the driver\'s own name' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l keys-file -d 'File holding the keys (keep it chmod 600)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from put-key" -l keys-env -d 'Environment variable holding the keys' -r

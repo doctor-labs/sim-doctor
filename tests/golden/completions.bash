@@ -4886,7 +4886,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__gp__subcmd__put__subcmd__key)
-            opts="-P -h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
+            opts="-P -h --new-key-version --replace-key-version --key-id --new-keys-file --new-keys-env --replace-current-keyset --lock-kdf --reader --json --trace --keys-file --keys-env --key-version --mode --key-kdf --s16 --channel --yes --profile --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4909,6 +4909,10 @@ _sim__doctor() {
                     return 0
                     ;;
                 --new-keys-env)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --lock-kdf)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

@@ -766,6 +766,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand --key-id 'The Key Identifier of the first key (the other two follow at +1 and +2)'
             cand --new-keys-file 'File holding the new keys (keep it chmod 600)'
             cand --new-keys-env 'Environment variable holding the new keys'
+            cand --lock-kdf 'Diversify the ONE master key in the new-keys text with this KDF template (kdf3 is the SCP03 one) from the KDD the card returns in INITIALIZE UPDATE, then write the three keys it derives. The derived keys are never printed'
             cand --reader 'The reader to use, matched against the driver''s own name'
             cand --keys-file 'File holding the keys (keep it chmod 600)'
             cand --keys-env 'Environment variable holding the keys'

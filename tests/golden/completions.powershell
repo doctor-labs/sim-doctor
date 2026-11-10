@@ -856,6 +856,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--key-id', '--key-id', [CompletionResultType]::ParameterName, 'The Key Identifier of the first key (the other two follow at +1 and +2)')
             [CompletionResult]::new('--new-keys-file', '--new-keys-file', [CompletionResultType]::ParameterName, 'File holding the new keys (keep it chmod 600)')
             [CompletionResult]::new('--new-keys-env', '--new-keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the new keys')
+            [CompletionResult]::new('--lock-kdf', '--lock-kdf', [CompletionResultType]::ParameterName, 'Diversify the ONE master key in the new-keys text with this KDF template (kdf3 is the SCP03 one) from the KDD the card returns in INITIALIZE UPDATE, then write the three keys it derives. The derived keys are never printed')
             [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
             [CompletionResult]::new('--keys-file', '--keys-file', [CompletionResultType]::ParameterName, 'File holding the keys (keep it chmod 600)')
             [CompletionResult]::new('--keys-env', '--keys-env', [CompletionResultType]::ParameterName, 'Environment variable holding the keys')

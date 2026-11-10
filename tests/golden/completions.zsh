@@ -1080,6 +1080,7 @@ _arguments "${_arguments_options[@]}" : \
 '--key-id=[The Key Identifier of the first key (the other two follow at +1 and +2)]:HEX:_default' \
 '--new-keys-file=[File holding the new keys (keep it chmod 600)]:PATH:_files' \
 '--new-keys-env=[Environment variable holding the new keys]:VAR:_default' \
+'--lock-kdf=[Diversify the ONE master key in the new-keys text with this KDF template (kdf3 is the SCP03 one) from the KDD the card returns in INITIALIZE UPDATE, then write the three keys it derives. The derived keys are never printed]:TEMPLATE:_default' \
 '--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
 '--keys-file=[File holding the keys (keep it chmod 600)]:PATH:_files' \
 '--keys-env=[Environment variable holding the keys]:VAR:_default' \
