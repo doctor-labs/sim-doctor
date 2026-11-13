@@ -87,6 +87,14 @@ fn quote(field: &str) -> String {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Key(String);
 
+impl Key {
+    /// The hex digits, for writing into another artifact (for example an HLR script). This does not
+    /// make the value displayable: callers must keep it out of user-visible output.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl std::fmt::Debug for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Key(<redacted>)")
@@ -95,12 +103,13 @@ impl std::fmt::Debug for Key {
 
 /// One row of the pySim provisioning layout: pySim-prog.py writes `name,iccid,mcc,mnc,imsi,smsp,ki,opc`
 /// (lines 509-511) and its reader requires the `iccid` and `imsi` headers (lines 530-535). `smsp` and
-/// the PIN/ADM columns are not verifiable from the issue or the repo, so they are not read.
+/// PIN/ADM columns are not read. A  column (or ) is read when present so the row can be
+/// written to an HLR.
 #[derive(Debug)]
 pub struct Provision {
     /// The record number in the file; the header is record 1.
     pub record: usize,
-    /// The columns this row fills, in the fixed order name, iccid, imsi, mcc, mnc, ki, opc.
+    /// The columns this row fills, in the fixed order name, iccid, imsi, msisdn, mcc, mnc, ki, opc.
     pub filled: Vec<&'static str>,
     /// The name column, free text; empty when absent.
     pub name: String,
@@ -108,6 +117,8 @@ pub struct Provision {
     pub iccid: String,
     /// The IMSI: 15 digits.
     pub imsi: String,
+    /// The MSISDN, digits, when the column is filled.
+    pub msisdn: Option<String>,
     /// The MCC, 3 digits, when the column is filled.
     pub mcc: Option<String>,
     /// The MNC, 2 or 3 digits, when the column is filled.
@@ -146,11 +157,21 @@ pub fn provisioning(text: &str) -> Result<Option<Vec<Provision>>, String> {
                 .unwrap_or_default()
         };
         let (iccid, imsi, mcc, mnc) = (cell("iccid"), cell("imsi"), cell("mcc"), cell("mnc"));
+        let msisdn = {
+            let v = cell("msisdn");
+            if v.is_empty() {
+                cell("smsp")
+            } else {
+                v
+            }
+        };
         let (ki, opc) = (cell("ki"), cell("opc"));
         let problem: Option<&str> = if !is_digits(&iccid) {
             Some("iccid must be digits")
         } else if imsi.len() != 15 || !is_digits(&imsi) {
             Some("imsi must be 15 digits")
+        } else if !msisdn.is_empty() && !is_digits(&msisdn) {
+            Some("msisdn must be digits")
         } else if !mcc.is_empty() && (mcc.len() != 3 || !is_digits(&mcc)) {
             Some("mcc must be 3 digits")
         } else if !mnc.is_empty() && (!(2..=3).contains(&mnc.len()) || !is_digits(&mnc)) {
@@ -165,9 +186,12 @@ pub fn provisioning(text: &str) -> Result<Option<Vec<Provision>>, String> {
         if let Some(problem) = problem {
             return Err(format!("row {number}: {problem}"));
         }
-        let filled = ["name", "iccid", "imsi", "mcc", "mnc", "ki", "opc"]
+        let filled = ["name", "iccid", "imsi", "msisdn", "mcc", "mnc", "ki", "opc"]
             .into_iter()
-            .filter(|column| !cell(column).is_empty())
+            .filter(|column| match *column {
+                "msisdn" => !msisdn.is_empty(),
+                _ => !cell(column).is_empty(),
+            })
             .collect();
         rows.push(Provision {
             record: number,
@@ -175,6 +199,7 @@ pub fn provisioning(text: &str) -> Result<Option<Vec<Provision>>, String> {
             name: cell("name"),
             iccid,
             imsi,
+            msisdn: optional(msisdn),
             mcc: optional(mcc),
             mnc: optional(mnc),
             ki: optional(ki).map(Key),

@@ -58,6 +58,12 @@ pub struct CardShellArgs {
     #[arg(long, value_name = "PATH")]
     write_csv: Option<std::path::PathBuf>,
 
+    /// Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows
+    /// of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc.
+    /// The file is created mode 0600 and is never overwritten. No card is touched.
+    #[arg(long, value_name = "PATH")]
+    write_hlr: Option<std::path::PathBuf>,
+
     /// Print every reply as one JSON record (for agents).
     #[arg(long)]
     json: bool,
@@ -222,8 +228,21 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
     if let Some(path) = args.read_csv.as_deref() {
         match std::fs::read_to_string(path) {
             Ok(text) => match cardsh::csvfile::provisioning(&text) {
-                Ok(Some(rows)) => return check_provisioning(path, &rows, args.yes),
-                Ok(None) => {}
+                Ok(Some(rows)) => {
+                    if let Some(out) = args.write_hlr.as_deref() {
+                        return write_hlr_from_provisioning(path, &rows, out);
+                    }
+                    return check_provisioning(path, &rows, args.yes);
+                }
+                Ok(None) => {
+                    if args.write_hlr.is_some() {
+                        eprintln!(
+                            "sim-doctor: {}: --write-hlr needs a provisioning CSV (iccid and imsi columns)",
+                            path.display()
+                        );
+                        return contract::ExitCode::Error;
+                    }
+                }
                 Err(message) => {
                     eprintln!("sim-doctor: {}: {message}", path.display());
                     return contract::ExitCode::Error;
@@ -234,6 +253,9 @@ pub fn run(args: CardShellArgs) -> contract::ExitCode {
                 return contract::ExitCode::Error;
             }
         }
+    } else if args.write_hlr.is_some() {
+        eprintln!("sim-doctor: --write-hlr needs --read-csv with a provisioning CSV");
+        return contract::ExitCode::Error;
     }
     let mut shell = Shell::new(
         opener,
@@ -354,6 +376,53 @@ fn check_provisioning(
     for row in rows {
         println!("row {}: ok, fields: {}", row.record, row.filled.join(" "));
     }
+    contract::ExitCode::Success
+}
+
+/// `--write-hlr` from a provisioning CSV: builds an osmo-hlr SQL script (sqlite3 shell) for rows
+/// that carry imsi, msisdn, ki and opc. The script contains K/OPc in clear but is written mode 0600
+/// and never overwrites an existing file. No card is touched.
+fn write_hlr_from_provisioning(
+    path: &std::path::Path,
+    rows: &[cardsh::csvfile::Provision],
+    out: &std::path::Path,
+) -> contract::ExitCode {
+    let mut all = Vec::new();
+    for row in rows {
+        let (Some(msisdn), Some(ki), Some(opc)) =
+            (row.msisdn.as_deref(), row.ki.as_ref(), row.opc.as_ref())
+        else {
+            eprintln!(
+                "sim-doctor: {}: row {}: --write-hlr needs imsi, msisdn, ki and opc",
+                path.display(),
+                row.record
+            );
+            return contract::ExitCode::Error;
+        };
+        let sub =
+            match sim_doctor::hlr::Subscriber::new(&row.imsi, msisdn, ki.as_str(), opc.as_str()) {
+                Ok(sub) => sub,
+                Err(message) => {
+                    eprintln!(
+                        "sim-doctor: {}: row {}: {message}",
+                        path.display(),
+                        row.record
+                    );
+                    return contract::ExitCode::Error;
+                }
+            };
+        all.extend(sim_doctor::hlr::statements(&sub));
+    }
+    if let Err(message) = sim_doctor::hlr::write_new(out, &all) {
+        eprintln!("sim-doctor: {message}");
+        return contract::ExitCode::Error;
+    }
+    println!(
+        "{}: wrote {} subscriber(s) to {} (SQL script for sqlite3, mode 0600, not overwritten)",
+        path.display(),
+        rows.len(),
+        out.display()
+    );
     contract::ExitCode::Success
 }
 
