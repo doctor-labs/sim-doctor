@@ -719,7 +719,14 @@ fn std_ef_of(chan: &Chan) -> Option<names::StdEf> {
 fn edit_in_editor(decoded: &Value) -> Result<Value, CmdErr> {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_owned());
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::env::var("EDITOR")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
+        .unwrap_or_else(|| "vi".to_owned());
     let mut parts = editor.split_whitespace();
     let program = parts.next().unwrap_or("vi");
     let path = std::env::temp_dir().join(format!("sim-doctor-edit-{}.json", std::process::id()));
@@ -2464,7 +2471,7 @@ impl Shell {
             None => edit_in_editor(&decoded)?,
         };
         let data = encode_decoded(name, &edited).map_err(CmdErr::new)?;
-        let data = if name == "EF.FPLMN" {
+        let data = if matches!(name, "EF.FPLMN" | "EF.PLMNsel" | "EF.EHPLMN") {
             fill_unused_plmns(data, current.len())
         } else {
             data
@@ -3153,7 +3160,7 @@ pub fn encode_decoded(name: &str, fields: &Value) -> Result<Vec<u8>, String> {
     {
         return encode_imsi(fields);
     }
-    if name == "EF.FPLMN"
+    if matches!(name, "EF.FPLMN" | "EF.PLMNsel" | "EF.EHPLMN")
         && keys.contains(&"plmns")
         && keys.iter().all(|k| matches!(*k, "plmns" | "count"))
     {
@@ -3180,7 +3187,7 @@ pub fn encode_decoded(name: &str, fields: &Value) -> Result<Vec<u8>, String> {
     }
     let label = if name.is_empty() { "this file" } else { name };
     Err(format!(
-        "{label} has no JSON encoder for the fields {keys:?}: edit_decoded takes EF.ICCID (\"iccid\"), EF.IMSI (\"imsi\"), EF.ACC (\"classes\"), EF.FPLMN (\"plmns\") or a raw file (\"hex\" only); use update_binary for other files"
+        "{label} has no JSON encoder for the fields {keys:?}: edit_decoded takes EF.ICCID (\"iccid\"), EF.IMSI (\"imsi\"), EF.ACC (\"classes\"), EF.FPLMN/EF.PLMNsel/EF.EHPLMN (\"plmns\") or a raw file (\"hex\" only); use update_binary for other files"
     ))
 }
 
@@ -4056,7 +4063,7 @@ pub fn grammar() -> clap::Command {
         .subcommand(C::new("read_records_decoded").about("Read every record of the selected EF and decode them by its standard name"))
         .subcommand(
             C::new("edit_decoded")
-                .about("Edit the selected transparent EF as JSON and write it back: the decoded fields open in $EDITOR (or --json-file PATH is read), are re-encoded and sent as UPDATE BINARY, then read back. Supports EF.ICCID and raw files (\"hex\"); the size cannot change. A dry run unless --yes. WARNING: this permanently overwrites the EF's content, and a wrong value can break the card")
+                .about("Edit the selected transparent EF as JSON and write it back: the decoded fields open in $EDITOR (or --json-file PATH is read), are re-encoded and sent as UPDATE BINARY, then read back. Supports EF.ICCID, EF.IMSI, EF.ACC, EF.FPLMN/EF.PLMNsel/EF.EHPLMN and raw files (\"hex\"); the size cannot change. A dry run unless --yes. WARNING: this permanently overwrites the EF's content, and a wrong value can break the card")
                 .arg(Arg::new("json_file").long("json-file").value_name("PATH").help("the edited JSON; without it $EDITOR opens on the decoded JSON"))
                 .arg(yes_arg()),
         )
