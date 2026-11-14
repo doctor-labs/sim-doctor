@@ -182,12 +182,93 @@ pub fn parse(input: &str) -> Result<Vec<Pair>, String> {
 
 /// Decodes a parsed trace, carrying the selected file across exchanges.
 pub fn decode(pairs: &[Pair]) -> Vec<Decoded> {
-    let mut sel = Selected::default();
-    pairs
-        .iter()
-        .map(|(step, cmd, rsp)| decode_one(&mut sel, step.clone(), cmd, rsp))
-        .collect()
+    let mut dec = Decoder::default();
+    pairs.iter().map(|p| dec.decode_pair(p)).collect()
 }
+
+/// Incremental decoder: carries the selected file across exchanges, so a live
+/// stream can be decoded one pair at a time.
+#[derive(Default)]
+pub struct Decoder {
+    sel: Selected,
+}
+
+impl Decoder {
+    /// Decodes one command/response pair in the current selection context.
+    pub fn decode_pair(&mut self, pair: &Pair) -> Decoded {
+        decode_one(&mut self.sel, pair.0.clone(), &pair.1, &pair.2)
+    }
+
+    /// Decodes one GSMTAP UDP datagram payload in the current selection context.
+    /// Returns  when the datagram does not carry a GSMTAP SIM APDU.
+    pub fn decode_gsmtap_datagram(&mut self, payload: &[u8]) -> Option<Decoded> {
+        let pair = pcap::pair_from_gsmtap_datagram(payload)?;
+        Some(self.decode_pair(&pair))
+    }
+}
+
+/// Binds a UDP socket for a live GSMTAP SIM APDU stream and returns it together
+/// with the address it is bound to (useful when binding to port 0 in tests).
+///
+/// # Errors
+///
+/// A sentence when the socket cannot be bound.
+pub fn bind_gsmtap_listener(
+    addr: &str,
+) -> Result<(std::net::UdpSocket, std::net::SocketAddr), String> {
+    let sock = std::net::UdpSocket::bind(addr)
+        .map_err(|e| format!("cannot bind GSMTAP listener on {addr}: {e}"))?;
+    let local = sock
+        .local_addr()
+        .map_err(|e| format!("cannot read GSMTAP listener address: {e}"))?;
+    Ok((sock, local))
+}
+
+/// Receives GSMTAP UDP datagrams and passes each decoded SIM APDU exchange to
+/// . Non-SIM-APDU datagrams are ignored. The loop stops when
+///  returns , when  returns , or on a
+/// non-recoverable socket error.
+///
+/// # Errors
+///
+/// A sentence when a socket receive fails unexpectedly.
+pub fn listen_gsmtap(
+    socket: &std::net::UdpSocket,
+    mut should_stop: impl FnMut() -> bool,
+    mut on_decoded: impl FnMut(usize, Decoded) -> bool,
+) -> Result<usize, String> {
+    let _ = socket.set_read_timeout(Some(std::time::Duration::from_millis(200)));
+    let mut decoder = Decoder::default();
+    let mut index = 0usize;
+    let mut buf = [0u8; 65535];
+    loop {
+        if should_stop() {
+            break;
+        }
+        match socket.recv_from(&mut buf) {
+            Ok((n, _)) => {
+                if let Some(decoded) = decoder.decode_gsmtap_datagram(&buf[..n]) {
+                    index += 1;
+                    if !on_decoded(index, decoded) {
+                        break;
+                    }
+                }
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::Interrupted =>
+            {
+                continue;
+            }
+            Err(e) => return Err(format!("cannot receive GSMTAP datagram: {e}")),
+        }
+    }
+    Ok(index)
+}
+
+/// Default bind address for a live GSMTAP SIM APDU listener (SIMtrace2).
+pub const GSMTAP_LISTEN_ADDR: &str = "127.0.0.1:4729";
 
 #[derive(Default)]
 struct Selected {
@@ -936,5 +1017,66 @@ mod display_tests {
             },
         );
         assert!(!plain.contains("raw:"), "{plain}");
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    fn gsmtap_apdu_datagram(apdu: &[u8]) -> Vec<u8> {
+        let mut g = vec![2, 4, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0, 0, 0];
+        g.extend_from_slice(apdu);
+        g
+    }
+
+    #[test]
+    fn live_gsmtap_udp_listener_decodes_loopback_datagrams() {
+        let (sock, addr) = bind_gsmtap_listener("127.0.0.1:0").unwrap();
+        let sender = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let apdu = [
+            0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00, // SELECT MF
+            0x9F, 0x16, // SW
+        ];
+        sender.send_to(&gsmtap_apdu_datagram(&apdu), addr).unwrap();
+
+        let mut seen = Vec::new();
+        let count = listen_gsmtap(
+            &sock,
+            || false,
+            |index, decoded| {
+                seen.push((index, decoded));
+                false
+            },
+        )
+        .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(seen[0].0, 1);
+        assert_eq!(seen[0].1.name, "SELECT");
+        assert_eq!(seen[0].1.command, "A0A40000023F00");
+        assert_eq!(seen[0].1.response, "9F16");
+        assert_eq!(seen[0].1.selected, "3F00");
+    }
+
+    #[test]
+    fn live_gsmtap_udp_listener_ignores_non_sim_apdu_datagrams() {
+        let (sock, addr) = bind_gsmtap_listener("127.0.0.1:0").unwrap();
+        let sender = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let atr = vec![2, 4, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0, 0, 0, 0x3B];
+        let apdu = [0xA0, 0xB0, 0x00, 0x00, 0x02, 0xAA, 0xBB, 0x90, 0x00];
+        sender.send_to(&atr, addr).unwrap();
+        sender.send_to(&gsmtap_apdu_datagram(&apdu), addr).unwrap();
+
+        let mut names = Vec::new();
+        listen_gsmtap(
+            &sock,
+            || false,
+            |_index, decoded| {
+                names.push(decoded.name);
+                false
+            },
+        )
+        .unwrap();
+        assert_eq!(names, vec!["READ BINARY"]);
     }
 }
