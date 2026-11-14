@@ -269,7 +269,6 @@ mod tests {
         assert!(pair_from_gsmtap_datagram(&gsmtap(1, &[0x3B])).is_none());
     }
 
-
     /// GSMTAP v2 header, type SIM, given sub-type, then the payload.
     fn gsmtap(sub: u8, payload: &[u8]) -> Vec<u8> {
         let mut g = vec![
