@@ -682,4 +682,53 @@ mod tests {
         );
         assert_eq!(digits_of(&json!({"value_hex": "9A"})), None);
     }
+
+    #[test]
+    fn optional_variant_and_template_bearing_pes_are_named_and_preserved() {
+        // Variant/optional PEs by SAIP position: opt-usim (20), opt-isim (22),
+        // opt-csim (26), df-saip (29), opt-iot (33, high-tag form). Template-bearing
+        // PEs (genericFileManagement, application, securityDomain) are recognized and
+        // their contents remain available in the bounded TLV tree; personalization is
+        // out of scope for this parse-only slice.
+        let gfm = tlv(&[0xA1], &tlv(&[0xA0], &tlv(&[0x81], &[0x01]))); // 1
+        let secdom = tlv(&[0xA6], &tlv(&[0x80], &[0x42])); // 6
+        let app = tlv(&[0xA8], &tlv(&[0xA0], &tlv(&[0x81], &[0x07]))); // 8
+        let opt_usim = tlv(&[0xB4], &tlv(&[0x80], &[0x14])); // 20
+        let opt_isim = tlv(&[0xB6], &tlv(&[0x80], &[0x16])); // 22
+        let opt_csim = tlv(&[0xBA], &tlv(&[0x80], &[0x1A])); // 26
+        let df_saip = tlv(&[0xBD], &tlv(&[0x80], &[0x1D])); // 29
+        let opt_iot = tlv(&[0xBF, 0x21], &tlv(&[0x80], &[0x21])); // 33
+        let end = tlv(&[0xAA], &[]);
+
+        let package = [
+            gfm, secdom, app, opt_usim, opt_isim, opt_csim, df_saip, opt_iot, end,
+        ]
+        .concat();
+        let out = decode(&package).expect("variant/template PEs decode");
+        assert_eq!(out["pe_count"], 9);
+        let elements = out["elements"].as_array().unwrap();
+        let types: Vec<&str> = elements
+            .iter()
+            .map(|e| e["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            types,
+            [
+                "genericFileManagement",
+                "securityDomain",
+                "application",
+                "opt-usim",
+                "opt-isim",
+                "opt-csim",
+                "df-saip",
+                "opt-iot",
+                "end",
+            ]
+        );
+        assert_eq!(elements[3]["tag"], "B4");
+        assert_eq!(elements[7]["tag"], "BF21");
+        // Template-bearing/variant PE bodies remain inspectable in the generic TLV tree.
+        assert_eq!(elements[0]["children"][0]["children"][0]["value_hex"], "01");
+        assert_eq!(elements[2]["children"][0]["children"][0]["value_hex"], "07");
+    }
 }
