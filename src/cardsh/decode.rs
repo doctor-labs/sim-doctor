@@ -660,6 +660,37 @@ pub fn decode_ef(kind: &str, name: &str, records: &[Vec<u8>]) -> Value {
             let t = tlv(first, 0);
             json!({ "value": t[0]["value"].as_str().and_then(|h| hex::decode(h).ok()).map(|b| String::from_utf8_lossy(&b).into_owned()), "tlv": t })
         }
+        "call-info" => per_record(records, |r| {
+            // TS 31.102 EF.ICI/EF.OCI call information: alpha identifier, length of BCD
+            // contents, TON/NPI, dialling number/SSC string (10), capability/configuration2
+            // identifier, extension5 record identifier. Decoded best-effort by record length.
+            let tail = 14usize;
+            let a_len = r.len().saturating_sub(tail);
+            let (alpha_b, rest) = r.split_at(a_len.min(r.len()));
+            let bcd_len = rest.first().copied().unwrap_or(0);
+            let ton_npi = rest.get(1).copied();
+            let number_bytes = rest.get(2..12).unwrap_or(&[]);
+            let number = if number_bytes.is_empty() {
+                Value::Null
+            } else {
+                let d = bcd(number_bytes);
+                match ton_npi {
+                    Some(t) if t & 0x70 == 0x10 && !d.is_empty() => json!(format!("+{d}")),
+                    _ if d.is_empty() => Value::Null,
+                    _ => json!(d),
+                }
+            };
+            let cap = rest.get(12).copied();
+            let ext5 = rest.get(13).copied();
+            json!({
+                "alpha": alpha(alpha_b),
+                "bcd_length": bcd_len,
+                "ton_npi": ton_npi.map(|b| format!("{b:02X}")),
+                "number": number,
+                "capability_configuration2": cap.filter(|b| *b != 0xFF).map(|b| format!("{b:02X}")),
+                "extension5_record_id": ext5.filter(|b| *b != 0x00 && *b != 0xFF),
+            })
+        }),
         "acl" => json!({ "count": first.first(), "tlv": tlv(first.get(1..).unwrap_or(&[]), 0) }),
         "tlv" => {
             if records.len() > 1 {
@@ -877,6 +908,7 @@ mod tests {
             "cfis",
             "smsr",
             "arr",
+            "call-info",
         ];
         let mut seen = std::collections::HashSet::new();
         for e in names::all() {

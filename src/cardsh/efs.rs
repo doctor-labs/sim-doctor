@@ -455,7 +455,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.ICI",
         0x6F80,
         'C',
-        "hex",
+        "call-info",
         "Incoming call information",
     ),
     (
@@ -463,7 +463,7 @@ pub const EFS: &[(&str, &str, u16, char, &str, &str)] = &[
         "EF.OCI",
         0x6F81,
         'C',
-        "hex",
+        "call-info",
         "Outgoing call information",
     ),
     (
