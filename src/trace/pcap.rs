@@ -202,17 +202,9 @@ pub(super) fn ipv4(link: u32, frame: &[u8]) -> Option<Ipv4<'_>> {
     })
 }
 
-/// The APDU bytes of one captured frame, or None when it is not GSMTAP SIM APDU.
-fn gsmtap_apdu(link: u32, frame: &[u8]) -> Option<Vec<u8>> {
-    let ip = ipv4(link, frame)?;
-    if ip.proto != 17 {
-        return None;
-    }
-    let udp = ip.payload;
-    if u16::from_be_bytes([*udp.get(2)?, *udp.get(3)?]) != GSMTAP_PORT {
-        return None;
-    }
-    let g = udp.get(8..)?;
+/// The SIM APDU bytes carried by one GSMTAP datagram payload (the UDP payload),
+/// or None when it is not a GSMTAP v2 SIM APDU packet.
+pub fn gsmtap_sim_apdu_payload(g: &[u8]) -> Option<Vec<u8>> {
     let hdr_len = usize::from(*g.get(1)?) * 4;
     if g.len() < GSMTAP_HDR_MIN
         || g[0] != GSMTAP_VERSION
@@ -225,6 +217,19 @@ fn gsmtap_apdu(link: u32, frame: &[u8]) -> Option<Vec<u8>> {
     Some(g.get(hdr_len..)?.to_vec())
 }
 
+/// The APDU bytes of one captured frame, or None when it is not GSMTAP SIM APDU.
+fn gsmtap_apdu(link: u32, frame: &[u8]) -> Option<Vec<u8>> {
+    let ip = ipv4(link, frame)?;
+    if ip.proto != 17 {
+        return None;
+    }
+    let udp = ip.payload;
+    if u16::from_be_bytes([*udp.get(2)?, *udp.get(3)?]) != GSMTAP_PORT {
+        return None;
+    }
+    gsmtap_sim_apdu_payload(udp.get(8..)?)
+}
+
 /// INS values whose DATA field belongs to the command (cases 3 and 4). pySim
 /// knows this per command class; for the rest the data is response data.
 const CMD_DATA_INS: &[u8] = &[
@@ -233,7 +238,7 @@ const CMD_DATA_INS: &[u8] = &[
 ];
 
 /// Splits "CLA INS P1 P2 P3 DATA SW" into command and response bytes.
-fn split_apdu(a: &[u8]) -> Option<Pair> {
+pub fn split_apdu(a: &[u8]) -> Option<Pair> {
     if a.len() < 7 {
         return None; // header + SW at least
     }
@@ -245,9 +250,24 @@ fn split_apdu(a: &[u8]) -> Option<Pair> {
     Some((None, a[..cmd_len].to_vec(), a[cmd_len..].to_vec()))
 }
 
+/// Decodes one GSMTAP UDP datagram payload into a command/response pair, when it
+/// carries a GSMTAP v2 SIM APDU.
+pub fn pair_from_gsmtap_datagram(payload: &[u8]) -> Option<Pair> {
+    split_apdu(&gsmtap_sim_apdu_payload(payload)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pair_from_gsmtap_datagram_extracts_sim_apdu_payload() {
+        let payload = gsmtap(0, &[0xA0, 0xA4, 0, 0, 2, 0x3F, 0x00, 0x9F, 0x16]);
+        let pair = pair_from_gsmtap_datagram(&payload).unwrap();
+        assert_eq!(hex::encode_upper(&pair.1), "A0A40000023F00");
+        assert_eq!(hex::encode_upper(&pair.2), "9F16");
+        assert!(pair_from_gsmtap_datagram(&gsmtap(1, &[0x3B])).is_none());
+    }
 
     /// GSMTAP v2 header, type SIM, given sub-type, then the payload.
     fn gsmtap(sub: u8, payload: &[u8]) -> Vec<u8> {

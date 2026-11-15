@@ -2420,8 +2420,8 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "WHAT A CLEAN RESULT DOES AND DOES NOT MEAN\n",
     "  * Truncation is always reported. A walk that hit one of its bounds did\n",
     "    not see the whole card: the human report opens with a TRUNCATED banner,\n",
-    "    and --json carries \"complete\", \"truncated\", \"truncated_by\" and the\n",
-    "    full \"limits_hit\" list. A file list without those is a file list an\n",
+    "    and --json carries "complete", "truncated", "truncated_by" and the\n",
+    "    full "limits_hit" list. A file list without those is a file list an\n",
     "    agent could read as the card's complete contents.\n",
     "  * The default dialect is an assumption, not a fact. Reading a card's\n",
     "    capabilities template with the wrong tag table produces a file size the\n",
@@ -3398,8 +3398,13 @@ struct TraceArgs {
     /// Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace.
     #[arg(long)]
     no_suppress_status: bool,
+    /// Listen for live GSMTAP SIM APDUs over UDP instead of reading a file.
+    #[arg(long)]
+    listen: bool,
+    /// UDP address to bind for --listen (default: 127.0.0.1:4729).
+    #[arg(long, value_name = "ADDR", default_value = trace::GSMTAP_LISTEN_ADDR)]
+    bind: String,
 }
-
 /// Everything `sim-doctor why` takes.
 #[derive(Args)]
 struct WhyArgs {
@@ -6718,11 +6723,51 @@ fn run_euicc_op(
     contract::ExitCode::Success
 }
 
-/// `sim-doctor trace`: decode a saved APDU trace. Touches no card.
+/// `sim-doctor trace`: decode a saved APDU trace or listen for live GSMTAP
+/// SIM APDUs. Touches no card.
 fn run_trace(args: &TraceArgs) -> contract::ExitCode {
     use std::io::Read;
     const KIND: &str = "trace";
     let refuse = |m: String| report_refusal(KIND, &m, serde_json::json!({ "error": m }), args.json);
+
+    let display = trace::Display {
+        show_raw_apdu: args.show_raw_apdu,
+        show_select: args.no_suppress_select,
+        show_status: args.no_suppress_status,
+    };
+
+    if args.listen {
+        let (socket, local) = match trace::bind_gsmtap_listener(&args.bind) {
+            Ok(v) => v,
+            Err(message) => return refuse(message),
+        };
+        eprintln!("sim-doctor: listening for GSMTAP SIM APDUs on udp://{local}");
+        let result = trace::listen_gsmtap(
+            &socket,
+            || false,
+            |index, decoded| {
+                if args.json {
+                    let line = serde_json::json!({
+                        "index": index,
+                        "exchange": decoded.to_json(index),
+                    })
+                    .to_string();
+                    let _ = emit_stdout(&line, "the decoded GSMTAP exchange");
+                } else {
+                    let rendered = trace::render(std::slice::from_ref(&decoded), display);
+                    if !rendered.is_empty() {
+                        let _ = emit_stdout(rendered.trim_end(), "the decoded GSMTAP exchange");
+                    }
+                }
+                true
+            },
+        );
+        return match result {
+            Ok(_) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+
     let mut input = Vec::new();
     if let Some(path) = args.file.as_deref().filter(|p| *p != "-") {
         // A FIFO, device or directory is refused before it is opened, so nothing can block the read.
@@ -6771,11 +6816,6 @@ fn run_trace(args: &TraceArgs) -> contract::ExitCode {
             Err(err) => return refuse(err.to_string()),
         }
     } else {
-        let display = trace::Display {
-            show_raw_apdu: args.show_raw_apdu,
-            show_select: args.no_suppress_select,
-            show_status: args.no_suppress_status,
-        };
         trace::render(&rows, display).trim_end().to_owned()
     };
     match emit_stdout(&rendered, "the decoded trace") {
@@ -7840,7 +7880,7 @@ fn fuzz_opt_in(safety: &FuzzSafety, reader: Option<&str>) -> Result<(), String> 
     if !is_software && !safety.allow_real_hardware {
         return Err(format!(
             "fuzz refuses to run against {:?}: it does not look like the software card \
-             (swicc-pcsc names its reader with \"swICC\", see docs/swsim-fixture.md); pass \
+             (swicc-pcsc names its reader with "swICC", see docs/swsim-fixture.md); pass \
              --allow-real-hardware to run against it anyway",
             reader.unwrap_or("(no --reader given)")
         ));
