@@ -827,7 +827,7 @@ pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
 /// bounded default a TAR audit uses, for the same reason - the full
 /// 16 777 216-value space does not fit any budget this tool will ship.
 pub fn tars(quick: bool) -> Vec<u32> {
-    typed_tars(Sweep { quick, ..Sweep::default(),
+    typed_tars(Sweep { quick, ..Sweep::default()
                 ..Sweep::default()
             })
         .into_iter()
@@ -1881,7 +1881,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default(),
+                ..Sweep::default()
                 ..Sweep::default()
             },
             &Policy::default(),
@@ -1902,7 +1902,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default(),
+                ..Sweep::default()
                 ..Sweep::default()
             },
             &Policy::default(),
@@ -1999,7 +1999,7 @@ mod tests {
         };
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default(),
+            ..Sweep::default()
                 ..Sweep::default()
             };
         let audit =
@@ -2025,7 +2025,7 @@ mod tests {
         let mut card = Scripted::cycling(&[&[0x94, 0x04]]);
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default(),
+            ..Sweep::default()
                 ..Sweep::default()
             };
         let audit =
@@ -2256,7 +2256,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default(),
+                ..Sweep::default()
                 ..Sweep::default()
             },
             overrides,
