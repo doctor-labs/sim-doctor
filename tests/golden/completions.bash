@@ -1118,7 +1118,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__card)
-            opts="-c -X -h --reader --profile --dialect --script --read-csv --write-csv --json --chv-file --chv-env --key-file --exclusive --card-key-csv --card-key-key --card-key-key-env --yes --dump --force --dump-secrets --help"
+            opts="-c -X -h --reader --profile --dialect --script --read-csv --write-csv --write-hlr --json --chv-file --chv-env --key-file --exclusive --card-key-csv --card-key-key --card-key-key-env --yes --dump --force --dump-secrets --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1149,6 +1149,10 @@ _sim__doctor() {
                     return 0
                     ;;
                 --write-csv)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --write-hlr)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -7736,12 +7740,16 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__trace)
-            opts="-h --json --show-raw-apdu --no-suppress-select --no-suppress-status --help"
+            opts="-h --json --show-raw-apdu --no-suppress-select --no-suppress-status --listen --bind --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --bind)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

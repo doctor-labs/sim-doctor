@@ -247,8 +247,10 @@
               "id": "euicc/test-or-provisioning-profile",
               "name": "euicc/test-or-provisioning-profile",
               "properties": {
-                "cwe": "CWE-284",
-                "reference": "GSMA SGP.22 (profile classes: operational, provisioning, test); SGP.23"
+                "security-severity": "5.0",
+                "tags": [
+                  "security"
+                ]
               },
               "shortDescription": {
                 "text": "a test or provisioning profile is present on the eUICC"
@@ -264,8 +266,10 @@
               "id": "euicc/test-ci-key-identifier",
               "name": "euicc/test-ci-key-identifier",
               "properties": {
-                "cwe": "CWE-295",
-                "reference": "GSMA SGP.22 (euiccCiPKIdListForVerification/Signing); GSMA SGP.26 test PKI"
+                "security-severity": "8.0",
+                "tags": [
+                  "security"
+                ]
               },
               "shortDescription": {
                 "text": "the eUICC advertises a known test CI public key identifier"
@@ -281,8 +285,10 @@
               "id": "euicc/test-smdp-address",
               "name": "euicc/test-smdp-address",
               "properties": {
-                "cwe": "CWE-1188",
-                "reference": "GSMA SGP.22 (default SM-DP+ address, ES10a GetEuiccConfiguredAddresses/SetDefaultDpAddress)"
+                "security-severity": "5.0",
+                "tags": [
+                  "security"
+                ]
               },
               "shortDescription": {
                 "text": "the default SM-DP+ address is a test or placeholder address"
@@ -298,8 +304,10 @@
               "id": "euicc/outdated-sgp22-version",
               "name": "euicc/outdated-sgp22-version",
               "properties": {
-                "cwe": "CWE-1104",
-                "reference": "GSMA SGP.22 (svn / SGP.22 version in EUICCInfo2)"
+                "security-severity": "3.0",
+                "tags": [
+                  "security"
+                ]
               },
               "shortDescription": {
                 "text": "the eUICC supports an outdated SGP.22 version"
