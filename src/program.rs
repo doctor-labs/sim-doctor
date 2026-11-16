@@ -540,28 +540,56 @@ fn append_legacy_step(
             let a = if matches!(pw.field, legacy::Field::Ki | legacy::Field::Opc) {
                 None
             } else {
-                legacy::update_binary(*offset, data).ok().map(|b| hex_upper(&b))
+                legacy::update_binary(*offset, data)
+                    .ok()
+                    .map(|b| hex_upper(&b))
             };
             let mut n = Vec::new();
             if a.is_none() && matches!(pw.field, legacy::Field::Ki | legacy::Field::Opc) {
-                n.push("APDU payload contains key material and is omitted from the plan output.".into());
+                n.push(
+                    "APDU payload contains key material and is omitted from the plan output."
+                        .into(),
+                );
             }
             (
-                format!("UPDATE BINARY {} ({}, {} bytes at offset {offset})", pw.fid.to_ascii_uppercase(), pw.name, data.len()),
+                format!(
+                    "UPDATE BINARY {} ({}, {} bytes at offset {offset})",
+                    pw.fid.to_ascii_uppercase(),
+                    pw.name,
+                    data.len()
+                ),
                 a,
                 n,
             )
         }
         Body::Record { record, data } => {
             // Provider/name records and others may embed Ki or identity material; omit payload to avoid leaking secrets.
-            let sensitive = matches!(pw.field, legacy::Field::Iccid | legacy::Field::Ki | legacy::Field::Imsi | legacy::Field::OperatorName | legacy::Field::Smsp);
-            let a = if sensitive { None } else { legacy::update_record(*record, data).ok().map(|b| hex_upper(&b)) };
+            let sensitive = matches!(
+                pw.field,
+                legacy::Field::Iccid
+                    | legacy::Field::Ki
+                    | legacy::Field::Imsi
+                    | legacy::Field::OperatorName
+                    | legacy::Field::Smsp
+            );
+            let a = if sensitive {
+                None
+            } else {
+                legacy::update_record(*record, data)
+                    .ok()
+                    .map(|b| hex_upper(&b))
+            };
             let mut n = Vec::new();
             if a.is_none() {
                 n.push("APDU payload may contain key/identity material and is omitted from the offline plan output.".into());
             }
             (
-                format!("UPDATE RECORD {} ({}, record {record}, {} bytes)", pw.fid.to_ascii_uppercase(), pw.name, data.len()),
+                format!(
+                    "UPDATE RECORD {} ({}, record {record}, {} bytes)",
+                    pw.fid.to_ascii_uppercase(),
+                    pw.name,
+                    data.len()
+                ),
                 a,
                 n,
             )

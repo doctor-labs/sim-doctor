@@ -32,7 +32,7 @@ mod kit;
 
 use sim_doctor::{
     apdu_fuzz, apdu_scan, batch, cardsh, cat, cert, ci, contract, erase, euicc, fix, fuzz, gp,
-    keygen, notif, ota_expanded, otacrypto, program, rules, saip, scan, session, sms, tar, trace,
+    keygen, notif, ota_expanded, otacrypto, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
         replay,
