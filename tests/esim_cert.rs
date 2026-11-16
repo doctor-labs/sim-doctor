@@ -29,7 +29,7 @@ M2IOIIskVvtMhvECICPDG2YKnGqzt5Sj6ulwq/ZLI2sH3yjElnCp9JVhudTz
 ";
 
 fn run(args: &[&str]) -> (Option<i32>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .args(args)
         .output()
         .expect("sim-doctor runs");

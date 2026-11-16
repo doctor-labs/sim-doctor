@@ -3,7 +3,7 @@
 use std::process::Command;
 
 fn decode(args: &[&str]) -> serde_json::Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .args(["sms", "decode", "--json"])
         .args(args)
         .output()
@@ -59,7 +59,7 @@ fn ucs2_text_and_a_concatenation_header() {
 
 #[test]
 fn bad_hex_is_a_refusal_with_exit_two() {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .args(["sms", "decode", "zz"])
         .output()
         .unwrap();

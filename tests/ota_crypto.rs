@@ -3,7 +3,7 @@
 use std::process::Command;
 
 fn run(args: &[&str]) -> (Option<i32>, serde_json::Value) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .arg("ota-crypto")
         .args(args)
         .arg("--json")

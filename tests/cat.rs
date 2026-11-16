@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 const DISPLAY_TEXT: &str = "D0 0F 81 03 01 21 80 82 02 81 02 8D 04 04 48 49 21";
 
 fn run(args: &[&str], stdin: Option<&str>) -> (Option<i32>, String, String) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let mut child = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .args(["cat", "decode"])
         .args(args)
         .stdin(if stdin.is_some() {

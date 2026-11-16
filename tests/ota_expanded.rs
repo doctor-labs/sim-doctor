@@ -20,7 +20,7 @@ fn bytes(hex: &str) -> Vec<u8> {
 }
 
 fn run(args: &[&str]) -> (Option<i32>, serde_json::Value, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .arg("ota-expanded")
         .args(args)
         .arg("--json")
@@ -35,7 +35,7 @@ fn run(args: &[&str]) -> (Option<i32>, serde_json::Value, String) {
 }
 
 fn run_human(args: &[&str]) -> (Option<i32>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .arg("ota-expanded")
         .args(args)
         .output()
