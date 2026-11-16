@@ -277,13 +277,9 @@ impl SimDoctor {
         let euicc_snapshot =
             match sim_doctor::euicc::snapshot(session, &sim_doctor::euicc::ISDR_AID) {
                 Ok(snap) => snap,
-                Err(e) => {
-                    eprintln!(
-                        "sim-doctor: warning: could not read eUICC data for scan rules: {}",
-                        e.message
-                    );
-                    None
-                }
+                // Not an eUICC, or ES10 data cannot be read on this card/transport:
+                // no eUICC evidence for scan rules (issue #142).
+                Err(_) => None,
             };
 
         // The second of three checkpoints. Everything the tree knows is still only
