@@ -740,6 +740,7 @@ fn command_packet_octets_cph(
 /// This is what TAR-type-aware fuzzing uses: the command packet's UD is the
 /// payload tailored to the TAR type (RFM, RAM, WIB, S@T) rather than the
 /// default SELECT-MF probe. `cpl` and the buffer size follow `ud.len()`.
+#[allow(clippy::too_many_arguments)]
 pub fn command_packet_octets_cph_ud(
     tar: u32,
     spi1: u8,

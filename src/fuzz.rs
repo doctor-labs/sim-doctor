@@ -1087,6 +1087,7 @@ impl Audit {
 
 /// Sends one (TAR, keyset, mechanism) triple with the given user data and
 /// reads the full reply (signature and raw response bytes for PoR collection).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn probe_triple_ud<S: CardSession + ?Sized>(
     session: &mut S,
     tar_value: u32,
@@ -1117,6 +1118,7 @@ fn probe_triple_ud<S: CardSession + ?Sized>(
 }
 
 /// Sends an already-built Command Packet and reads the full reply.
+#[allow(clippy::type_complexity)]
 fn probe_packet<S: CardSession + ?Sized>(
     session: &mut S,
     packet: &[u8],
@@ -1171,6 +1173,7 @@ fn zero_key_for_algo(algo: u8) -> Option<Vec<u8>> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_por(
     crackable: &mut Vec<CrackablePor>,
     tar_value: u32,
