@@ -274,13 +274,10 @@ impl SimDoctor {
         // ES10 eUICC data for scan rules (issue #142): try to read EUICCInfo1/2,
         // configured addresses and the profile list from the ISD-R. Not an eUICC,
         // or a read that cannot be completed, means no eUICC evidence.
+        // Not an eUICC, or ES10 data cannot be read on this card/transport:
+        // no eUICC evidence for scan rules (issue #142).
         let euicc_snapshot =
-            match sim_doctor::euicc::snapshot(session, &sim_doctor::euicc::ISDR_AID) {
-                Ok(snap) => snap,
-                // Not an eUICC, or ES10 data cannot be read on this card/transport:
-                // no eUICC evidence for scan rules (issue #142).
-                Err(_) => None,
-            };
+            sim_doctor::euicc::snapshot(session, &sim_doctor::euicc::ISDR_AID).unwrap_or_default();
 
         // The second of three checkpoints. Everything the tree knows is still only
         // in memory here, so stopping now costs the whole run rather than emitting
