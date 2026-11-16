@@ -40,7 +40,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand trace 'Decode a captured APDU trace offline (no card, no reader)'
             cand cat 'Decode Card Application Toolkit data offline (no card, no reader)'
             cand sms '`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing'
-            cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing'
+            cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. `saip personalize` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing'
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
             cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
@@ -1186,6 +1186,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
             cand parse 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline'
+            cand personalize 'Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim''s SAIP personalization (`personalization.py`, including `do_variants`)'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;saip;parse'= {
@@ -1193,11 +1194,22 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'sim-doctor;saip;personalize'= {
+            cand --document 'Path to the personalization document (JSON) with parameter values (iccid, profile_type, pins, puks) and variant handling (drop_pe_types, keep_pe_types)'
+            cand -o 'Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written'
+            cand --output 'Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written'
+            cand --json 'Emit one JSON envelope of kind "saip" on stdout'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
         &'sim-doctor;saip;help'= {
             cand parse 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline'
+            cand personalize 'Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim''s SAIP personalization (`personalization.py`, including `do_variants`)'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'sim-doctor;saip;help;parse'= {
+        }
+        &'sim-doctor;saip;help;personalize'= {
         }
         &'sim-doctor;saip;help;help'= {
         }
@@ -1698,7 +1710,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand trace 'Decode a captured APDU trace offline (no card, no reader)'
             cand cat 'Decode Card Application Toolkit data offline (no card, no reader)'
             cand sms '`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing'
-            cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing'
+            cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. `saip personalize` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing'
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
             cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
@@ -1894,8 +1906,11 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;help;saip'= {
             cand parse 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline'
+            cand personalize 'Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim''s SAIP personalization (`personalization.py`, including `do_variants`)'
         }
         &'sim-doctor;help;saip;parse'= {
+        }
+        &'sim-doctor;help;saip;personalize'= {
         }
         &'sim-doctor;help;ota-crypto'= {
             cand encrypt 'Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex'

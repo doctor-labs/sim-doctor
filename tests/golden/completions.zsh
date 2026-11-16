@@ -1777,6 +1777,17 @@ _arguments "${_arguments_options[@]}" : \
 ':file -- Path to the profile package. Read-only; the file is capped at 8 MiB:_files' \
 && ret=0
 ;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+'--document=[Path to the personalization document (JSON) with parameter values (iccid, profile_type, pins, puks) and variant handling (drop_pe_types, keep_pe_types)]:DOCUMENT:_files' \
+'-o+[Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written]:OUTPUT:_files' \
+'--output=[Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written]:OUTPUT:_files' \
+'--json[Emit one JSON envelope of kind "saip" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':file -- Path to the input profile package (DER). Read-only; capped at 8 MiB:_files' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__saip__subcmd__help_commands" \
@@ -1790,6 +1801,10 @@ _arguments "${_arguments_options[@]}" : \
         curcontext="${curcontext%:*:*}:sim-doctor-saip-help-command-$line[1]:"
         case $line[1] in
             (parse)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(personalize)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2998,6 +3013,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3252,7 +3271,7 @@ _sim-doctor_commands() {
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
-'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
+'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. \`saip personalize\` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
@@ -4377,7 +4396,7 @@ _sim-doctor__subcmd__help_commands() {
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
-'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
+'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. \`saip personalize\` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
@@ -4970,6 +4989,7 @@ _sim-doctor__subcmd__help__subcmd__rules__subcmd__list_commands() {
 _sim-doctor__subcmd__help__subcmd__saip_commands() {
     local commands; commands=(
 'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'personalize:Personalize a SAIP profile package\: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim'\''s SAIP personalization (\`personalization.py\`, including \`do_variants\`)' \
     )
     _describe -t commands 'sim-doctor help saip commands' commands "$@"
 }
@@ -4977,6 +4997,11 @@ _sim-doctor__subcmd__help__subcmd__saip_commands() {
 _sim-doctor__subcmd__help__subcmd__saip__subcmd__parse_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help saip parse commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__saip__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__saip__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help saip personalize commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__scan_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__scan_commands() {
@@ -5266,6 +5291,7 @@ _sim-doctor__subcmd__rules__subcmd__list_commands() {
 _sim-doctor__subcmd__saip_commands() {
     local commands; commands=(
 'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'personalize:Personalize a SAIP profile package\: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim'\''s SAIP personalization (\`personalization.py\`, including \`do_variants\`)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor saip commands' commands "$@"
@@ -5274,6 +5300,7 @@ _sim-doctor__subcmd__saip_commands() {
 _sim-doctor__subcmd__saip__subcmd__help_commands() {
     local commands; commands=(
 'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'personalize:Personalize a SAIP profile package\: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim'\''s SAIP personalization (\`personalization.py\`, including \`do_variants\`)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor saip help commands' commands "$@"
@@ -5288,10 +5315,20 @@ _sim-doctor__subcmd__saip__subcmd__help__subcmd__parse_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor saip help parse commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__help__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__help__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip help personalize commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__saip__subcmd__parse_commands] )) ||
 _sim-doctor__subcmd__saip__subcmd__parse_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor saip parse commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip personalize commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__scan_commands] )) ||
 _sim-doctor__subcmd__scan_commands() {

@@ -913,6 +913,9 @@ _sim__doctor() {
             sim__doctor__subcmd__help__subcmd__saip,parse)
                 cmd="sim__doctor__subcmd__help__subcmd__saip__subcmd__parse"
                 ;;
+            sim__doctor__subcmd__help__subcmd__saip,personalize)
+                cmd="sim__doctor__subcmd__help__subcmd__saip__subcmd__personalize"
+                ;;
             sim__doctor__subcmd__help__subcmd__sms,decode)
                 cmd="sim__doctor__subcmd__help__subcmd__sms__subcmd__decode"
                 ;;
@@ -1021,11 +1024,17 @@ _sim__doctor() {
             sim__doctor__subcmd__saip,parse)
                 cmd="sim__doctor__subcmd__saip__subcmd__parse"
                 ;;
+            sim__doctor__subcmd__saip,personalize)
+                cmd="sim__doctor__subcmd__saip__subcmd__personalize"
+                ;;
             sim__doctor__subcmd__saip__subcmd__help,help)
                 cmd="sim__doctor__subcmd__saip__subcmd__help__subcmd__help"
                 ;;
             sim__doctor__subcmd__saip__subcmd__help,parse)
                 cmd="sim__doctor__subcmd__saip__subcmd__help__subcmd__parse"
+                ;;
+            sim__doctor__subcmd__saip__subcmd__help,personalize)
+                cmd="sim__doctor__subcmd__saip__subcmd__help__subcmd__personalize"
                 ;;
             sim__doctor__subcmd__sms,decode)
                 cmd="sim__doctor__subcmd__sms__subcmd__decode"
@@ -6710,7 +6719,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__saip)
-            opts="parse"
+            opts="parse personalize"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -6724,6 +6733,20 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__help__subcmd__saip__subcmd__parse)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__help__subcmd__saip__subcmd__personalize)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -7514,7 +7537,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__saip)
-            opts="-h --help parse help"
+            opts="-h --help parse personalize help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7528,7 +7551,7 @@ _sim__doctor() {
             return 0
             ;;
         sim__subcmd__doctor__subcmd__saip__subcmd__help)
-            opts="parse help"
+            opts="parse personalize help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7569,6 +7592,20 @@ _sim__doctor() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        sim__subcmd__doctor__subcmd__saip__subcmd__help__subcmd__personalize)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         sim__subcmd__doctor__subcmd__saip__subcmd__parse)
             opts="-h --json --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -7576,6 +7613,32 @@ _sim__doctor() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        sim__subcmd__doctor__subcmd__saip__subcmd__personalize)
+            opts="-o -h --document --output --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --document)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --output)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -o)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
