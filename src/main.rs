@@ -32,7 +32,7 @@ mod kit;
 
 use sim_doctor::{
     apdu_fuzz, apdu_scan, batch, cardsh, cat, cert, ci, contract, erase, euicc, fix, fuzz, gp,
-    keygen, notif, ota_expanded, otacrypto, rules, saip, scan, session, sms, tar, trace,
+    keygen, notif, ota_expanded, otacrypto, program, rules, saip, scan, session, sms, tar, trace,
     transport::{
         pcsc::{share_mode, Pcsc, PcscSession},
         replay,
@@ -286,6 +286,12 @@ enum Command {
     /// sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV
     /// tree. Parse only, no personalization. Sends nothing.
     Saip(SaipArgs),
+
+    /// Card personalization / programming (pySim-prog style): turn a programming
+    /// document into an APDU sequence. The offline half (document parser and APDU
+    /// plan) needs no card; applying writes to a card is gated behind an explicit
+    /// opt-in (dry run unless --yes) and needs a live card and ADM/CHV.
+    Program(ProgramArgs),
 
     /// Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt,
     /// CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them.
@@ -3581,6 +3587,9 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Saip(args) => match args.action {
             SaipAction::Parse { file, json } => run_saip_parse(&file, json),
+        },
+        Command::Program(args) => match args.action {
+            ProgramAction::Plan { file, json } => run_program_plan(&file, json),
         },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
@@ -7336,6 +7345,96 @@ fn run_otacrypto(args: OtaCryptoArgs) -> contract::ExitCode {
                 Err(message) => refuse(message),
             }
         }
+    }
+}
+
+/// Everything `sim-doctor program` takes.
+#[derive(Args)]
+struct ProgramArgs {
+    #[command(subcommand)]
+    action: ProgramAction,
+}
+
+#[derive(Subcommand)]
+enum ProgramAction {
+    /// Parse a pySim-prog-style programming document and emit the APDU sequence
+    /// (offline). No card is touched and nothing is sent.
+    Plan {
+        /// Path to the programming document (JSON, sim-doctor-program/1).
+        file: std::path::PathBuf,
+        /// Emit the plan as a JSON document on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Runs `sim-doctor program plan`: reads a programming document and prints the
+/// APDU sequence that would be sent. Offline: no card, no reader, nothing sent.
+fn run_program_plan(path: &std::path::Path, json: bool) -> contract::ExitCode {
+    const KIND: &str = "program";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the program plan error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(err) => return refuse(format!("cannot read {}: {err}", path.display())),
+    };
+    let plan = match sim_doctor::program::plan_json(&text) {
+        Ok(p) => p,
+        Err(err) => return refuse(format!("{}: {}", err.kind, err.detail)),
+    };
+    if json {
+        let value = match serde_json::to_value(&plan) {
+            Ok(v) => v,
+            Err(e) => return refuse(e.to_string()),
+        };
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            value,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the program plan") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let mut out = String::new();
+    out.push_str(&format!("sim-doctor program plan: {} ({} step(s))\n", plan.card_type, plan.steps.len()));
+    out.push_str(&format!("WARNING: {}\n", plan.warning));
+    out.push_str("card_touched: false (offline plan; no card, no reader, nothing sent)\n");
+    for (i, step) in plan.steps.iter().enumerate() {
+        out.push_str(&format!("{:>3}. {}", i + 1, step.description));
+        if let Some(apdu) = &step.apdu {
+            out.push_str(&format!("  [{apdu}]"));
+        }
+        out.push('\n');
+        for note in &step.notes {
+            out.push_str(&format!("     note: {note}\n"));
+        }
+    }
+    if !plan.needs_live_card.is_empty() {
+        out.push_str("needs a live card:\n");
+        for n in &plan.needs_live_card {
+            out.push_str(&format!("  - {n}\n"));
+        }
+    }
+    match emit_stdout(out.trim_end(), "the program plan") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
     }
 }
 
