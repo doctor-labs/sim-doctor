@@ -574,11 +574,14 @@ fn append_legacy_step(
                 vec!["PLMN payload starts with encoded HPLMN and is padded with FF to the EF length reported by the card.".into()],
             )
         }
-        Body::Proprietary(_) => (
-            format!("PROPRIETARY APDU ({})", pw.name),
-            if contains_key_material { None } else { None },
-            vec!["Proprietary write APDU carries ADM/Ki material and is omitted from the plan output; it is sent on a live card with --yes.".into()],
-        ),
+        Body::Proprietary(_) => {
+            let _ = contains_key_material;
+            (
+                format!("PROPRIETARY APDU ({})", pw.name),
+                None,
+                vec!["Proprietary write APDU carries ADM/Ki material and is omitted from the plan output; it is sent on a live card with --yes.".into()],
+            )
+        }
         Body::Auth { chv, .. } => (
             format!("VERIFY CHV 0x{chv:02X} ({})", pw.name),
             None,
