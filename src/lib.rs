@@ -158,6 +158,7 @@ pub mod scp8x;
 pub mod session;
 pub mod sign;
 pub mod signals;
+pub mod submit;
 pub mod skill;
 pub mod sms;
 pub mod sysmocom;

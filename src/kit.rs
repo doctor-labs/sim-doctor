@@ -95,6 +95,8 @@ struct Run {
     sffs: bool,
     /// `-X`: PC/SC exclusive access for the card read.
     exclusive: bool,
+    /// Explicit opt-in endpoint for anonymized submission; None means no network contact.
+    submit: Option<String>,
 }
 
 impl Run {
@@ -124,6 +126,7 @@ impl Run {
             legacy: false,
             sffs: false,
             exclusive: card.exclusive,
+            submit: None,
         }
     }
 
@@ -161,6 +164,7 @@ impl Run {
             csv: args.csv.clone(),
             legacy: args.face.as_deref() == Some("legacy"),
             sffs: args.sffs,
+            submit: args.submit.clone(),
         }
     }
 }

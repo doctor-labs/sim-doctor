@@ -3025,6 +3025,14 @@ struct ScanArgs {
     /// A face in plain text without colour, for CI and pipes.
     #[arg(long, conflicts_with_all = ["json", "tui", "face"])]
     headless: bool,
+
+    /// Upload the anonymized scan envelope to this endpoint (explicit opt-in, gsmmap-style).
+    ///
+    /// Off by default and there is NO default endpoint: without this flag nothing leaves the
+    /// machine and the output says so. With it, the destination and the exact anonymized payload
+    /// (card identifiers redacted) are printed before upload, and only then is the payload sent.
+    #[arg(long, value_name = "ENDPOINT")]
+    submit: Option<String>,
 }
 
 /// `readers` takes no card, only the switch for a JSON envelope.
