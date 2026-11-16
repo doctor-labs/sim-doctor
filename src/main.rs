@@ -283,8 +283,9 @@ enum Command {
     Sms(SmsArgs),
 
     /// `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement
-    /// sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV
-    /// tree. Parse only, no personalization. Sends nothing.
+    /// sequence) offline into JSON. `saip personalize` applies a personalization document
+    /// (substituting variant/optional PEs and setting profile parameters) and writes the
+    /// resulting profile package. Sends nothing.
     Saip(SaipArgs),
 
     /// Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt,
@@ -3581,6 +3582,12 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Saip(args) => match args.action {
             SaipAction::Parse { file, json } => run_saip_parse(&file, json),
+            SaipAction::Personalize {
+                file,
+                document,
+                output,
+                json,
+            } => run_saip_personalize(&file, &document, output.as_deref(), json),
         },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
@@ -7356,6 +7363,25 @@ enum SaipAction {
         #[arg(long)]
         json: bool,
     },
+    /// Personalize a SAIP profile package: apply a personalization document
+    /// (parameter values and variant/optional PE substitution) and write the result.
+    /// Matches pySim's SAIP personalization (`personalization.py`, including `do_variants`).
+    Personalize {
+        /// Path to the input profile package (DER). Read-only; capped at 8 MiB.
+        file: std::path::PathBuf,
+        /// Path to the personalization document (JSON) with parameter values
+        /// (iccid, profile_type, pins, puks) and variant handling
+        /// (drop_pe_types, keep_pe_types).
+        #[arg(long)]
+        document: std::path::PathBuf,
+        /// Where to write the personalized profile package (DER). If omitted, the
+        /// personalized package is decoded and reported instead of written.
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+        /// Emit one JSON envelope of kind "saip" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Runs `sim-doctor saip parse`: reads the file under a size cap and decodes it with
@@ -7391,6 +7417,132 @@ fn run_saip_parse(path: &std::path::Path, json: bool) -> contract::ExitCode {
     let decoded = match saip::decode(&bytes) {
         Ok(value) => value,
         Err(err) => return refuse(err.to_string()),
+    };
+    if json {
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            decoded,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the saip result") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let mut out = String::new();
+    for element in decoded["elements"].as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "{:>3}  {:<22} tag {:<6} length {}\n",
+            element["index"],
+            element["type"].as_str().unwrap_or("?"),
+            element["tag"].as_str().unwrap_or("?"),
+            element["length"],
+        ));
+    }
+    out.push_str(&format!("{} profile elements\n", decoded["pe_count"]));
+    match emit_stdout(out.trim_end(), "the saip result") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
+    }
+}
+
+/// Runs `sim-doctor saip personalize`: reads a profile package and a personalization
+/// document (JSON), applies parameter substitution and variant/optional PE handling,
+/// and writes the personalized DER or reports it. Matches pySim's SAIP personalization
+/// (`esim/saip/personalization.py`, including `do_variants`).
+fn run_saip_personalize(
+    path: &std::path::Path,
+    doc_path: &std::path::Path,
+    output: Option<&std::path::Path>,
+    json: bool,
+) -> contract::ExitCode {
+    use std::io::Read;
+    const KIND: &str = "saip";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the saip error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let read_capped = |p: &std::path::Path| -> Result<Vec<u8>, String> {
+        let file =
+            std::fs::File::open(p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+        let mut bytes = Vec::new();
+        let cap = saip::MAX_FILE_BYTES as u64 + 1;
+        file.take(cap)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+        Ok(bytes)
+    };
+    let bytes = match read_capped(path) {
+        Ok(b) => b,
+        Err(m) => return refuse(m),
+    };
+    let doc_bytes = match read_capped(doc_path) {
+        Ok(b) => b,
+        Err(m) => return refuse(m),
+    };
+    let doc: saip::PersonalizationDoc = match serde_json::from_slice(&doc_bytes) {
+        Ok(d) => d,
+        Err(e) => {
+            return refuse(format!(
+                "cannot parse personalization document {}: {e}",
+                doc_path.display()
+            ))
+        }
+    };
+    let personalized = match saip::personalize(&bytes, &doc) {
+        Ok(b) => b,
+        Err(e) => return refuse(e.to_string()),
+    };
+    if let Some(out_path) = output {
+        if let Err(e) = std::fs::write(out_path, &personalized) {
+            return refuse(format!("cannot write {}: {e}", out_path.display()));
+        }
+        if json {
+            let decoded = saip::decode(&personalized).unwrap_or_else(|_| serde_json::json!({}));
+            let data = serde_json::json!({
+                "output": out_path.display().to_string(),
+                "bytes": personalized.len(),
+                "profile": decoded,
+            });
+            let envelope = contract::Envelope::new(
+                KIND,
+                contract::ExitCode::Success,
+                contract::OK_MESSAGE,
+                data,
+            );
+            let line = match envelope.to_json() {
+                Ok(l) => l,
+                Err(e) => return refuse(e.to_string()),
+            };
+            return match emit_stdout(&line, "the saip result") {
+                Ok(()) => contract::ExitCode::Success,
+                Err(message) => refuse(message),
+            };
+        }
+        println!(
+            "wrote {} bytes to {}",
+            personalized.len(),
+            out_path.display()
+        );
+        return contract::ExitCode::Success;
+    }
+    // No output file: decode and report the personalized result
+    let decoded = match saip::decode(&personalized) {
+        Ok(v) => v,
+        Err(e) => return refuse(e.to_string()),
     };
     if json {
         let envelope = contract::Envelope::new(
