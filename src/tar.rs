@@ -905,6 +905,19 @@ pub fn envelope_data_passthrough(
     envelope_data_from_tpdu(class, &tpdu)
 }
 
+/// The envelope data field for an already-built Command Packet (TS 102 225),
+/// wrapped in an SMS-DELIVER TPDU and the SMS-PP-DOWNLOAD `D1` chain.
+pub fn envelope_data_from_packet(class: Class, packet: &[u8]) -> Option<Vec<u8>> {
+    let tpdu = sms_deliver_tpdu(packet)?;
+    envelope_data_from_tpdu(class, &tpdu)
+}
+
+/// One complete ENVELOPE APDU carrying an already-built Command Packet.
+pub fn envelope_apdu_from_packet(class: Class, packet: &[u8]) -> Option<Vec<u8>> {
+    let data = envelope_data_from_packet(class, packet)?;
+    envelope_apdu_from_data(class, &data)
+}
+
 fn envelope_data_from_tpdu(class: Class, tpdu: &[u8]) -> Option<Vec<u8>> {
     let (identities, address) = match class {
         Class::Etsi => (&DEVICE_IDENTITIES_3G[..], &ADDRESS_3G[..]),

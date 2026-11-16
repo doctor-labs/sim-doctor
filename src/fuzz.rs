@@ -615,6 +615,17 @@ impl FuzzerSpec {
     /// (bit 5). Clause numbers in TS 102 225 are not checked against the
     /// standard text here.
     pub fn command_packet(&self, tar: u32, keyset: u8) -> Option<Vec<u8>> {
+        self.command_packet_with_ud(tar, keyset, &tar::PROBE_USER_DATA)
+    }
+
+    /// Like [`Self::command_packet`] but with caller-supplied user data for
+    /// TAR-type-aware payloads (issue #103).
+    pub fn command_packet_with_ud(
+        &self,
+        tar: u32,
+        keyset: u8,
+        user_data: &[u8],
+    ) -> Option<Vec<u8>> {
         if self.needs_crypto() {
             return None;
         }
@@ -622,8 +633,15 @@ impl FuzzerSpec {
         let spi2 = self.spi2();
         let counter = u8::from(self.counter != CNTR_NO_CNTR_AVAILABLE);
         let key = keyset << 4;
-        Some(tar::command_packet_octets(
-            tar, spi1, spi2, key, key, counter,
+        Some(tar::command_packet_octets_cph_ud(
+            tar,
+            spi1,
+            spi2,
+            key,
+            key,
+            counter,
+            &tar::COMMAND_PACKET_HEADER,
+            user_data,
         ))
     }
 }
@@ -664,6 +682,27 @@ impl FuzzerSpec {
         kid_key: &[u8],
         counter: u8,
     ) -> Result<Vec<u8>, otacrypto::Error> {
+        self.secured_command_packet_with_ud(
+            tar,
+            keyset,
+            kic_key,
+            kid_key,
+            counter,
+            &tar::PROBE_USER_DATA,
+        )
+    }
+
+    /// Like [`Self::secured_command_packet`] but with caller-supplied user data
+    /// for TAR-type-aware payloads (issue #103).
+    pub fn secured_command_packet_with_ud(
+        &self,
+        tar: u32,
+        keyset: u8,
+        kic_key: &[u8],
+        kid_key: &[u8],
+        counter: u8,
+        user_data_src: &[u8],
+    ) -> Result<Vec<u8>, otacrypto::Error> {
         let kic_on = self.kic_algo != KIC_ALGO_IMPLICIT;
         let kid_on = self.kid_algo != KID_ALGO_IMPLICIT;
         let kic_alg = kic_on
@@ -685,7 +724,7 @@ impl FuzzerSpec {
         head.extend_from_slice(&tar.to_be_bytes()[1..]);
 
         // Ciphering pads CNTR, PCNTR, CC and the user data to the KIC block size.
-        let mut user_data = tar::PROBE_USER_DATA.to_vec();
+        let mut user_data = user_data_src.to_vec();
         let mut pcntr = 0u8;
         if let Some(alg) = kic_alg {
             let block = alg.block_size();
@@ -788,7 +827,9 @@ pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
 /// bounded default a TAR audit uses, for the same reason - the full
 /// 16 777 216-value space does not fit any budget this tool will ship.
 pub fn tars(quick: bool) -> Vec<u32> {
-    typed_tars(Sweep { quick, ..Sweep::default() })
+    typed_tars(Sweep { quick, ..Sweep::default(),
+                ..Sweep::default()
+            })
         .into_iter()
         .map(|(t, _)| t)
         .collect()
@@ -905,18 +946,73 @@ pub struct Probe {
     pub accepted: bool,
     /// The status word the card answered with, when it gave one.
     pub status: Option<StatusWord>,
+    /// The OTA application kind of this TAR, when probed with a type-aware
+    /// payload (issue #103).
+    pub kind: Option<TarKind>,
+    /// The FuzzerData matrix profile id, when `--matrix` (issue #103).
+    pub profile: Option<u8>,
+    /// The response octets (data and status word) when they carry material
+    /// worth keeping for offline analysis (PoR), hex-encoded.
+    pub response_hex: Option<String>,
 }
 
 impl Probe {
     fn to_json(&self) -> Value {
-        json!({
+        let mut obj = json!({
             "tar": tar::hex(self.tar),
             "tar_decimal": self.tar,
             "keyset": self.keyset,
             "mechanism": { "spi1": format!("{:02X}", self.mechanism.0), "spi2": format!("{:02X}", self.mechanism.1) },
             "outcome": if self.accepted { "accepted" } else { "refused" },
             "status": self.status.map(|s| s.to_string()),
-        })
+        });
+        if let Some(kind) = self.kind {
+            obj["kind"] = Value::String(kind.id().to_owned());
+        }
+        if let Some(profile) = self.profile {
+            obj["profile"] = json!(profile);
+        }
+        if let Some(hex) = &self.response_hex {
+            obj["response"] = Value::String(hex.clone());
+        }
+        obj
+    }
+}
+
+/// One piece of "possibly crackable" PoR material collected from a response
+/// (signed-response cryptographic checksum or encrypted response), listed for
+/// offline analysis and never cracked in-tool (issue #103).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrackablePor {
+    /// The TAR the response came from.
+    pub tar: u32,
+    /// The keyset of the probe.
+    pub keyset: u8,
+    /// The FuzzerData matrix profile id, when matrix mode produced it.
+    pub profile: Option<u8>,
+    /// The (SPI1, SPI2) mechanism/protection octets of the probe.
+    pub mechanism: (u8, u8),
+    /// The full response (data and status word), hex-encoded.
+    pub response: String,
+    /// Why this is collected: "signed" (CC/cryptographic checksum) or
+    /// "encrypted" (ciphered PoR).
+    pub reason: &'static str,
+}
+
+impl CrackablePor {
+    fn to_json(&self) -> Value {
+        let mut obj = json!({
+            "tar": tar::hex(self.tar),
+            "tar_decimal": self.tar,
+            "keyset": self.keyset,
+            "mechanism": { "spi1": format!("{:02X}", self.mechanism.0), "spi2": format!("{:02X}", self.mechanism.1) },
+            "response": self.response,
+            "reason": self.reason,
+        });
+        if let Some(profile) = self.profile {
+            obj["profile"] = json!(profile);
+        }
+        obj
     }
 }
 
@@ -937,6 +1033,9 @@ pub struct Audit {
     /// generic error (issue #211). `None` when the baseline was established
     /// without one.
     pub terminal_profile: Option<tar::TerminalProfile>,
+    /// Possibly crackable PoR material (signed-response CC or encrypted PoR),
+    /// collected for offline analysis and never cracked in-tool (issue #103).
+    pub crackable_por: Vec<CrackablePor>,
 }
 
 impl Audit {
@@ -952,9 +1051,11 @@ impl Audit {
 
     /// The `fuzz.ota` block a report carries.
     pub fn to_json(&self) -> Value {
-        json!({
+        let mut obj = json!({
             "quick": self.sweep.quick,
             "poke": self.sweep.poke,
+            "matrix": self.sweep.matrix,
+            "standard_tars": self.sweep.standard_tars,
             "class": self.sweep.class.id(),
             "class_octet": format!("{:02X}", self.sweep.class.octet()),
             "class_assumption": crate::tar::class_assumption(self.sweep.class),
@@ -967,11 +1068,69 @@ impl Audit {
             "terminal_profile": self.terminal_profile.as_ref().map(tar::TerminalProfile::to_json),
             "accepted": self.accepted().map(Probe::to_json).collect::<Vec<_>>(),
             "probes": self.probes.iter().map(Probe::to_json).collect::<Vec<_>>(),
-        })
+        });
+        if !self.crackable_por.is_empty() {
+            obj["crackable_por"] = json!({
+                "count": self.crackable_por.len(),
+                "note": "possibly crackable PoR material (signed-response cryptographic checksums or encrypted responses) for offline analysis; not cracked in-tool",
+                "items": self.crackable_por.iter().map(CrackablePor::to_json).collect::<Vec<_>>(),
+            });
+        }
+        obj
     }
 }
 
-/// Sends one (TAR, keyset, mechanism) triple and reads the signature.
+/// Sends one (TAR, keyset, mechanism) triple with the given user data and
+/// reads the full reply (signature and raw response bytes for PoR collection).
+fn probe_triple_ud<S: CardSession + ?Sized>(
+    session: &mut S,
+    tar_value: u32,
+    keyset: u8,
+    mechanism: (u8, u8),
+    user_data: &[u8],
+    class: Class,
+    overrides: Overrides,
+    policy: &Policy,
+) -> Result<Result<(tar::Signature, usize, Vec<u8>), String>, tar::Error> {
+    let (spi1, spi2) = mechanism;
+    let key_nibble = keyset << 4;
+    let kic = overrides.kic.unwrap_or(key_nibble);
+    let kid = overrides.kid.unwrap_or(key_nibble);
+    let spi1 = overrides.spi1.unwrap_or(spi1);
+    let spi2 = overrides.spi2.unwrap_or(spi2);
+    let Some(apdu) = tar::envelope_apdu_raw_ud(tar_value, class, kic, kid, spi1, spi2, user_data)
+    else {
+        return Err(tar::Error::UnbuildableEnvelope(
+            "the SMS-PP-DOWNLOAD envelope for this triple does not fit a short APDU data field",
+        ));
+    };
+    match tar::probe_envelope(session, &apdu, policy) {
+        Ok(Ok(reply)) => Ok(Ok((reply.signature, reply.exchanges, reply.response))),
+        Ok(Err(reason)) => Ok(Err(reason)),
+        Err(err) => Err(err),
+    }
+}
+
+/// Sends an already-built Command Packet and reads the full reply.
+fn probe_packet<S: CardSession + ?Sized>(
+    session: &mut S,
+    packet: &[u8],
+    class: Class,
+    policy: &Policy,
+) -> Result<Result<(tar::Signature, usize, Vec<u8>), String>, tar::Error> {
+    let Some(apdu) = tar::envelope_apdu_from_packet(class, packet) else {
+        return Err(tar::Error::UnbuildableEnvelope(
+            "the SMS-PP-DOWNLOAD envelope for this packet does not fit a short APDU data field",
+        ));
+    };
+    match tar::probe_envelope(session, &apdu, policy) {
+        Ok(Ok(reply)) => Ok(Ok((reply.signature, reply.exchanges, reply.response))),
+        Ok(Err(reason)) => Ok(Err(reason)),
+        Err(err) => Err(err),
+    }
+}
+
+/// Legacy probe helper kept for compatibility: fixed RFM user data, no raw response.
 fn probe_triple<S: CardSession + ?Sized>(
     session: &mut S,
     tar: u32,
@@ -981,22 +1140,56 @@ fn probe_triple<S: CardSession + ?Sized>(
     overrides: Overrides,
     policy: &Policy,
 ) -> Result<Result<(Signature, usize), String>, tar::Error> {
-    let (spi1, spi2) = mechanism;
-    let key_nibble = keyset << 4;
-    let kic = overrides.kic.unwrap_or(key_nibble);
-    let kid = overrides.kid.unwrap_or(key_nibble);
-    let spi1 = overrides.spi1.unwrap_or(spi1);
-    let spi2 = overrides.spi2.unwrap_or(spi2);
-    let Some(apdu) = tar::envelope_apdu_raw(tar, class, kic, kid, spi1, spi2) else {
-        return Err(tar::Error::UnbuildableEnvelope(
-            "the SMS-PP-DOWNLOAD envelope for this triple does not fit a short APDU data field",
-        ));
-    };
-    match tar::probe_envelope(session, &apdu, policy) {
-        Ok(Ok(reply)) => Ok(Ok((reply.signature, reply.exchanges))),
-        Ok(Err(reason)) => Ok(Err(reason)),
-        Err(err) => Err(err),
+    match probe_triple_ud(
+        session,
+        tar,
+        keyset,
+        mechanism,
+        &tar::PROBE_USER_DATA,
+        class,
+        overrides,
+        policy,
+    ) {
+        Ok(Ok((sig, ex, _))) => Ok(Ok((sig, ex))),
+        Ok(Err(r)) => Ok(Err(r)),
+        Err(e) => Err(e),
     }
+}
+
+fn zero_key_for_algo(algo: u8) -> Option<Vec<u8>> {
+    match algo {
+        KIC_ALGO_IMPLICIT | KID_ALGO_IMPLICIT => Some(Vec::new()),
+        KIC_ALGO_DES_CBC | KID_ALGO_DES_CBC => Some(vec![0u8; 8]),
+        KIC_ALGO_3DES_CBC_2KEYS | KID_ALGO_3DES_CBC_2KEYS => Some(vec![0u8; 16]),
+        KIC_ALGO_3DES_CBC_3KEYS | KID_ALGO_3DES_CBC_3KEYS => Some(vec![0u8; 24]),
+        _ => None,
+    }
+}
+
+fn collect_por(
+    crackable: &mut Vec<CrackablePor>,
+    tar_value: u32,
+    keyset: u8,
+    profile: Option<u8>,
+    mechanism: (u8, u8),
+    request_por: bool,
+    cipher_por: bool,
+    response: &[u8],
+) {
+    // Possibly crackable PoR material: a PoR was requested and the card
+    // returned response data (beyond the status word) carrying a signed or
+    // encrypted status packet. Collected for offline analysis, not cracked.
+    if !request_por || response.len() <= 2 {
+        return;
+    }
+    crackable.push(CrackablePor {
+        tar: tar_value,
+        keyset,
+        profile,
+        mechanism,
+        response: hex::encode(response),
+        reason: if cipher_por { "encrypted" } else { "signed" },
+    });
 }
 
 /// Runs the OTA/SMS fuzz sweep over one card.
@@ -1022,21 +1215,18 @@ pub fn audit_with<S: CardSession + ?Sized>(
     policy: &Policy,
     interrupt: &mut dyn FnMut() -> bool,
 ) -> Result<Audit, tar::Error> {
-    let tar_list: Vec<u32> = if sweep.poke {
-        POKE_TARS.to_vec()
-    } else {
-        tars(sweep.quick)
-    };
-    let (keysets, mechanisms) = keysets_and_mechanisms(sweep);
-    let keysets = overrides.keysets(keysets);
-    let mechanisms = overrides.mechanisms(mechanisms);
+    let typed = typed_tars(sweep);
+    let tar_list: Vec<u32> = typed.iter().map(|(t, _)| *t).collect();
+    let tar_kinds: Vec<TarKind> = typed.iter().map(|(_, k)| *k).collect();
+
+    let (keysets_src, mechanisms_src) = keysets_and_mechanisms(sweep);
+    let keysets = overrides.keysets(keysets_src);
+    let mechanisms = overrides.mechanisms(mechanisms_src);
     let keysets = keysets.as_slice();
     let mechanisms = mechanisms.as_slice();
 
     // 1. Calibration: the TAR audit's own baseline TARs, at keyset 0 and the
-    // first mechanism, which is enough to tell "this card answers everything
-    // alike" apart from "this card has an opinion" before the sweep spends
-    // its budget finding out triple by triple.
+    // first mechanism, with the default (RFM) user data.
     let mut calibration = calibrate(
         session,
         sweep.class,
@@ -1047,11 +1237,8 @@ pub fn audit_with<S: CardSession + ?Sized>(
     )?;
     let mut baseline = Baseline::of(&calibration);
 
-    // 1b. Issue #211: a generic error (`6F 00` and kin) is a blind spot, the
-    // card has not processed the envelopes because no TERMINAL PROFILE was
-    // sent yet. So the sweep sends one itself, once, and calibrates again.
-    // Only on that blind spot: a card that already judges envelopes is swept
-    // exactly as before, with no CAT state change.
+    // 1b. Issue #211: a generic error is a blind spot; send TERMINAL PROFILE
+    // once and calibrate again.
     let mut terminal_profile = None;
     if baseline.generic_error().is_some() {
         terminal_profile = Some(tar::send_terminal_profile(session, sweep.class, policy)?);
@@ -1066,62 +1253,164 @@ pub fn audit_with<S: CardSession + ?Sized>(
         baseline = Baseline::of(&calibration);
     }
 
-    // 2. The sweep itself, TAR outer, keyset middle, mechanism inner, capped
-    // and halted on the first sign the card is not answering coherently -
-    // the same "abandon rather than guess" rule tar.rs's probe loop follows.
     let mut probes = Vec::new();
+    let mut crackable_por = Vec::new();
     let mut stopped: Option<String> = None;
     let mut triples_seen = 0usize;
-    'sweep: for &tar_value in &tar_list {
-        for &keyset in keysets {
-            for &mechanism in mechanisms {
-                triples_seen += 1;
-                if probes.len() == MAX_PROBES {
-                    stopped = Some(format!(
-                        "the probe budget of {MAX_PROBES} triples was reached"
-                    ));
-                    break 'sweep;
-                }
-                if interrupt() {
-                    stopped = Some("the sweep was interrupted".to_owned());
-                    break 'sweep;
-                }
-                match probe_triple(
-                    session,
-                    tar_value,
-                    keyset,
-                    mechanism,
-                    sweep.class,
-                    overrides,
-                    policy,
-                ) {
-                    Ok(Ok((signature, _))) => {
-                        let accepted = !baseline.refuses(&signature);
-                        probes.push(Probe {
-                            tar: tar_value,
-                            keyset,
-                            mechanism,
-                            accepted,
-                            status: signature.status(),
-                        });
-                    }
-                    Ok(Err(reason)) => {
-                        stopped = Some(format!("the card stopped answering envelopes: {reason}"));
-                        break 'sweep;
-                    }
-                    Err(tar::Error::Transport(reason)) => {
+
+    if sweep.matrix {
+        // 17-profile FuzzerData matrix (issue #103): enumerate each profile per
+        // (TAR, keyset). Crypto profiles are built with zero keys of the
+        // required length when real keys are unavailable.
+        'sweep_m: for (i, &tar_value) in tar_list.iter().enumerate() {
+            let kind = tar_kinds[i];
+            let ud = kind.user_data();
+            for &keyset in keysets {
+                for spec in &FUZZERS {
+                    triples_seen += 1;
+                    if probes.len() == MAX_PROBES {
                         stopped = Some(format!(
-                            "the reader stopped answering part way through: {reason}"
+                            "the probe budget of {MAX_PROBES} triples was reached"
+                        ));
+                        break 'sweep_m;
+                    }
+                    if interrupt() {
+                        stopped = Some("the sweep was interrupted".to_owned());
+                        break 'sweep_m;
+                    }
+                    let spi1 = ((spec.counter << 3) & 0x18)
+                        | if spec.kic_algo != KIC_ALGO_IMPLICIT { 0x04 } else { 0 }
+                        | if spec.kid_algo != KID_ALGO_IMPLICIT { 0x02 } else { 0 };
+                    let mech = (spi1, spec.spi2());
+                    let packet = if spec.needs_crypto() {
+                        let Some(kic_key) = zero_key_for_algo(spec.kic_algo) else { continue };
+                        let Some(kid_key) = zero_key_for_algo(spec.kid_algo) else { continue };
+                        let counter = u8::from(spec.counter != CNTR_NO_CNTR_AVAILABLE);
+                        match spec.secured_command_packet_with_ud(
+                            tar_value, keyset, &kic_key, &kid_key, counter, ud,
+                        ) {
+                            Ok(p) => p,
+                            Err(_) => continue,
+                        }
+                    } else {
+                        match spec.command_packet_with_ud(tar_value, keyset, ud) {
+                            Some(p) => p,
+                            None => continue,
+                        }
+                    };
+                    match probe_packet(session, &packet, sweep.class, policy) {
+                        Ok(Ok((signature, _, response))) => {
+                            let accepted = !baseline.refuses(&signature);
+                            collect_por(
+                                &mut crackable_por,
+                                tar_value,
+                                keyset,
+                                Some(spec.id),
+                                mech,
+                                spec.request_por,
+                                spec.cipher_por,
+                                &response,
+                            );
+                            probes.push(Probe {
+                                tar: tar_value,
+                                keyset,
+                                mechanism: mech,
+                                accepted,
+                                status: signature.status(),
+                                kind: Some(kind),
+                                profile: Some(spec.id),
+                                response_hex: if spec.request_por && response.len() > 2 {
+                                    Some(hex::encode(&response))
+                                } else {
+                                    None
+                                },
+                            });
+                        }
+                        Ok(Err(reason)) => {
+                            stopped = Some(format!("the card stopped answering envelopes: {reason}"));
+                            break 'sweep_m;
+                        }
+                        Err(tar::Error::Transport(reason)) => {
+                            stopped = Some(format!(
+                                "the reader stopped answering part way through: {reason}"
+                            ));
+                            break 'sweep_m;
+                        }
+                        Err(other) => return Err(other),
+                    }
+                }
+            }
+        }
+    } else {
+        'sweep: for (i, &tar_value) in tar_list.iter().enumerate() {
+            let kind = tar_kinds[i];
+            let ud = kind.user_data();
+            for &keyset in keysets {
+                for &mechanism in mechanisms {
+                    triples_seen += 1;
+                    if probes.len() == MAX_PROBES {
+                        stopped = Some(format!(
+                            "the probe budget of {MAX_PROBES} triples was reached"
                         ));
                         break 'sweep;
                     }
-                    Err(other) => return Err(other),
+                    if interrupt() {
+                        stopped = Some("the sweep was interrupted".to_owned());
+                        break 'sweep;
+                    }
+                    match probe_triple_ud(
+                        session, tar_value, keyset, mechanism, ud, sweep.class, overrides, policy,
+                    ) {
+                        Ok(Ok((signature, _, response))) => {
+                            let accepted = !baseline.refuses(&signature);
+                            let por_requested = mechanism.1 & 0x01 != 0;
+                            collect_por(
+                                &mut crackable_por,
+                                tar_value,
+                                keyset,
+                                None,
+                                mechanism,
+                                por_requested,
+                                false,
+                                &response,
+                            );
+                            probes.push(Probe {
+                                tar: tar_value,
+                                keyset,
+                                mechanism,
+                                accepted,
+                                status: signature.status(),
+                                kind: Some(kind),
+                                profile: None,
+                                response_hex: if por_requested && response.len() > 2 {
+                                    Some(hex::encode(&response))
+                                } else {
+                                    None
+                                },
+                            });
+                        }
+                        Ok(Err(reason)) => {
+                            stopped = Some(format!("the card stopped answering envelopes: {reason}"));
+                            break 'sweep;
+                        }
+                        Err(tar::Error::Transport(reason)) => {
+                            stopped = Some(format!(
+                                "the reader stopped answering part way through: {reason}"
+                            ));
+                            break 'sweep;
+                        }
+                        Err(other) => return Err(other),
+                    }
                 }
             }
         }
     }
 
-    let total_triples = tar_list.len() * keysets.len() * mechanisms.len();
+    let total_triples = if sweep.matrix {
+        tar_list.len() * keysets.len() * FUZZERS.len()
+    } else {
+        tar_list.len() * keysets.len() * mechanisms.len()
+    };
     let exhausted = stopped.is_none() && triples_seen >= total_triples;
 
     Ok(Audit {
@@ -1131,6 +1420,7 @@ pub fn audit_with<S: CardSession + ?Sized>(
         exhausted,
         stopped,
         terminal_profile,
+        crackable_por,
     })
 }
 
@@ -1162,39 +1452,64 @@ fn calibrate<S: CardSession + ?Sized>(
 /// A namespaced rule ID: `fuzz/ota-mechanism-accepted`.
 pub const OTA_MECHANISM_ACCEPTED_RULE: &str = "fuzz/ota-mechanism-accepted";
 
+/// A namespaced rule ID: `fuzz/crackable-por-material`.
+pub const CRACKABLE_POR_RULE: &str = "fuzz/crackable-por-material";
+
 /// The [`crate::rules::RuleSpec`] for [`OTA_MECHANISM_ACCEPTED_RULE`], so
 /// `sim-doctor rules list`/`rules explain` know about it without a card.
 pub fn specs() -> Vec<crate::rules::RuleSpec> {
-    vec![crate::rules::RuleSpec::new(
-        crate::rules::RuleId::new(OTA_MECHANISM_ACCEPTED_RULE).expect("a validated constant"),
-        crate::rules::Severity::High,
-        "the card answered a (TAR, keyset, mechanism) OTA triple differently from the way it \
-         answers triples it has no opinion about, under an explicit opt-in sweep",
-    )
-    .with_remediation(
-        "confirm this TAR/keyset/mechanism combination is one this card is meant to accept; if \
-         not, tighten the TAR allow-list or the keyset's SPI requirements and re-run with \
-         --i-understand-this-can-brick-the-card against the software card only",
-    )
-    .with_cwe("CWE-757")
-    .with_reference("ETSI TS 102 225 clauses 5.1.1 and 5.1.2 (SPI, security mechanisms)")]
+    vec![
+        crate::rules::RuleSpec::new(
+            crate::rules::RuleId::new(OTA_MECHANISM_ACCEPTED_RULE).expect("a validated constant"),
+            crate::rules::Severity::High,
+            "the card answered a (TAR, keyset, mechanism) OTA triple differently from the way it \
+             answers triples it has no opinion about, under an explicit opt-in sweep",
+        )
+        .with_remediation(
+            "confirm this TAR/keyset/mechanism combination is one this card is meant to accept; if \
+             not, tighten the TAR allow-list or the keyset's SPI requirements and re-run with \
+             --i-understand-this-can-brick-the-card against the software card only",
+        )
+        .with_cwe("CWE-757")
+        .with_reference("ETSI TS 102 225 clauses 5.1.1 and 5.1.2 (SPI, security mechanisms)"),
+        crate::rules::RuleSpec::new(
+            crate::rules::RuleId::new(CRACKABLE_POR_RULE).expect("a validated constant"),
+            crate::rules::Severity::Medium,
+            "the card returned a signed or encrypted Proof-of-Receipt (PoR) response that may be \
+             crackable offline (cryptographic checksum or encrypted response material collected \
+             for analysis, not cracked in-tool)",
+        )
+        .with_remediation(
+            "review the collected PoR material offline; ensure OTA security uses strong algorithms, \
+             fresh counters, and keys not susceptible to offline recovery",
+        )
+        .with_cwe("CWE-326")
+        .with_reference("ETSI TS 102 225 / TS 102 226 (Proof of Receipt, security mechanisms)"),
+    ]
 }
 
-/// Findings for every accepted triple in `audit`.
+/// Findings for every accepted triple and every piece of crackable PoR
+/// material in `audit`.
 ///
 /// One finding per accepted triple, [`crate::rules::Location::tar`] addressed
 /// (the TAR is the part of the triple a baseline and a TAR audit both already
 /// address), with the keyset and mechanism folded into the message so a
 /// reader does not have to cross-reference `data.fuzz.ota.accepted` to know
-/// which one fired.
+/// which one fired. Possibly crackable PoR material is listed as a separate
+/// security finding for offline analysis (issue #103).
 pub fn findings(audit: &Audit) -> Vec<crate::rules::Finding> {
     use crate::rules::{Evidence, Finding, Location, RuleId, Severity};
     let rule = RuleId::new(OTA_MECHANISM_ACCEPTED_RULE).expect("a validated constant");
+    let por_rule = RuleId::new(CRACKABLE_POR_RULE).expect("a validated constant");
     let mut found: Vec<Finding> = audit
         .accepted()
         .map(|probe| {
+            let kind = probe
+                .kind
+                .map(|k| format!(" ({})", k.id()))
+                .unwrap_or_default();
             let message = format!(
-                "TAR {} accepted a mechanism SPI1={:02X} SPI2={:02X} under keyset {} that \
+                "TAR {}{kind} accepted a mechanism SPI1={:02X} SPI2={:02X} under keyset {} that \
                  differs from this card's baseline answer",
                 tar::hex(probe.tar),
                 probe.mechanism.0,
@@ -1214,6 +1529,27 @@ pub fn findings(audit: &Audit) -> Vec<crate::rules::Finding> {
             )
         })
         .collect();
+    for item in &audit.crackable_por {
+        let profile = item
+            .profile
+            .map(|p| format!(" profile {p}"))
+            .unwrap_or_default();
+        let message = format!(
+            "TAR {} returned possibly crackable {} PoR material{profile} (keyset {}, SPI1={:02X} SPI2={:02X}); collected for offline analysis",
+            tar::hex(item.tar),
+            item.reason,
+            item.keyset,
+            item.mechanism.0,
+            item.mechanism.1,
+        );
+        found.push(Finding::new(
+            por_rule.clone(),
+            Severity::Medium,
+            message,
+            Location::tar(item.tar),
+            Evidence::text(item.response.clone()),
+        ));
+    }
     if !audit.is_complete() {
         found = found
             .into_iter()
@@ -1545,6 +1881,8 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
+                ..Sweep::default(),
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1564,6 +1902,8 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
+                ..Sweep::default(),
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1659,8 +1999,9 @@ mod tests {
         };
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default()
-        };
+            ..Sweep::default(),
+                ..Sweep::default()
+            };
         let audit =
             audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
 
@@ -1684,8 +2025,9 @@ mod tests {
         let mut card = Scripted::cycling(&[&[0x94, 0x04]]);
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default()
-        };
+            ..Sweep::default(),
+                ..Sweep::default()
+            };
         let audit =
             audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
 
@@ -1697,8 +2039,9 @@ mod tests {
     #[test]
     fn specs_register_the_rule_id() {
         let specs = specs();
-        assert_eq!(specs.len(), 1);
+        assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].id().as_str(), OTA_MECHANISM_ACCEPTED_RULE);
+        assert_eq!(specs[1].id().as_str(), CRACKABLE_POR_RULE);
     }
 
     fn envelope(kind: &str, probes: Value) -> String {
@@ -1825,6 +2168,7 @@ mod tests {
                 quick: false,
                 poke: true,
                 class: Class::Etsi,
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1851,6 +2195,7 @@ mod tests {
                 quick: false,
                 poke: true,
                 class: Class::Etsi,
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1870,6 +2215,7 @@ mod tests {
                 quick: false,
                 poke: true,
                 class: Class::Etsi,
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1910,6 +2256,8 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
+                ..Sweep::default(),
+                ..Sweep::default()
             },
             overrides,
             &Policy::default(),
@@ -2022,6 +2370,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Gsm,
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -2052,7 +2401,8 @@ mod tests {
                     quick: true,
                     poke: false,
                     class,
-                },
+                ..Sweep::default()
+            },
                 &Policy::default(),
                 &mut || false,
             )
