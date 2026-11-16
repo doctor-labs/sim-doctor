@@ -3025,6 +3025,14 @@ struct ScanArgs {
     /// A face in plain text without colour, for CI and pipes.
     #[arg(long, conflicts_with_all = ["json", "tui", "face"])]
     headless: bool,
+
+    /// Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default).
+    /// Identifiers and file contents are redacted before sending.
+    #[arg(long, value_name = "URL")]
+    submit: Option<String>,
+    /// PEM trust anchor for --submit (certificate pinning / explicit CA).
+    #[arg(long, value_name = "PEM", requires = "submit")]
+    submit_ca: Option<String>,
 }
 
 /// `readers` takes no card, only the switch for a JSON envelope.
