@@ -388,9 +388,10 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-key-file -d 'File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-key-env -d 'Environment variable holding the DAP keys' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-domain -d 'The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated' -r
-complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-alg -d 'The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)' -r -f -a "aes\t'AES-CMAC (B.2.2): a 16 byte signature'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-alg -d 'The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding are unavailable here' -r -f -a "aes\t'AES-CMAC (B.2.2): a 16 byte signature'
 des\t'Single DES plus final triple DES MAC (B.1.2.2): an 8 byte signature'
-ecc\t'ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes'"
+ecc\t'ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes'
+rsa\t'RSA DAP (B.3.1.1/B.3.2.1): recognized but not implemented for signing in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS)'"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-hash -d 'The Load File Data Block Hash the DAP signs' -r -f -a "sha256\t''
 sha384\t''
 sha512\t''"

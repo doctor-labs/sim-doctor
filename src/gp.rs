@@ -946,6 +946,11 @@ pub enum KeyError {
     /// A DAP key that is not hex of the length its scheme takes (Table C-1).
     #[error("the DAP key is not hex of the length its scheme takes (AES 16, 24 or 32 bytes; DES 16 bytes; ECC 32 bytes), optionally followed by /KCV of 6 hex digits")]
     DapFormat,
+    /// An RSA DAP key was requested, but this crate cannot produce an RSA DAP
+    /// signature (RSASSA-PKCS1-v1_5 / RSASSA-PSS) and does not define an RSA
+    /// private-key encoding for signing.
+    #[error("RSA DAP signing is not implemented in this crate (C.3, B.3.1.1/B.3.2.1 require RSASSA-PKCS1-v1_5 or RSASSA-PSS and RSA arithmetic not available here); nothing was signed")]
+    RsaNotImplemented,
     /// The stated KCV is not the KCV of the key.
     #[error(
         "key {index}: its key check value is {computed} but {stated} was stated, so the key or \
@@ -1147,11 +1152,13 @@ fn read_key_text(source: KeySource<'_>) -> Result<String, KeyError> {
 /// and key length loaded for the operation (the sentence above Table C-1).
 ///
 /// RSA (Table C-1: an RSA public key, 1024 bits for Scheme 1, longer for
-/// Scheme 2) is deliberately not here. C.3 -> B.3.1.1 (RSASSA-PKCS1-v1_5 with
-/// SHA-1) and B.3.2.1 (RSASSA-PSS with SHA-256, MGF1-SHA256, salt of the hash
-/// length, trailer BC) both need RSA arithmetic, which this crate does not have,
-/// and adding a crate is not allowed. A DAP that needs RSA is not produced here
-/// rather than signed with something else.
+/// Scheme 2) is represented as [`Self::Rsa`] so the scheme can be named, but
+/// this crate cannot sign RSASSA-PKCS1-v1_5 with SHA-1 (B.3.1.1) or RSASSA-PSS
+/// with SHA-256, MGF1-SHA256, salt of the hash length, trailer BC (B.3.2.1):
+/// RSA arithmetic and an unambiguous private-key encoding are not available
+/// here, and adding a cryptography crate is not in scope. Loading or using an
+/// RSA DAP key is therefore refused with an explicit error rather than
+/// producing a signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DapScheme {
     /// AES-CMAC, a 16 byte signature (C.3 -> B.2.2, NIST SP 800-38B). Key type
@@ -1168,6 +1175,11 @@ pub enum DapScheme {
     /// the concatenation of r and s, not DER). Key type `B1`, 32 bytes (Table
     /// C-1: an ECC key of at least 256 bits).
     Ecc,
+    /// RSA, key type `A0` (Table C-1): Scheme 1 uses RSASSA-PKCS1-v1_5 with
+    /// SHA-1 (B.3.1.1, 1024-bit keys), Scheme 2 uses RSASSA-PSS with SHA-256,
+    /// MGF1-SHA256, salt of the hash length, trailer BC (B.3.2.1, longer
+    /// keys). **Not implemented for signing in this crate.**
+    Rsa,
 }
 
 impl DapScheme {
@@ -1177,6 +1189,7 @@ impl DapScheme {
             Self::Aes => "aes",
             Self::Des => "des",
             Self::Ecc => "ecc",
+            Self::Rsa => "rsa",
         }
     }
 
@@ -1187,15 +1200,18 @@ impl DapScheme {
             Self::Aes => "AES-CMAC over the Load File Data Block Hash (C.3, B.2.2)",
             Self::Des => "Retail MAC (single DES plus final triple DES MAC) over the Load File Data Block Hash padded per B.1.3 (C.3, B.1.2.2)",
             Self::Ecc => "ECDSA over P-256 with SHA-256, plain r||s, over the Load File Data Block Hash (C.3, B.4.3, Table B-3)",
+            Self::Rsa => "RSA DAP (C.3, B.3.1.1/B.3.2.1): RSASSA-PKCS1-v1_5 with SHA-1 (Scheme 1) or RSASSA-PSS with SHA-256 (Scheme 2); signing is not implemented in this crate",
         }
     }
 
-    /// The key lengths in bytes Table C-1 gives for this scheme.
+    /// The key lengths in bytes Table C-1 gives for this scheme. RSA key
+    /// material for signing is not accepted here, so no lengths are listed.
     pub fn key_lengths(self) -> &'static [usize] {
         match self {
             Self::Aes => &[16, 24, 32],
             Self::Des => &[16],
             Self::Ecc => &[32],
+            Self::Rsa => &[],
         }
     }
 }
@@ -1213,6 +1229,11 @@ fn key_tokens(text: &str) -> Vec<&str> {
 /// One DAP key token: hex, optionally `KEY/KCV` for a key that has a key check
 /// value.
 fn parse_one_key(scheme: DapScheme, token: &str) -> Result<DapKey, KeyError> {
+    if scheme == DapScheme::Rsa {
+        // RSA signing (B.3.1.1/B.3.2.1) and an RSA private-key encoding for
+        // DAP are not implemented in this crate; refuse before touching the card.
+        return Err(KeyError::RsaNotImplemented);
+    }
     let (key_hex, kcv_hex) = match token.split_once('/') {
         Some((k, c)) => (k, Some(c)),
         None => (token, None),
@@ -1224,7 +1245,7 @@ fn parse_one_key(scheme: DapScheme, token: &str) -> Result<DapKey, KeyError> {
     let kcv = match scheme {
         DapScheme::Aes => Some(aes_kcv(&key).expect("16, 24 or 32 bytes")),
         DapScheme::Des => Some(des_kcv(&key).expect("16 bytes")),
-        DapScheme::Ecc => None,
+        DapScheme::Ecc | DapScheme::Rsa => None,
     };
     if let Some(kcv_hex) = kcv_hex {
         let want = hex::decode(kcv_hex)
@@ -1369,7 +1390,7 @@ impl DapKey {
         match self.scheme {
             DapScheme::Aes => Some(aes_kcv(&self.bytes).expect("16, 24 or 32 bytes")),
             DapScheme::Des => Some(des_kcv(&self.bytes).expect("16 bytes")),
-            DapScheme::Ecc => None,
+            DapScheme::Ecc | DapScheme::Rsa => None,
         }
     }
 }
@@ -4770,6 +4791,11 @@ pub struct DapRequest {
 /// The Load File Data Block Signature of a DAP key (GP Card Spec v2.3.1 C.3), as
 /// many bytes as C.3's algorithm for the key's scheme produces: 16 for
 /// AES-CMAC, 8 for the retail MAC, 64 for ECDSA `r || s`.
+///
+/// # Panics
+///
+/// Panics if called with an RSA DAP key: RSA signing is not implemented in this
+/// crate and RSA keys cannot be constructed by the parsing APIs.
 pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> Vec<u8> {
     match key.scheme {
         DapScheme::Aes => aes_cmac(&key.bytes, lfdbh).to_vec(),
@@ -4783,6 +4809,9 @@ pub fn dap_signature(key: &DapKey, lfdbh: &[u8]) -> Vec<u8> {
         )
         .expect("a parsed ECC DAP key is a usable P-256 scalar")
         .to_vec(),
+        DapScheme::Rsa => {
+            unreachable!("RSA DAP keys cannot be constructed: signing is not implemented")
+        }
     }
 }
 
@@ -11602,6 +11631,21 @@ mod tests {
             "DapKeys { .. }"
         );
         assert!(DapKeys::parse(DapScheme::Des, "").is_err());
+    }
+
+    #[test]
+    fn rsa_dap_scheme_is_recognized_but_refused() {
+        assert_eq!(DapScheme::Rsa.name(), "rsa");
+        assert!(DapScheme::Rsa.description().contains("not implemented"));
+        assert!(DapScheme::Rsa.key_lengths().is_empty());
+        assert_eq!(
+            DapKeys::parse(DapScheme::Rsa, DAP_KEY_HEX),
+            Err(KeyError::RsaNotImplemented)
+        );
+        assert_eq!(
+            DapKey::parse_scheme(DapScheme::Rsa, DAP_KEY_HEX),
+            Err(KeyError::RsaNotImplemented)
+        );
     }
 
     #[test]

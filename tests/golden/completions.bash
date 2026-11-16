@@ -4670,7 +4670,7 @@ _sim__doctor() {
                     return 0
                     ;;
                 --dap-alg)
-                    COMPREPLY=($(compgen -W "aes des ecc" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "aes des ecc rsa" -- "${cur}"))
                     return 0
                     ;;
                 --dap-hash)

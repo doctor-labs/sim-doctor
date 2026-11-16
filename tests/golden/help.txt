@@ -842,7 +842,7 @@ Options:
       --dap-key-file <PATH>     File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)
       --dap-key-env <VAR>       Environment variable holding the DAP keys
       --dap-domain <HEX>        The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated
-      --dap-alg <DAP_ALG>       The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1) [default: aes] [possible values: aes, des, ecc]
+      --dap-alg <DAP_ALG>       The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding are unavailable here [default: aes] [possible values: aes, des, ecc, rsa]
       --dap-hash <DAP_HASH>     The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha256, sha384, sha512]
       --dm-key-file <PATH>      File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)
       --dm-key-env <VAR>        Environment variable holding the AES token calculation key
