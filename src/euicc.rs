@@ -2254,6 +2254,90 @@ pub fn raw_to_human(data: &Value) -> String {
     ));
     out
 }
+/// ES10 data read from an eUICC for scan rules: EUICCInfo1/2, configured
+/// addresses and the profile list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    /// `EUICCInfo1`.
+    pub info1: es10::EuiccInfo1,
+    /// `EUICCInfo2`.
+    pub info2: es10::EuiccInfo2,
+    /// Default SM-DP+ and root SM-DS addresses.
+    pub addresses: es10::ConfiguredAddresses,
+    /// Every profile as GetProfilesInfo reports it.
+    pub profiles: Vec<es10::ProfileInfo>,
+}
+
+/// Reads EUICCInfo1/2, configured addresses and the profile list from the
+/// ISD-R. Returns `Ok(None)` when the card is not an eUICC.
+///
+/// # Errors
+///
+/// A [`Failure`] when a read or decode fails after the ISD-R was selected.
+pub fn snapshot<S: CardSession + ?Sized>(
+    session: &mut S,
+    aid: &[u8],
+) -> Result<Option<Snapshot>, Failure> {
+    let (channel, open) = session::open_channel(session).map_err(exchange_failed)?;
+    let Some(channel) = channel else {
+        return Ok(None);
+    };
+    let result = (|| {
+        let policy = Policy {
+            get_response_class: channel_cla(false, channel),
+            proactive_command: PendingFollowUp::Ignore,
+            ..Policy::default()
+        };
+        let select = Command::case4(
+            Header::new(channel_cla(false, channel), 0xA4, 0x04, 0x00),
+            aid,
+            Le::Short(0),
+        );
+        let ex = session::send(session, &select, &policy).map_err(exchange_failed)?;
+        if !ex.is_success() {
+            return Ok(None);
+        }
+        let cla = channel_cla(true, channel);
+        let mut ask = |what: &'static str, request: Vec<u8>| -> Result<Vec<u8>, Failure> {
+            let sent =
+                es10::store_data_sized(session, cla, &request, DEFAULT_MAX_SEGMENT, &policy)
+                    .map_err(exchange_failed)?;
+            let last = sent.exchanges.last();
+            if !sent.complete || !last.is_some_and(session::Exchange::is_success) {
+                return Err(Failure::new(
+                    "es10-refused",
+                    format!(
+                        "the ISD-R refused {what} (status {})",
+                        last.map_or(Value::Null, status_hex)
+                            .as_str()
+                            .unwrap_or("none")
+                    ),
+                    json!({ "function": what }),
+                ));
+            }
+            Ok(sent.data().to_vec())
+        };
+        let info1 = es10::decode_euicc_info1(&ask("GetEuiccInfo1", es10::get_euicc_info1_request())?)
+            .map_err(|e| bad("GetEuiccInfo1", e))?;
+        let info2 = es10::decode_euicc_info2(&ask("GetEuiccInfo2", es10::get_euicc_info2_request())?)
+            .map_err(|e| bad("GetEuiccInfo2", e))?;
+        let addresses = es10::decode_configured_addresses(&ask(
+            "GetEuiccConfiguredAddresses",
+            es10::get_euicc_configured_addresses_request(),
+        )?)
+        .map_err(|e| bad("GetEuiccConfiguredAddresses", e))?;
+        let profiles = read_profiles(&mut ask)?;
+        Ok(Some(Snapshot {
+            info1,
+            info2,
+            addresses,
+            profiles,
+        }))
+    })();
+    let _ = session::close_channel(session, channel);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

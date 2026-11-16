@@ -279,6 +279,7 @@ fn scan_card(
         tree: &tree,
         tar: &audit,
         scp03: None,
+        euicc: None,
     })
     .expect("rules");
     let mut verdict = Verdict::new(found, scan::rules_run())

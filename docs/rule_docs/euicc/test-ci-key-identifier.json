@@ -1,0 +1,8 @@
+{
+  "id": "euicc/test-ci-key-identifier",
+  "severity": "high",
+  "description": "the eUICC advertises a known test CI public key identifier",
+  "remediation": "replace test CI public key identifiers with production GSMA CI keys appropriate for the deployment; a production eUICC must not trust test CI certificates for profile verification or signing",
+  "cwe": "CWE-295",
+  "reference": "GSMA SGP.22 (euiccCiPKIdListForVerification/Signing); GSMA SGP.26 test PKI"
+}
