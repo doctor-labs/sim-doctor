@@ -1976,11 +1976,8 @@ mod tests {
                         match behaviour {
                             Behaviour::Card(mut card) => {
                                 card.sent = log;
-                                Ok((
-                                    card as Box<dyn CardSession>,
-                                    "test card".to_owned(),
-                                    Some(vec![0x3B, 0x9F]),
-                                ))
+                                let card: Box<dyn CardSession> = card;
+                                Ok((card, "test card".to_owned(), Some(vec![0x3B, 0x9F])))
                             }
                             Behaviour::NoCard => Err("no card in the reader".to_owned()),
                         }
@@ -3066,8 +3063,9 @@ mod tests {
                     card.sent = log.clone();
                     collected.borrow_mut().push(log);
                     let _ = (&a, &b);
+                    let card: Box<dyn CardSession> = Box::new(card);
                     Ok((
-                        card as Box<dyn CardSession>,
+                        card,
                         requested.unwrap_or("test card").to_owned(),
                         Some(vec![0x3B, 0x9F]),
                     ))
