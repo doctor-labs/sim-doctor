@@ -1686,7 +1686,10 @@ impl Shell {
     /// (0x01 = SUCI, 0x02 = SUCI 5G NSWO), Le 0x00. Response is typically a TLV (tag A1).
     fn build_get_identity_command(cla: u8, nswo_context: bool) -> Command {
         let p2 = if nswo_context { 0x02 } else { 0x01 };
-        Command::case2(apdu::Header::new(cla, 0x78, 0x00, p2), apdu::Le::Short(0x00))
+        Command::case2(
+            apdu::Header::new(cla, 0x78, 0x00, p2),
+            apdu::Le::Short(0x00),
+        )
     }
 
     /// Parse a GET IDENTITY response (TS 31.102 7.5). Returns a human-readable
@@ -8684,38 +8687,39 @@ mod file_management_tests {
 
     #[test]
     fn get_identity_builder_sets_ins_p1_p2_and_le() {
-        let suci = Shell::build_get_identity_command(0x80, false);
+        let suci = super::Shell::build_get_identity_command(0x80, false);
         assert_eq!(suci.encode().unwrap(), [0x80, 0x78, 0x00, 0x01, 0x00]);
-        let nswo = Shell::build_get_identity_command(0x84, true);
+        let nswo = super::Shell::build_get_identity_command(0x84, true);
         assert_eq!(nswo.encode().unwrap(), [0x84, 0x78, 0x00, 0x02, 0x00]);
     }
 
     #[test]
     fn get_identity_parser_handles_synthetic_fixtures() {
         // Empty
-        let (text, v) = Shell::parse_get_identity_response(&[]);
+        let (text, v) = super::Shell::parse_get_identity_response(&[]);
         assert!(text.contains("no data"), "{text}");
         assert_eq!(v["raw"], "");
 
         // A1 short-form TLV
-        let (text, v) = Shell::parse_get_identity_response(&[0xA1, 0x03, 0x01, 0x02, 0x03]);
+        let (text, v) = super::Shell::parse_get_identity_response(&[0xA1, 0x03, 0x01, 0x02, 0x03]);
         assert!(text.contains("A1 (len 3) 010203"), "{text}");
         assert_eq!(v["tlv_tag"], "A1");
         assert_eq!(v["tlv_length"], 3);
         assert_eq!(v["tlv_value"], "010203");
 
         // A1 definite long-form length (0x81, 0x03)
-        let (text, v) = Shell::parse_get_identity_response(&[0xA1, 0x81, 0x03, 0xAA, 0xBB, 0xCC]);
+        let (text, v) =
+            super::Shell::parse_get_identity_response(&[0xA1, 0x81, 0x03, 0xAA, 0xBB, 0xCC]);
         assert!(text.contains("A1 (len 3) AABBCC"), "{text}");
         assert_eq!(v["tlv_length"], 3);
         assert_eq!(v["tlv_value"], "AABBCC");
 
         // Truncated A1
-        let (text, _v) = Shell::parse_get_identity_response(&[0xA1, 0x05, 0x01]);
+        let (text, _v) = super::Shell::parse_get_identity_response(&[0xA1, 0x05, 0x01]);
         assert!(text.contains("truncated"), "{text}");
 
         // Non-A1 payload (some cards/apps may differ)
-        let (text, v) = Shell::parse_get_identity_response(&[0x00, 0x08, 0x09]);
+        let (text, v) = super::Shell::parse_get_identity_response(&[0x00, 0x08, 0x09]);
         assert!(text.contains("data 000809"), "{text}");
         assert_eq!(v["note"], "unexpected tag (expected A1)");
     }
