@@ -413,20 +413,14 @@ pub fn personalize(bytes: &[u8], doc: &PersonalizationDoc) -> Result<Vec<u8>, Er
 
         // Apply personalization to known PE types
         match elem.type_name.as_str() {
-            "header" => {
-                if doc.iccid.is_some() || doc.profile_type.is_some() {
-                    raw = personalize_header(&raw, doc)?;
-                }
+            "header" if doc.iccid.is_some() || doc.profile_type.is_some() => {
+                raw = personalize_header(&raw, doc)?;
             }
-            "pinCodes" => {
-                if doc.pins.is_some() {
-                    raw = personalize_pin_codes(&raw, doc)?;
-                }
+            "pinCodes" if doc.pins.is_some() => {
+                raw = personalize_pin_codes(&raw, doc)?;
             }
-            "pukCodes" => {
-                if doc.puks.is_some() {
-                    raw = personalize_puk_codes(&raw, doc)?;
-                }
+            "pukCodes" if doc.puks.is_some() => {
+                raw = personalize_puk_codes(&raw, doc)?;
             }
             _ => {}
         }
