@@ -634,7 +634,9 @@ impl Doctor for SimDoctor {
                     true,
                     run.submit_ca.as_deref(),
                 ) {
-                    Ok(_) => eprintln!("sim-doctor: submitted anonymized scan envelope to {endpoint}"),
+                    Ok(_) => {
+                        eprintln!("sim-doctor: submitted anonymized scan envelope to {endpoint}")
+                    }
                     Err(err) => eprintln!("sim-doctor: scan submission failed: {err}"),
                 }
             }

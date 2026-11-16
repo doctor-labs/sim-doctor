@@ -106,11 +106,11 @@
 #![deny(missing_docs)]
 
 pub mod access;
+pub mod activation;
 pub mod aka;
 pub mod apdu;
 pub mod apdu_fuzz;
 pub mod apdu_scan;
-pub mod activation;
 pub mod backend;
 pub mod baseline;
 pub mod batch;
@@ -398,6 +398,26 @@ pub const MODULES: &[ModuleInfo] = &[
         name: es10::NAME,
         owns: "ES10x (SGP.22 v2.5): generic STORE DATA segmentation and response reassembly, and the ES10b/ES10c request encoders and typed response decoders; sends nothing unless a caller hands it a session.",
         depends_on: &[apdu::NAME, transport::NAME, session::NAME],
+    },
+    ModuleInfo {
+        name: es9::NAME,
+        owns: "ES9+ (SGP.22): the JSON-over-HTTPS message layer to an SM-DP+ (address validation, request bodies, response checking and base64 payload decoding) over a caller-supplied transport; sends nothing itself.",
+        depends_on: &[es10::NAME],
+    },
+    ModuleInfo {
+        name: es9_https::NAME,
+        owns: "The HTTPS ES9+ transport: the only code that opens a network socket for ES9+, with TLS verification always on and configurable trust anchors; off until a command explicitly needs it.",
+        depends_on: &[es9::NAME],
+    },
+    ModuleInfo {
+        name: activation::NAME,
+        owns: "SGP.22 activation code parsing (LPA:1$...): SM-DP+ address, matching ID and confirmation-code requirement for a profile download; no network or card access.",
+        depends_on: &[es9::NAME],
+    },
+    ModuleInfo {
+        name: es11::NAME,
+        owns: "ES11 SM-DS discovery (SGP.22): query a root SM-DS for pending profile download events over a caller-supplied ES9 transport; no socket opened here.",
+        depends_on: &[es9::NAME],
     },
     ModuleInfo {
         name: euicc::NAME,

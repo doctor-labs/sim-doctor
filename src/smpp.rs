@@ -84,7 +84,8 @@ pub enum Error {
 
 fn read_exact_or_err(s: &mut TcpStream, n: usize) -> Result<Vec<u8>, Error> {
     let mut buf = vec![0u8; n];
-    s.read_exact(&mut buf).map_err(|e| Error::Io(e.to_string()))?;
+    s.read_exact(&mut buf)
+        .map_err(|e| Error::Io(e.to_string()))?;
     Ok(buf)
 }
 
@@ -214,13 +215,7 @@ pub fn serve_session(
                 let mut p = 0usize;
                 let system_id = read_c_string(body, &mut p).unwrap_or_default();
                 bound = true;
-                write_pdu(
-                    &mut stream,
-                    resp_id(cmd_id),
-                    ESME_ROK,
-                    seq,
-                    b"sim-doctor\0",
-                )?;
+                write_pdu(&mut stream, resp_id(cmd_id), ESME_ROK, seq, b"sim-doctor\0")?;
                 on_event(Event::Bound { system_id });
             }
             CMD_SUBMIT_SM => {

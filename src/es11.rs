@@ -20,7 +20,7 @@
 
 use serde_json::Value;
 
-use crate::es9::{Es9Transport, SmdpAddress, ADMIN_PROTOCOL, USER_AGENT, CONTENT_TYPE};
+use crate::es9::{Es9Transport, SmdpAddress, ADMIN_PROTOCOL, CONTENT_TYPE, USER_AGENT};
 
 /// This module's name.
 pub const NAME: &str = "es11";
@@ -87,7 +87,11 @@ pub fn discover(
         body.insert("euiccInfo1".to_string(), Value::String(i.to_string()));
     }
     let payload = Value::Object(body).to_string();
-    let url = format!("https://{}{}", smds.as_str(), "/gsma/rsp2/es11/initiateAuthentication");
+    let url = format!(
+        "https://{}{}",
+        smds.as_str(),
+        "/gsma/rsp2/es11/initiateAuthentication"
+    );
     let headers = [
         ("User-Agent", USER_AGENT),
         ("X-Admin-Protocol", ADMIN_PROTOCOL),
@@ -99,8 +103,8 @@ pub fn discover(
     if resp.status != 200 {
         return Err(Error::Transport(format!("HTTP {}", resp.status)));
     }
-    let raw: Value = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::Decode(e.to_string()))?;
+    let raw: Value =
+        serde_json::from_slice(&resp.body).map_err(|e| Error::Decode(e.to_string()))?;
     Ok(decode_discovery(raw))
 }
 
@@ -142,19 +146,36 @@ mod tests {
 
     struct Stub(Response);
     impl Es9Transport for Stub {
-        fn post(&mut self, _u: &str, _h: &[(&str, &str)], _b: &[u8]) -> Result<Response, TransportError> {
-            Ok(Response { status: self.0.status, headers: vec![], body: self.0.body.clone() })
+        fn post(
+            &mut self,
+            _u: &str,
+            _h: &[(&str, &str)],
+            _b: &[u8],
+        ) -> Result<Response, TransportError> {
+            Ok(Response {
+                status: self.0.status,
+                headers: vec![],
+                body: self.0.body.clone(),
+            })
         }
     }
 
     #[test]
     fn decodes_event_entries() {
-        let body = br#"{"eventEntries":[{"smdpAddress":"smdp.example.com","matchingId":"ABC"}]}"#.to_vec();
+        let body =
+            br#"{"eventEntries":[{"smdpAddress":"smdp.example.com","matchingId":"ABC"}]}"#.to_vec();
         let smds = SmdpAddress::parse("smds.example.com").unwrap();
-        let mut t = Stub(Response { status: 200, headers: vec![], body });
+        let mut t = Stub(Response {
+            status: 200,
+            headers: vec![],
+            body,
+        });
         let d = discover(&mut t, &smds, None, None).unwrap();
         assert_eq!(d.events.len(), 1);
-        assert_eq!(d.events[0].smdp_address.as_deref(), Some("smdp.example.com"));
+        assert_eq!(
+            d.events[0].smdp_address.as_deref(),
+            Some("smdp.example.com")
+        );
         assert_eq!(d.events[0].matching_id.as_deref(), Some("ABC"));
     }
 }

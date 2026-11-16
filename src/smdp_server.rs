@@ -247,7 +247,11 @@ fn write_response(stream: &mut std::net::TcpStream, resp: &HttpResponse) -> std:
 }
 
 /// Serve ES9+ (and placeholder ES2+) on `addr` until `stop` is set.
-pub fn serve<A: ToSocketAddrs>(addr: A, config: Config, stop: Arc<AtomicBool>) -> std::io::Result<()> {
+pub fn serve<A: ToSocketAddrs>(
+    addr: A,
+    config: Config,
+    stop: Arc<AtomicBool>,
+) -> std::io::Result<()> {
     let listener = std::net::TcpListener::bind(addr)?;
     listener.set_nonblocking(true)?;
     let mut state = ServerState::new(config);

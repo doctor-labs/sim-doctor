@@ -20,9 +20,9 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use std::path::PathBuf;
 use crate::es9::Es9Transport;
 use crate::es9_https::{HttpsConfig, HttpsTransport, Trust};
+use std::path::PathBuf;
 
 /// This module's name.
 pub const NAME: &str = "submit";
@@ -66,14 +66,31 @@ fn hash_value(kind: &str, v: &str) -> String {
 fn is_identifier_key(k: &str) -> bool {
     matches!(
         k,
-        "iccid" | "imsi" | "eid" | "msisdn" | "imei" | "imeisv"
-            | "impu" | "impi" | "ki" | "opc" | "op" | "acc"
-            | "spn" | "gid1" | "gid2" | "atr" | "serial"
+        "iccid"
+            | "imsi"
+            | "eid"
+            | "msisdn"
+            | "imei"
+            | "imeisv"
+            | "impu"
+            | "impi"
+            | "ki"
+            | "opc"
+            | "op"
+            | "acc"
+            | "spn"
+            | "gid1"
+            | "gid2"
+            | "atr"
+            | "serial"
     )
 }
 
 fn is_blob_key(k: &str) -> bool {
-    matches!(k, "data" | "bytes" | "hex" | "content" | "raw" | "value_hex" | "record_hex")
+    matches!(
+        k,
+        "data" | "bytes" | "hex" | "content" | "raw" | "value_hex" | "record_hex"
+    )
 }
 
 fn redact_value(v: &mut Value, key: &str) {
@@ -88,8 +105,6 @@ fn redact_value(v: &mut Value, key: &str) {
                     if let Some(val) = map.get_mut(&k) {
                         if let Some(s) = val.as_str() {
                             *val = Value::String(hash_value(&k, s));
-                        } else if val.is_array() || val.is_object() {
-                            *val = Value::String("<redacted>".to_string());
                         } else {
                             *val = Value::String("<redacted>".to_string());
                         }
@@ -143,7 +158,11 @@ pub fn submit_envelope(
     if !(url.starts_with("https://")) {
         return Err(Error::Endpoint("must be an https:// URL".to_string()));
     }
-    let body = if anonymize_first { anonymize(envelope.clone()) } else { envelope.clone() };
+    let body = if anonymize_first {
+        anonymize(envelope.clone())
+    } else {
+        envelope.clone()
+    };
     let bytes = serde_json::to_vec(&body).map_err(|e| Error::Serialize(e.to_string()))?;
 
     let config = if let Some(path) = pin_ca_file {
@@ -154,8 +173,8 @@ pub fn submit_envelope(
     } else {
         HttpsConfig::default()
     };
-    let mut transport = HttpsTransport::new(&config)
-        .map_err(|e| Error::Http(format!("transport: {e}")))?;
+    let mut transport =
+        HttpsTransport::new(&config).map_err(|e| Error::Http(format!("transport: {e}")))?;
     let resp = transport
         .post(url, &[("Content-Type", "application/json")], &bytes)
         .map_err(|e| Error::Http(e.to_string()))?;
@@ -176,7 +195,10 @@ mod tests {
             "data": { "eid": "89049032000001000000000000000001", "files": [{"iccid": "8986000000000000001"}] }
         });
         let out = anonymize(env);
-        assert_ne!(out["data"]["eid"].as_str().unwrap(), "89049032000001000000000000000001");
+        assert_ne!(
+            out["data"]["eid"].as_str().unwrap(),
+            "89049032000001000000000000000001"
+        );
         assert!(out["data"]["eid"].as_str().unwrap().starts_with("sha256:"));
     }
 }

@@ -64,7 +64,8 @@ impl ActivationCode {
         if parts.len() < 2 || parts.len() > 4 {
             return Err(Error::Shape);
         }
-        let smdp = SmdpAddress::parse(parts[0]).map_err(|e: es9::Error| Error::Smdp(e.to_string()))?;
+        let smdp =
+            SmdpAddress::parse(parts[0]).map_err(|e: es9::Error| Error::Smdp(e.to_string()))?;
         let matching_id = parts[1].trim().to_string();
         if matching_id.is_empty() {
             return Err(Error::EmptyMatchingId);
@@ -73,7 +74,9 @@ impl ActivationCode {
             .get(2)
             .map(|f| {
                 let f = f.trim();
-                f == "1" || f.eq_ignore_ascii_case("required") || f.eq_ignore_ascii_case("cc-required")
+                f == "1"
+                    || f.eq_ignore_ascii_case("required")
+                    || f.eq_ignore_ascii_case("cc-required")
             })
             .unwrap_or(false);
         Ok(Self {
@@ -115,6 +118,9 @@ mod tests {
 
     #[test]
     fn rejects_non_lpa() {
-        assert!(matches!(ActivationCode::parse("foo$bar$baz"), Err(Error::NotLpa)));
+        assert!(matches!(
+            ActivationCode::parse("foo$bar$baz"),
+            Err(Error::NotLpa)
+        ));
     }
 }
