@@ -1007,9 +1007,10 @@ _arguments "${_arguments_options[@]}" : \
 '--dap-key-file=[File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)]:PATH:_files' \
 '--dap-key-env=[Environment variable holding the DAP keys]:VAR:_default' \
 '*--dap-domain=[The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block\: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated]:HEX:_default' \
-'--dap-alg=[The signature scheme of every key (GP Card Spec v2.3.1 C.3)\: AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme\: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)]:DAP_ALG:((aes\:"AES-CMAC (B.2.2)\: a 16 byte signature"
+'--dap-alg=[The signature scheme of every key (GP Card Spec v2.3.1 C.3)\: AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding are unavailable here]:DAP_ALG:((aes\:"AES-CMAC (B.2.2)\: a 16 byte signature"
 des\:"Single DES plus final triple DES MAC (B.1.2.2)\: an 8 byte signature"
-ecc\:"ECDSA over P-256 with SHA-256 (B.4.3)\: plain \`r || s\`, 64 bytes"))' \
+ecc\:"ECDSA over P-256 with SHA-256 (B.4.3)\: plain \`r || s\`, 64 bytes"
+rsa\:"RSA DAP (B.3.1.1/B.3.2.1)\: recognized but not implemented for signing in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS)"))' \
 '--dap-hash=[The Load File Data Block Hash the DAP signs]:DAP_HASH:(sha256 sha384 sha512)' \
 '--dm-key-file=[File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
 '--dm-key-env=[Environment variable holding the AES token calculation key]:VAR:_default' \
@@ -1641,10 +1642,12 @@ esac
 ;;
 (trace)
 _arguments "${_arguments_options[@]}" : \
+'--bind=[UDP address to bind for --listen (default\: 127.0.0.1\:4729)]:ADDR:_default' \
 '--json[Emit one JSON envelope of kind "trace" on stdout]' \
 '--show-raw-apdu[Also print each exchange'\''s raw command and response hex in the table]' \
 '--no-suppress-select[Keep SELECT rows in the table. They are hidden by default, as in pySim-trace]' \
 '--no-suppress-status[Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace]' \
+'--listen[Listen for live GSMTAP SIM APDUs over UDP instead of reading a file]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '::file -- A trace file; stdin when omitted or "-":_default' \
@@ -2510,6 +2513,7 @@ _arguments "${_arguments_options[@]}" : \
 '--script=[Run the commands in this file, one per line (\`#\` starts a comment), and exit]:PATH:_files' \
 '(-c --script)--read-csv=[Run the commands in the \`command\` column of this CSV file, one per row, and exit. This is a command table, not pySim'\''s provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without \`--yes\` a row that changes the card is a dry run. WARNING\: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data]:PATH:_files' \
 '--write-csv=[Append a redacted result log to this CSV file\: one row per command run (\`command,ok,text\`), with the arguments replaced by \`<args redacted>\`. It is not pySim'\''s provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged]:PATH:_files' \
+'--write-hlr=[Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched]:PATH:_files' \
 '(--chv-env)--chv-file=[File holding PINs, PUKs and ADM keys for \`verify_chv\` / \`unblock_chv\` (\`pin1=1234\` per line; keep it chmod 600). Never a value on the command line\: it would land in shell history]:PATH:_files' \
 '--chv-env=[Environment variable holding the same text (entries separated by \`;\` or newlines)]:VAR:_default' \
 '--key-file=[pySim CardKeyProvider CSV file for \`query_card_key\` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600]:PATH:_files' \
