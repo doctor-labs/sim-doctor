@@ -7413,7 +7413,11 @@ fn run_program_plan(path: &std::path::Path, json: bool) -> contract::ExitCode {
         };
     }
     let mut out = String::new();
-    out.push_str(&format!("sim-doctor program plan: {} ({} step(s))\n", plan.card_type, plan.steps.len()));
+    out.push_str(&format!(
+        "sim-doctor program plan: {} ({} step(s))\n",
+        plan.card_type,
+        plan.steps.len()
+    ));
     out.push_str(&format!("WARNING: {}\n", plan.warning));
     out.push_str("card_touched: false (offline plan; no card, no reader, nothing sent)\n");
     for (i, step) in plan.steps.iter().enumerate() {

@@ -61,7 +61,10 @@ pub struct Error {
 
 impl Error {
     fn new(kind: &'static str, detail: impl Into<String>) -> Self {
-        Self { kind, detail: detail.into() }
+        Self {
+            kind,
+            detail: detail.into(),
+        }
     }
 }
 
@@ -98,7 +101,12 @@ pub struct Document {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
     /// ADM / administrative PIN (model-dependent).
-    #[serde(default, alias = "pin_adm", alias = "adm_pin", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "pin_adm",
+        alias = "adm_pin",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub adm: Option<String>,
     /// MCC, 3 decimal digits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,8 +134,12 @@ pub struct Document {
 impl Document {
     /// Parses a programming document from JSON text.
     pub fn parse(text: &str) -> Result<Self, Error> {
-        let doc: Self = serde_json::from_str(text)
-            .map_err(|e| Error::new("document-invalid", format!("not a valid JSON document: {e}")))?;
+        let doc: Self = serde_json::from_str(text).map_err(|e| {
+            Error::new(
+                "document-invalid",
+                format!("not a valid JSON document: {e}"),
+            )
+        })?;
         if let Some(kind) = &doc.kind {
             if kind != DOC_KIND {
                 return Err(Error::new(
@@ -144,7 +156,12 @@ impl Document {
         let t = self
             .r#type
             .as_deref()
-            .ok_or_else(|| Error::new("document-invalid", "missing `type` (the card type/model to program)"))?
+            .ok_or_else(|| {
+                Error::new(
+                    "document-invalid",
+                    "missing `type` (the card type/model to program)",
+                )
+            })?
             .trim()
             .to_ascii_lowercase();
         if t.is_empty() {
@@ -161,10 +178,9 @@ impl Document {
             (None, None) => Ok(None),
             (Some(opc), None) => Ok(Some(opc)),
             (None, Some(op_hex)) => {
-                let ki_hex = self
-                    .ki
-                    .as_deref()
-                    .ok_or_else(|| Error::new("document-invalid", "`op` needs `ki` to derive OPc"))?;
+                let ki_hex = self.ki.as_deref().ok_or_else(|| {
+                    Error::new("document-invalid", "`op` needs `ki` to derive OPc")
+                })?;
                 let ki = decode_key16("ki", ki_hex)?;
                 let opk = decode_key16("op", &op_hex)?;
                 let derived = aka::opc(arr16(&ki), arr16(&opk));
@@ -172,10 +188,15 @@ impl Document {
             }
             (Some(opc), Some(op_hex)) => {
                 if let Some(ki_hex) = self.ki.as_deref() {
-                    if let (Ok(ki), Ok(opk)) = (decode_key16("ki", ki_hex), decode_key16("op", &op_hex)) {
+                    if let (Ok(ki), Ok(opk)) =
+                        (decode_key16("ki", ki_hex), decode_key16("op", &op_hex))
+                    {
                         let derived = aka::opc(arr16(&ki), arr16(&opk));
                         if !eq_hex(&opc, &hex_upper(&derived)) {
-                            return Err(Error::new("document-invalid", "`opc` and `op` (derived with `ki`) disagree"));
+                            return Err(Error::new(
+                                "document-invalid",
+                                "`opc` and `op` (derived with `ki`) disagree",
+                            ));
                         }
                     }
                 }
@@ -190,7 +211,10 @@ impl Document {
             return Ok(None);
         };
         if !mcc.chars().all(|c| c.is_ascii_digit()) || mcc.len() != 3 {
-            return Err(Error::new("document-invalid", "`mcc` must be 3 decimal digits"));
+            return Err(Error::new(
+                "document-invalid",
+                "`mcc` must be 3 decimal digits",
+            ));
         }
         Ok(Some(mcc.to_owned()))
     }
@@ -201,7 +225,10 @@ impl Document {
             return Ok(None);
         };
         if !mnc.chars().all(|c| c.is_ascii_digit()) || !(2..=3).contains(&mnc.len()) {
-            return Err(Error::new("document-invalid", "`mnc` must be 2 or 3 decimal digits"));
+            return Err(Error::new(
+                "document-invalid",
+                "`mnc` must be 2 or 3 decimal digits",
+            ));
         }
         let mut mnc = mnc.to_owned();
         if let Some(len) = self.mnc_len {
@@ -209,7 +236,10 @@ impl Document {
                 return Err(Error::new("document-invalid", "`mnc_len` must be 2 or 3"));
             }
             if (len as usize) < mnc.len() {
-                return Err(Error::new("document-invalid", "`mnc` is longer than `mnc_len`"));
+                return Err(Error::new(
+                    "document-invalid",
+                    "`mnc` is longer than `mnc_len`",
+                ));
             }
             if mnc.len() < len as usize {
                 mnc = format!("{:0>width$}", mnc, width = len as usize);
@@ -292,7 +322,9 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
         for pw in &planned {
             append_legacy_step(&mut steps, &mut needs_live_card, pw);
             let f = format!("{:?}", pw.field);
-            if !writes.contains(&f) { writes.push(f); }
+            if !writes.contains(&f) {
+                writes.push(f);
+            }
         }
     } else if let Some(model) = sysmocom_model(&card_type) {
         let req = build_sysmocom_request(doc, &mcc, &mnc, opc.as_deref())?;
@@ -304,9 +336,16 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
         for pw in &planned {
             append_sysmocom_step(&mut steps, model, pw);
             let f = format!("{:?}", pw.field);
-            if !writes.contains(&f) { writes.push(f); }
+            if !writes.contains(&f) {
+                writes.push(f);
+            }
         }
-        if doc.iccid.is_some() || doc.imsi.is_some() || doc.mcc.is_some() || doc.smsp.is_some() || doc.acc.is_some() {
+        if doc.iccid.is_some()
+            || doc.imsi.is_some()
+            || doc.mcc.is_some()
+            || doc.smsp.is_some()
+            || doc.acc.is_some()
+        {
             needs_live_card.push(
                 "ICCID/IMSI/MCC-MNC/SMSP/ACC programming for sysmocom SJA2/SJA5/SJS1 models is not covered by the sysmocom vendor-file surface in this build; write those EFs via the card shell or a model-specific flow on a live card.".to_owned(),
             );
@@ -342,7 +381,9 @@ sysmoisim-sja2, sysmousim-sja2, sysmoisim-sja5, sysmousim-sja5, sysmosim-sjs1"
                     "Encode each PLMN as 3 bytes (TS 51.011/31.102 MCC/MNC digit coding) and pad remaining entries with FF FF FF up to the file length read from the card.".into(),
                 ],
             });
-            if !writes.iter().any(|w| w == "FPLMN") { writes.push("FPLMN".into()); }
+            if !writes.iter().any(|w| w == "FPLMN") {
+                writes.push("FPLMN".into());
+            }
         }
     }
 
@@ -362,8 +403,12 @@ sysmoisim-sja2, sysmousim-sja2, sysmoisim-sja5, sysmousim-sja5, sysmosim-sjs1"
 
 fn legacy_model(t: &str) -> Option<legacy::Model> {
     match t {
-        "magicsim" | "magic" | "supersim" | "fakemagicsim" | "fake-magic-sim" => Some(legacy::Model::MagicSim),
-        "opencells" | "opencells-sim" | "wavemobile" | "wavemobile-sim" => Some(legacy::Model::OpenCells),
+        "magicsim" | "magic" | "supersim" | "fakemagicsim" | "fake-magic-sim" => {
+            Some(legacy::Model::MagicSim)
+        }
+        "opencells" | "opencells-sim" | "wavemobile" | "wavemobile-sim" => {
+            Some(legacy::Model::OpenCells)
+        }
         "grcardsim" | "grcard" | "gialer" | "gialersim" => Some(legacy::Model::GrCard),
         "sysmosim-gr2" | "sysmosimgr2" | "gr2" => Some(legacy::Model::SysmoSIMgr2),
         _ => None,
@@ -390,7 +435,10 @@ fn build_legacy_request(
         imsi: doc.imsi.clone(),
         ki: opt_secret16(doc.ki.as_deref(), "ki")?,
         opc: opt_secret16(opc, "opc")?,
-        pin_adm: doc.adm.as_deref().map(|s| Secret::new(s.trim().as_bytes().to_vec())),
+        pin_adm: doc
+            .adm
+            .as_deref()
+            .map(|s| Secret::new(s.trim().as_bytes().to_vec())),
         operator_name: doc.operator_name.clone(),
         smsp: doc.smsp.clone(),
         acc: doc.acc.clone(),
@@ -416,15 +464,24 @@ fn build_sysmocom_request(
 }
 
 fn opt_secret16(hex: Option<&str>, name: &str) -> Result<Option<Secret>, Error> {
-    let Some(h) = hex.map(str::trim).filter(|s| !s.is_empty()) else { return Ok(None); };
+    let Some(h) = hex.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
     Ok(Some(Secret::new(decode_key16(name, h)?)))
 }
 
 fn decode_key16(name: &str, h: &str) -> Result<Vec<u8>, Error> {
     let h = norm_hex(h);
-    let bytes = hex::decode(&h).map_err(|_| Error::new("document-invalid", format!("`{name}` is not valid hex")))?;
+    let bytes = hex::decode(&h)
+        .map_err(|_| Error::new("document-invalid", format!("`{name}` is not valid hex")))?;
     if bytes.len() != 16 {
-        return Err(Error::new("document-invalid", format!("`{name}` must be 16 bytes (32 hex digits), got {} bytes", bytes.len())));
+        return Err(Error::new(
+            "document-invalid",
+            format!(
+                "`{name}` must be 16 bytes (32 hex digits), got {} bytes",
+                bytes.len()
+            ),
+        ));
     }
     Ok(bytes)
 }
@@ -436,7 +493,10 @@ fn arr16(bytes: &[u8]) -> [u8; 16] {
 }
 
 fn norm_hex(h: &str) -> String {
-    h.trim().trim_start_matches("0x").trim_start_matches("0X").to_ascii_uppercase()
+    h.trim()
+        .trim_start_matches("0x")
+        .trim_start_matches("0X")
+        .to_ascii_uppercase()
 }
 
 fn norm_hex_opt(h: Option<&str>) -> Option<String> {
@@ -451,11 +511,11 @@ fn eq_hex(a: &str, b: &str) -> bool {
     norm_hex(a) == norm_hex(b)
 }
 
-fn is_secret_field(f: legacy::Field) -> bool {
-    matches!(f, legacy::Field::Ki | legacy::Field::Opc | legacy::Field::AdmPin | legacy::Field::Comp128)
-}
-
-fn append_legacy_step(steps: &mut Vec<PlanStep>, needs: &mut Vec<String>, pw: &legacy::PlannedWrite) {
+fn append_legacy_step(
+    steps: &mut Vec<PlanStep>,
+    needs: &mut Vec<String>,
+    pw: &legacy::PlannedWrite,
+) {
     use legacy::Body;
     let path: Vec<String> = pw.path.iter().map(|s| s.to_ascii_uppercase()).collect();
     // SELECT chain
@@ -472,11 +532,10 @@ fn append_legacy_step(steps: &mut Vec<PlanStep>, needs: &mut Vec<String>, pw: &l
             notes: Vec::new(),
         });
     }
-    let secret = is_secret_field(pw.field) || matches!(pw.body, Body::Auth { .. } | Body::Proprietary(_));
     // Proprietary/auth bodies may carry secrets (ADM/Ki); treat conservatively.
     let contains_key_material = matches!(pw.body, Body::Proprietary(_))
         && matches!(pw.field, legacy::Field::Ki | legacy::Field::AdmPin);
-    let (desc, apdu, mut notes) = match &pw.body {
+    let (desc, apdu, notes) = match &pw.body {
         Body::Binary { offset, data } => {
             let a = if matches!(pw.field, legacy::Field::Ki | legacy::Field::Opc) {
                 None
@@ -526,7 +585,6 @@ fn append_legacy_step(steps: &mut Vec<PlanStep>, needs: &mut Vec<String>, pw: &l
             vec!["VERIFY CHV APDU carries the ADM/PIN and is omitted from the plan output.".into()],
         ),
     };
-    let _ = secret; // used conceptually above
     steps.push(PlanStep {
         description: desc,
         apdu,
@@ -537,7 +595,11 @@ fn append_legacy_step(steps: &mut Vec<PlanStep>, needs: &mut Vec<String>, pw: &l
     });
 }
 
-fn append_sysmocom_step(steps: &mut Vec<PlanStep>, model: sysmocom::Model, pw: &sysmocom::PlannedWrite) {
+fn append_sysmocom_step(
+    steps: &mut Vec<PlanStep>,
+    model: sysmocom::Model,
+    pw: &sysmocom::PlannedWrite,
+) {
     let dir = model.programming_directory().to_ascii_uppercase();
     let dir_apdu = sysmocom::select(&dir).ok().map(|b| hex_upper(&b));
     steps.push(PlanStep {
@@ -578,7 +640,9 @@ mod tests {
 
     #[test]
     fn parses_minimal_magicsim_document() {
-        let d = doc(r#"{"type":"magicsim","iccid":"8986000000000000001","imsi":"001010000000001","mcc":"001","mnc":"01","ki":"00112233445566778899AABBCCDDEEFF"}"#);
+        let d = doc(
+            r#"{"type":"magicsim","iccid":"8986000000000000001","imsi":"001010000000001","mcc":"001","mnc":"01","ki":"00112233445566778899AABBCCDDEEFF"}"#,
+        );
         assert_eq!(d.card_type().unwrap(), "magicsim");
         assert_eq!(d.normalized_mcc().unwrap().as_deref(), Some("001"));
         assert_eq!(d.normalized_mnc().unwrap().as_deref(), Some("01"));
@@ -592,7 +656,9 @@ mod tests {
 
     #[test]
     fn derives_opc_from_op_and_ki() {
-        let d = doc(r#"{"type":"opencells","ki":"000102030405060708090A0B0C0D0E0F","op":"00112233445566778899AABBCCDDEEFF"}"#);
+        let d = doc(
+            r#"{"type":"opencells","ki":"000102030405060708090A0B0C0D0E0F","op":"00112233445566778899AABBCCDDEEFF"}"#,
+        );
         let opc = d.resolve_opc().unwrap().unwrap();
         assert_eq!(opc.len(), 32);
         assert_eq!(d.resolve_opc().unwrap().unwrap(), opc);
@@ -600,20 +666,30 @@ mod tests {
 
     #[test]
     fn plans_magicsim_identity_and_keys() {
-        let plan = plan_json(r#"{
+        let plan = plan_json(
+            r#"{
             "type":"magicsim",
             "iccid":"8986000000000000001",
             "imsi":"001010000000001",
             "mcc":"001","mnc":"01",
             "ki":"00112233445566778899AABBCCDDEEFF",
             "smsp":"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         assert_eq!(plan.kind, PLAN_KIND);
         assert!(!plan.card_touched);
         assert!(!plan.steps.is_empty());
         // SELECT APDUs are present; secret-bearing write payloads are omitted.
-        let apdus: Vec<_> = plan.steps.iter().filter_map(|s| s.apdu.as_deref()).collect();
-        assert!(apdus.iter().any(|a| a.starts_with("A0A4")), "expected SELECT APDUs, got {apdus:?}");
+        let apdus: Vec<_> = plan
+            .steps
+            .iter()
+            .filter_map(|s| s.apdu.as_deref())
+            .collect();
+        assert!(
+            apdus.iter().any(|a| a.starts_with("A0A4")),
+            "expected SELECT APDUs, got {apdus:?}"
+        );
         assert!(plan.writes.iter().any(|w| w.contains("Iccid")));
         assert!(plan.steps.iter().any(|s| s.description.contains("UPDATE")));
         assert!(!plan.needs_live_card.is_empty());
@@ -622,32 +698,45 @@ mod tests {
 
     #[test]
     fn plans_opencells_with_adm() {
-        let plan = plan_json(r#"{
+        let plan = plan_json(
+            r#"{
             "type":"opencells",
             "adm":"00000000",
             "iccid":"8986000000000000001",
             "imsi":"001010000000001",
             "ki":"00112233445566778899AABBCCDDEEFF",
             "opc":"FFEEDDCCBBAA99887766554433221100"
-        }"#).unwrap();
-        assert!(plan.steps.iter().any(|s| s.description.contains("PROPRIETARY") || s.description.contains("VERIFY CHV")));
+        }"#,
+        )
+        .unwrap();
+        assert!(
+            plan.steps
+                .iter()
+                .any(|s| s.description.contains("PROPRIETARY")
+                    || s.description.contains("VERIFY CHV"))
+        );
         assert!(plan.needs_live_card.iter().any(|n| n.contains("live card")));
     }
 
     #[test]
     fn op_and_opc_must_agree() {
-        let d = doc(r#"{"type":"magicsim","ki":"00112233445566778899AABBCCDDEEFF","op":"00112233445566778899AABBCCDDEEFF","opc":"00000000000000000000000000000000"}"#);
+        let d = doc(
+            r#"{"type":"magicsim","ki":"00112233445566778899AABBCCDDEEFF","op":"00112233445566778899AABBCCDDEEFF","opc":"00000000000000000000000000000000"}"#,
+        );
         assert!(d.resolve_opc().is_err());
     }
 
     #[test]
     fn plans_sysmocom_sja2() {
-        let plan = plan_json(r#"{
+        let plan = plan_json(
+            r#"{
             "type":"sysmoISIM-SJA2",
             "adm":"12345678",
             "ki":"00112233445566778899AABBCCDDEEFF",
             "opc":"FFEEDDCCBBAA99887766554433221100"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         assert!(!plan.steps.is_empty());
         assert!(plan.steps.iter().any(|s| s.file.as_deref() == Some("A515")));
     }
@@ -660,12 +749,18 @@ mod tests {
 
     #[test]
     fn fplmn_adds_live_card_note() {
-        let plan = plan_json(r#"{
+        let plan = plan_json(
+            r#"{
             "type":"magicsim","iccid":"8986000000000000001","imsi":"001010000000001",
             "mcc":"001","mnc":"01","ki":"00112233445566778899AABBCCDDEEFF",
             "fplmn":["00101"]
-        }"#).unwrap();
-        assert!(plan.steps.iter().any(|s| s.field.as_deref() == Some("FPLMN")));
+        }"#,
+        )
+        .unwrap();
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| s.field.as_deref() == Some("FPLMN")));
         assert!(plan.needs_live_card.iter().any(|n| n.contains("FPLMN")));
     }
 }
