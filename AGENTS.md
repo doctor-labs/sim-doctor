@@ -914,10 +914,12 @@ enum are not in the sources on this box, so the reference default key bytes and 
 value byte of `81` are read from the two code sites above, not from the enum; and nothing in
 GlobalPlatformPro besides those two sites reads `OPT_SAD`.
 
-**Not done (scoped out):** DES, RSA and ECC DAP keys and DAP verification (the card verifies), SHA-1 LFDBH,
-several DAP blocks, PUT KEY of anything but an SCP03 AES-128 key set (RSA/ECC/DES, a lone DAP key such as
-KVN 73, extended format, chained PUT KEY), 192/256-bit SCP03 key sets, C-DECRYPTION. No tokens (delegated
-management), DELETE [key], other INSTALL kinds or STORE DATA. Replay tests only; the wire vectors for
+**Not done (scoped out):** RSA DAP signing (C.3, B.3.1.1/B.3.2.1): the RSA scheme is recognized by
+`--dap-alg rsa` but refused because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding for
+signing are not implemented in this crate; DAP verification on the card is out of scope. SHA-1 LFDBH.
+PUT KEY of anything but an SCP03 AES-128 key set (RSA/ECC/DES, a lone DAP key such as KVN 73, extended
+format, chained PUT KEY), 192/256-bit SCP03 key sets, C-DECRYPTION. No tokens (delegated management),
+DELETE [key], other INSTALL kinds or STORE DATA. Replay tests only; the wire vectors for
 DELETE/INSTALL/LOAD and the channel-1 flow come from an independent Python SCP03 model that first
 reproduces pySim's `SCP03_Test_AES128_11` and the existing GET STATUS vectors.
 

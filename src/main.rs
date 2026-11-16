@@ -2165,9 +2165,10 @@ struct GpDapArgs {
     )]
     dap_domain: Vec<String>,
     /// The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC
-    /// (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3).
-    /// There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5
-    /// (B.3.1.1) or RSASSA-PSS (B.3.2.1).
+    /// (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or
+    /// RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented
+    /// in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key
+    /// encoding are unavailable here.
     #[arg(long, value_enum, default_value = "aes", requires = "dap_key_source")]
     dap_alg: DapAlg,
     /// The Load File Data Block Hash the DAP signs.
@@ -2281,6 +2282,9 @@ enum DapAlg {
     Des,
     /// ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes.
     Ecc,
+    /// RSA DAP (B.3.1.1/B.3.2.1): recognized but not implemented for signing
+    /// in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS).
+    Rsa,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -6005,10 +6009,12 @@ fn load_dap(args: &GpDapArgs) -> Result<Vec<gp::DapRequest>, (&'static str, Stri
         DapAlg::Aes => gp::DapScheme::Aes,
         DapAlg::Des => gp::DapScheme::Des,
         DapAlg::Ecc => gp::DapScheme::Ecc,
+        DapAlg::Rsa => gp::DapScheme::Rsa,
     };
     let keys = gp::DapKeys::load(scheme, source).map_err(|e| {
         let kind = match e {
             gp::KeyError::Kcv { .. } => "key-kcv-mismatch",
+            gp::KeyError::RsaNotImplemented => "dap-rsa-unsupported",
             _ => "keys-unusable",
         };
         (kind, format!("DAP key: {e}"))
