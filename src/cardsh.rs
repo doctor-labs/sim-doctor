@@ -1681,6 +1681,63 @@ impl Shell {
         ))
     }
 
+    /// Build the GET IDENTITY command (TS 31.102 7.5.2).
+    /// CLA is the class byte (caller may OR 0x80); INS 0x78, P1 0x00, P2 selects identity context
+    /// (0x01 = SUCI, 0x02 = SUCI 5G NSWO), Le 0x00. Response is typically a TLV (tag A1).
+    pub fn build_get_identity_command(cla: u8, nswo_context: bool) -> Command {
+        let p2 = if nswo_context { 0x02 } else { 0x01 };
+        Command::case2(
+            apdu::Header::new(cla, 0x78, 0x00, p2),
+            apdu::Le::Short(0x00),
+        )
+    }
+
+    /// Parse a GET IDENTITY response (TS 31.102 7.5). Returns a human-readable
+    /// summary and JSON fields.
+    pub fn parse_get_identity_response(data: &[u8]) -> (String, serde_json::Value) {
+        let mut out = serde_json::json!({
+            "raw": hex_upper(data),
+        });
+        let mut text = String::new();
+        if data.is_empty() {
+            text.push_str("(no data)");
+            return (text, out);
+        }
+        // Common: BER-TLV tag A1 (SUCI TLV data object) wrapping the SUCI
+        if data[0] == 0xA1 {
+            out["tlv_tag"] = serde_json::json!("A1");
+            // Try to decode length (simple forms)
+            if data.len() >= 2 {
+                let len_byte = data[1];
+                if len_byte & 0x80 == 0 {
+                    // short form
+                    let len = len_byte as usize;
+                    if data.len() >= 2 + len {
+                        out["tlv_length"] = serde_json::json!(len);
+                        out["tlv_value"] = serde_json::json!(hex_upper(&data[2..2 + len]));
+                        text.push_str(&format!(
+                            "A1 (len {}) {}",
+                            len,
+                            hex_upper(&data[2..2 + len])
+                        ));
+                    } else {
+                        text.push_str(&format!("A1 (truncated) {}", hex_upper(data)));
+                    }
+                } else {
+                    // long form not fully parsed here; just report
+                    text.push_str(&format!("A1 (long form) {}", hex_upper(data)));
+                    out["tlv_value"] = serde_json::json!(hex_upper(&data[2..]));
+                }
+            } else {
+                text.push_str(&format!("A1 {}", hex_upper(data)));
+            }
+        } else {
+            text.push_str(&format!("data {}", hex_upper(data)));
+            out["note"] = serde_json::json!("unexpected tag (expected A1)");
+        }
+        (text, out)
+    }
+
     /// GET IDENTITY (TS 31.102 7.5): INS 0x78, CLA | 0x80, case 2 with Le.
     /// Returns the SUCI/identity from the selected application. Does not change the card.
     fn cmd_get_identity(&mut self, args: &clap::ArgMatches) -> CmdResult {
@@ -1688,37 +1745,30 @@ impl Shell {
         let cla = card.cla() | 0x80;
         // TS 31.102 7.5.2: CLA 8X, INS 78, P1 00, P2 = identity context (01 SUCI, 02 SUCI 5G NSWO;
         // other values reserved), Le 00. The reply is a SUCI TLV (tag A1).
-        let p2 = if args.get_flag("nswo-context") {
-            0x02
-        } else {
-            0x01
-        };
-        let command = Command::case2(
-            apdu::Header::new(cla, 0x78, 0x00, p2),
-            apdu::Le::Short(0x00),
-        );
+        let nswo = args.get_flag("nswo-context");
+        let command = Self::build_get_identity_command(cla, nswo);
         let wire = command.encode().map_err(|e| CmdErr::new(e.to_string()))?;
         let hex_wire = hex_upper(&wire);
 
         let ex = card.send(&command)?;
         let sw = ex.status();
         let data = ex.data();
-        let data_hex = hex_upper(data);
+        let (parsed_text, parsed_json) = Self::parse_get_identity_response(data);
+        let text = format!("sw {} ({})\n{}", sw_text(sw), hex_wire, parsed_text);
 
-        let mut text = format!("sw {}", sw_text(sw));
-        if !data.is_empty() {
-            text.push_str(&format!("\ndata {data_hex}"));
+        let mut out_json = json!({
+            "sent": true,
+            "apdu": hex_wire,
+            "sw": sw.map(|s| s.to_string()),
+            "p2": if nswo { "02 (5G NSWO)" } else { "01 (SUCI)" },
+            "data": hex_upper(data),
+        });
+        if let serde_json::Value::Object(map) = parsed_json {
+            for (k, v) in map {
+                out_json[k] = v;
+            }
         }
-
-        Ok(Reply::ok(
-            text,
-            json!({
-                "sent": true,
-                "apdu": hex_wire,
-                "sw": sw.map(|s| s.to_string()),
-                "data": data_hex,
-            }),
-        ))
+        Ok(Reply::ok(text, out_json))
     }
 
     /// Sends SET DATA (0xDB), P2 = `p2` (0x80 first block), in short-Lc fragments.
@@ -8589,6 +8639,33 @@ mod file_management_tests {
         let r = sh.exec("delete_file 6f99");
         assert!(!r.ok && r.data["sw"] == "6D00", "{}", r.text);
         assert_eq!(log.borrow()[0], [0x00, 0xE4, 0x00, 0x00, 0x02, 0x6F, 0x99]);
+    }
+
+    #[test]
+    fn get_identity_builder_and_parser_offline() {
+        // APDU builder: SUCI (P2=01) and 5G NSWO (P2=02), CLA 80|logical-channel in caller
+        let cmd = super::Shell::build_get_identity_command(0x80, false);
+        assert_eq!(cmd.encode().unwrap(), vec![0x80, 0x78, 0x00, 0x01, 0x00]);
+        let cmd_nswo = super::Shell::build_get_identity_command(0x80, true);
+        assert_eq!(
+            cmd_nswo.encode().unwrap(),
+            vec![0x80, 0x78, 0x00, 0x02, 0x00]
+        );
+        // Response parser: SUCI TLV tag A1, short-form length
+        let suci_value = [0x01, 0x02, 0x03, 0x04];
+        let mut resp = vec![0xA1, suci_value.len() as u8];
+        resp.extend_from_slice(&suci_value);
+        let (_text, j) = super::Shell::parse_get_identity_response(&resp);
+        assert_eq!(j["tlv_tag"], "A1");
+        assert_eq!(j["tlv_length"], 4);
+        assert_eq!(j["tlv_value"], "01020304");
+        assert_eq!(j["raw"], "A10401020304");
+
+        // Non-A1 or empty: still returns raw
+        let (_t, j2) = super::Shell::parse_get_identity_response(&[]);
+        assert_eq!(j2["raw"], "");
+        let (_t, j3) = super::Shell::parse_get_identity_response(&[0x90, 0x00]);
+        assert_eq!(j3["raw"], "9000");
     }
 
     #[test]
