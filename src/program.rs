@@ -314,7 +314,7 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
 
     if let Some(model) = legacy_model(&card_type) {
         let req = build_legacy_request(doc, &mcc, &mnc, opc.as_deref())?;
-        let program = legacy::Program::new(sysmocom::At::new());
+        let program = legacy::Program::new();
         let planned = program.plan(model, &req).map_err(|e| match e {
             legacy::Error::NothingToProgram(msg) => Error::new("nothing-to-program", msg),
             other => Error::new("plan-invalid", other.to_string()),
