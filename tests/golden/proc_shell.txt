@@ -4,7 +4,7 @@ exit 0
 sim-doctor: warning: the TAR scan did not finish, so its findings are partial: the operator asked for no TAR probing
 --- stdout
 /
-WARNING: INCOMPLETE: 11 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 15 coverage gap(s); findings may be missing
 WARNING: the TAR scan did not finish, so its findings are partial: the operator asked for no TAR probing
 WARNING: score: the TAR audit probed nothing, so the MSL 0 check did not run: this score says nothing about whether the card refuses TAR 0, because no TAR was probed. Run with --tar focused to check
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
@@ -61,7 +61,7 @@ sim-doctor: warning: the TAR scan did not finish, so its findings are partial: t
 exit 0
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 gsma           category  1 findings
 card           card      the card's files
