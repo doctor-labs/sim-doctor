@@ -7892,7 +7892,7 @@ fn fuzz_opt_in(safety: &FuzzSafety, reader: Option<&str>) -> Result<(), String> 
     if !is_software && !safety.allow_real_hardware {
         return Err(format!(
             "fuzz refuses to run against {:?}: it does not look like the software card \
-             (swicc-pcsc names its reader with "swICC", see docs/swsim-fixture.md); pass \
+             (swicc-pcsc names its reader with \"swICC\", see docs/swsim-fixture.md); pass \
              --allow-real-hardware to run against it anyway",
             reader.unwrap_or("(no --reader given)")
         ));
