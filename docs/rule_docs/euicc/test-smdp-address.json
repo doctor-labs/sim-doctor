@@ -1,8 +1,8 @@
 {
-  "id": "euicc/test-smdp-address",
-  "severity": "medium",
-  "description": "the default SM-DP+ address is a test or placeholder address",
-  "remediation": "set the default SM-DP+ address to the production SM-DP+ FQDN for this deployment (`sim-doctor euicc set-default-dp <address> --yes`), then re-scan",
   "cwe": "CWE-1188",
-  "reference": "GSMA SGP.22 (default SM-DP+ address, ES10a GetEuiccConfiguredAddresses/SetDefaultDpAddress)"
+  "description": "the default SM-DP+ address is a test or placeholder address",
+  "id": "euicc/test-smdp-address",
+  "reference": "GSMA SGP.22 (default SM-DP+ address, ES10a GetEuiccConfiguredAddresses/SetDefaultDpAddress)",
+  "remediation": "set the default SM-DP+ address to the production SM-DP+ FQDN for this deployment (`sim-doctor euicc set-default-dp <address> --yes`), then re-scan",
+  "severity": "medium"
 }

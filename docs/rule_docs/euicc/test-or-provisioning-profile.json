@@ -1,8 +1,8 @@
 {
-  "id": "euicc/test-or-provisioning-profile",
-  "severity": "medium",
-  "description": "a test or provisioning profile is present on the eUICC",
-  "remediation": "remove test and provisioning profiles before production use (disable then delete them with `sim-doctor euicc disable` / `euicc delete`, or reset test profiles with `euicc reset --test --yes --confirm-eid <EID>`), then re-scan",
   "cwe": "CWE-284",
-  "reference": "GSMA SGP.22 (profile classes: operational, provisioning, test); SGP.23"
+  "description": "a test or provisioning profile is present on the eUICC",
+  "id": "euicc/test-or-provisioning-profile",
+  "reference": "GSMA SGP.22 (profile classes: operational, provisioning, test); SGP.23",
+  "remediation": "remove test and provisioning profiles before production use (disable then delete them with `sim-doctor euicc disable` / `euicc delete`, or reset test profiles with `euicc reset --test --yes --confirm-eid <EID>`), then re-scan",
+  "severity": "medium"
 }
