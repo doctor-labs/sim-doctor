@@ -803,14 +803,15 @@ pub const POKE_TARS: [u32; 3] = [0x00_00_00, 0xB0_00_01, 0xB0_00_10];
 /// with its [`TarKind`] so the probe payload can be tailored to the type.
 pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
     if sweep.poke {
-        return POKE_TARS
-            .iter()
-            .map(|&t| (t, TarKind::of_tar(t)))
-            .collect();
+        return POKE_TARS.iter().map(|&t| (t, TarKind::of_tar(t))).collect();
     }
     if sweep.standard_tars {
         let list: Vec<(u32, TarKind)> = STANDARD_TARS.iter().map(|s| (s.tar, s.kind)).collect();
-        return if sweep.quick { list.into_iter().take(20).collect() } else { list };
+        return if sweep.quick {
+            list.into_iter().take(20).collect()
+        } else {
+            list
+        };
     }
     if sweep.quick {
         tar::CALIBRATION_TARS[..5]
@@ -819,7 +820,10 @@ pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
             .collect()
     } else {
         let (candidates, _) = tar::candidates(&tar::Selection::focused(), tar::MAX_PROBES);
-        candidates.into_iter().map(|t| (t, TarKind::of_tar(t))).collect()
+        candidates
+            .into_iter()
+            .map(|t| (t, TarKind::of_tar(t)))
+            .collect()
     }
 }
 
@@ -827,12 +831,13 @@ pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
 /// bounded default a TAR audit uses, for the same reason - the full
 /// 16 777 216-value space does not fit any budget this tool will ship.
 pub fn tars(quick: bool) -> Vec<u32> {
-    typed_tars(Sweep { quick, ..Sweep::default()
-                ..Sweep::default()
-            })
-        .into_iter()
-        .map(|(t, _)| t)
-        .collect()
+    typed_tars(Sweep {
+        quick,
+        ..Sweep::default()..Sweep::default()
+    })
+    .into_iter()
+    .map(|(t, _)| t)
+    .collect()
 }
 
 /// Octets a sweep pins instead of sweeping (SIMTester's `-kic`, `-kid`,
@@ -1158,10 +1163,10 @@ fn probe_triple<S: CardSession + ?Sized>(
 
 fn zero_key_for_algo(algo: u8) -> Option<Vec<u8>> {
     match algo {
-        KIC_ALGO_IMPLICIT | KID_ALGO_IMPLICIT => Some(Vec::new()),
-        KIC_ALGO_DES_CBC | KID_ALGO_DES_CBC => Some(vec![0u8; 8]),
-        KIC_ALGO_3DES_CBC_2KEYS | KID_ALGO_3DES_CBC_2KEYS => Some(vec![0u8; 16]),
-        KIC_ALGO_3DES_CBC_3KEYS | KID_ALGO_3DES_CBC_3KEYS => Some(vec![0u8; 24]),
+        KIC_ALGO_IMPLICIT => Some(Vec::new()),
+        KIC_ALGO_DES_CBC => Some(vec![0u8; 8]),
+        KIC_ALGO_3DES_CBC_2KEYS => Some(vec![0u8; 16]),
+        KIC_ALGO_3DES_CBC_3KEYS => Some(vec![0u8; 24]),
         _ => None,
     }
 }
@@ -1279,12 +1284,24 @@ pub fn audit_with<S: CardSession + ?Sized>(
                         break 'sweep_m;
                     }
                     let spi1 = ((spec.counter << 3) & 0x18)
-                        | if spec.kic_algo != KIC_ALGO_IMPLICIT { 0x04 } else { 0 }
-                        | if spec.kid_algo != KID_ALGO_IMPLICIT { 0x02 } else { 0 };
+                        | if spec.kic_algo != KIC_ALGO_IMPLICIT {
+                            0x04
+                        } else {
+                            0
+                        }
+                        | if spec.kid_algo != KID_ALGO_IMPLICIT {
+                            0x02
+                        } else {
+                            0
+                        };
                     let mech = (spi1, spec.spi2());
                     let packet = if spec.needs_crypto() {
-                        let Some(kic_key) = zero_key_for_algo(spec.kic_algo) else { continue };
-                        let Some(kid_key) = zero_key_for_algo(spec.kid_algo) else { continue };
+                        let Some(kic_key) = zero_key_for_algo(spec.kic_algo) else {
+                            continue;
+                        };
+                        let Some(kid_key) = zero_key_for_algo(spec.kid_algo) else {
+                            continue;
+                        };
                         let counter = u8::from(spec.counter != CNTR_NO_CNTR_AVAILABLE);
                         match spec.secured_command_packet_with_ud(
                             tar_value, keyset, &kic_key, &kid_key, counter, ud,
@@ -1327,7 +1344,8 @@ pub fn audit_with<S: CardSession + ?Sized>(
                             });
                         }
                         Ok(Err(reason)) => {
-                            stopped = Some(format!("the card stopped answering envelopes: {reason}"));
+                            stopped =
+                                Some(format!("the card stopped answering envelopes: {reason}"));
                             break 'sweep_m;
                         }
                         Err(tar::Error::Transport(reason)) => {
@@ -1359,7 +1377,14 @@ pub fn audit_with<S: CardSession + ?Sized>(
                         break 'sweep;
                     }
                     match probe_triple_ud(
-                        session, tar_value, keyset, mechanism, ud, sweep.class, overrides, policy,
+                        session,
+                        tar_value,
+                        keyset,
+                        mechanism,
+                        ud,
+                        sweep.class,
+                        overrides,
+                        policy,
                     ) {
                         Ok(Ok((signature, _, response))) => {
                             let accepted = !baseline.refuses(&signature);
@@ -1390,7 +1415,8 @@ pub fn audit_with<S: CardSession + ?Sized>(
                             });
                         }
                         Ok(Err(reason)) => {
-                            stopped = Some(format!("the card stopped answering envelopes: {reason}"));
+                            stopped =
+                                Some(format!("the card stopped answering envelopes: {reason}"));
                             break 'sweep;
                         }
                         Err(tar::Error::Transport(reason)) => {
@@ -1881,8 +1907,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default()
-                ..Sweep::default()
+                ..Sweep::default()..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1902,8 +1927,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default()
-                ..Sweep::default()
+                ..Sweep::default()..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1999,9 +2023,8 @@ mod tests {
         };
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default()
-                ..Sweep::default()
-            };
+            ..Sweep::default()..Sweep::default()
+        };
         let audit =
             audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
 
@@ -2025,9 +2048,8 @@ mod tests {
         let mut card = Scripted::cycling(&[&[0x94, 0x04]]);
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default()
-                ..Sweep::default()
-            };
+            ..Sweep::default()..Sweep::default()
+        };
         let audit =
             audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
 
@@ -2256,8 +2278,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default()
-                ..Sweep::default()
+                ..Sweep::default()..Sweep::default()
             },
             overrides,
             &Policy::default(),
@@ -2401,8 +2422,8 @@ mod tests {
                     quick: true,
                     poke: false,
                     class,
-                ..Sweep::default()
-            },
+                    ..Sweep::default()
+                },
                 &Policy::default(),
                 &mut || false,
             )

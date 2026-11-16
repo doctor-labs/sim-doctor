@@ -875,7 +875,8 @@ pub fn envelope_data_raw_ud(
     spi2: u8,
     ud: &[u8],
 ) -> Option<Vec<u8>> {
-    let packet = command_packet_octets_cph_ud(tar, spi1, spi2, kic, kid, 1, &COMMAND_PACKET_HEADER, ud);
+    let packet =
+        command_packet_octets_cph_ud(tar, spi1, spi2, kic, kid, 1, &COMMAND_PACKET_HEADER, ud);
     let tpdu = sms_deliver_tpdu(&packet)?;
     envelope_data_from_tpdu(class, &tpdu)
 }
