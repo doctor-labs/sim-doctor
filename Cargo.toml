@@ -25,6 +25,7 @@ aes  = "0.9.3"      # 0.9.0 is YANKED
 des  = "0.9.0"      # DES/3DES for legacy GSM
 cbc  = "0.2.1"
 cmac = "0.8.0"      # AES-CMAC / DES-CMAC (SCP03, GSM auth)
+sha1 = "0.10.6"
 sha2 = "0.11.0"
 hmac = "0.13.0"
 sha3 = "0.12.0"

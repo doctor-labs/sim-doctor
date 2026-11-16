@@ -4683,7 +4683,7 @@ _sim__doctor() {
                     return 0
                     ;;
                 --dap-hash)
-                    COMPREPLY=($(compgen -W "sha256 sha384 sha512" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "sha1 sha256 sha384 sha512" -- "${cur}"))
                     return 0
                     ;;
                 --dm-key-file)

@@ -2308,6 +2308,7 @@ enum DapAlg {
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum DapHash {
+    Sha1,
     Sha256,
     Sha384,
     Sha512,
@@ -6076,6 +6077,7 @@ fn load_dap(args: &GpDapArgs) -> Result<Vec<gp::DapRequest>, (&'static str, Stri
         })
         .collect::<Result<Vec<_>, _>>()?;
     let hash = match args.dap_hash {
+        DapHash::Sha1 => gp::Lfdbh::Sha1,
         DapHash::Sha256 => gp::Lfdbh::Sha256,
         DapHash::Sha384 => gp::Lfdbh::Sha384,
         DapHash::Sha512 => gp::Lfdbh::Sha512,

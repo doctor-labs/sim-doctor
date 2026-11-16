@@ -392,7 +392,8 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 des\t'Single DES plus final triple DES MAC (B.1.2.2): an 8 byte signature'
 ecc\t'ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes'
 rsa\t'RSA DAP (B.3.1.1/B.3.2.1): recognized but not implemented for signing in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS)'"
-complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-hash -d 'The Load File Data Block Hash the DAP signs' -r -f -a "sha256\t''
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dap-hash -d 'The Load File Data Block Hash the DAP signs' -r -f -a "sha1\t''
+sha256\t''
 sha384\t''
 sha512\t''"
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from install" -l dm-key-file -d 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)' -r -F

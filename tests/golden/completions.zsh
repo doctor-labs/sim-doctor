@@ -1013,7 +1013,7 @@ _arguments "${_arguments_options[@]}" : \
 des\:"Single DES plus final triple DES MAC (B.1.2.2)\: an 8 byte signature"
 ecc\:"ECDSA over P-256 with SHA-256 (B.4.3)\: plain \`r || s\`, 64 bytes"
 rsa\:"RSA DAP (B.3.1.1/B.3.2.1)\: recognized but not implemented for signing in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS)"))' \
-'--dap-hash=[The Load File Data Block Hash the DAP signs]:DAP_HASH:(sha256 sha384 sha512)' \
+'--dap-hash=[The Load File Data Block Hash the DAP signs]:DAP_HASH:(sha1 sha256 sha384 sha512)' \
 '--dm-key-file=[File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
 '--dm-key-env=[Environment variable holding the AES token calculation key]:VAR:_default' \
 '--dm-token-file=[File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)]:PATH:_files' \
