@@ -1,0 +1,8 @@
+{
+  "cwe": "CWE-326",
+  "description": "the card returned a signed or encrypted Proof-of-Receipt (PoR) response that may be crackable offline (cryptographic checksum or encrypted response material collected for analysis, not cracked in-tool)",
+  "id": "fuzz/crackable-por-material",
+  "reference": "ETSI TS 102 225 / TS 102 226 (Proof of Receipt, security mechanisms)",
+  "remediation": "review the collected PoR material offline; ensure OTA security uses strong algorithms, fresh counters, and keys not susceptible to offline recovery",
+  "severity": "medium"
+}

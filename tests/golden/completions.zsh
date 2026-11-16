@@ -2143,13 +2143,15 @@ _arguments "${_arguments_options[@]}" : \
 '--spi2=[Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it]:HEX:_default' \
 '--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
 gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
-'(--quick --poke --kic --kid --spi1 --spi2)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
+'(--quick --poke --kic --kid --spi1 --spi2 --matrix --standard-tars)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
 bruteforce\:"SIMTester'\''s -ofbf\: every PID and DCS octet. 786432 envelopes, which do not fit the budget, so this is a capped partial sweep and says so"))' \
 '--i-understand-this-can-brick-the-card[Required. Without it, \`fuzz\` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)]' \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '--quick[Probe a small, documented subset instead of the full space]' \
 '(--quick)--poke[Like \`--quick\`, but probes only the three TARs SIMTester'\''s \`-poke\` probes\: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds]' \
+'--matrix[Enumerate the 17-profile FuzzerData security-policy matrix (counter requirement x KIC/KID algorithm x PoR request/ciphering, per ETSI TS 102 225/226) instead of the legacy SPI mechanism table]' \
+'--standard-tars[Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with TAR-type-aware test payloads instead of the focused TAR bands]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0

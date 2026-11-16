@@ -731,9 +731,28 @@ fn command_packet_octets_cph(
     counter: u8,
     cph: &[u8],
 ) -> Vec<u8> {
-    let ud = PROBE_USER_DATA;
+    command_packet_octets_cph_ud(tar, spi1, spi2, kic, kid, counter, cph, &PROBE_USER_DATA)
+}
+
+/// The same Command Packet as [`command_packet_octets_cph`], with the User
+/// Data field supplied by the caller.
+///
+/// This is what TAR-type-aware fuzzing uses: the command packet's UD is the
+/// payload tailored to the TAR type (RFM, RAM, WIB, S@T) rather than the
+/// default SELECT-MF probe. `cpl` and the buffer size follow `ud.len()`.
+#[allow(clippy::too_many_arguments)]
+pub fn command_packet_octets_cph_ud(
+    tar: u32,
+    spi1: u8,
+    spi2: u8,
+    kic: u8,
+    kid: u8,
+    counter: u8,
+    cph: &[u8],
+    ud: &[u8],
+) -> Vec<u8> {
     let cpl = u16::try_from(1 + usize::from(COMMAND_HEADER_LEN) + ud.len())
-        .expect("the probe user data is seven octets, so CPL is 21");
+        .expect("a command packet user data field fits in u16");
 
     let mut out =
         Vec::with_capacity(cph.len() + 2 + 1 + usize::from(COMMAND_HEADER_LEN) + ud.len());
@@ -747,7 +766,7 @@ fn command_packet_octets_cph(
     out.extend_from_slice(&tar.to_be_bytes()[1..]);
     out.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, counter]);
     out.push(0x00);
-    out.extend_from_slice(&ud);
+    out.extend_from_slice(ud);
     out
 }
 
@@ -843,7 +862,23 @@ pub fn envelope_data_raw(
     spi1: u8,
     spi2: u8,
 ) -> Option<Vec<u8>> {
-    let tpdu = sms_deliver_tpdu(&command_packet_raw(tar, kic, kid, spi1, spi2))?;
+    envelope_data_raw_ud(tar, class, kic, kid, spi1, spi2, &PROBE_USER_DATA)
+}
+
+/// The same envelope data field as [`envelope_data_raw`], with the Command
+/// Packet user data supplied by the caller (TAR-type-aware payloads).
+pub fn envelope_data_raw_ud(
+    tar: u32,
+    class: Class,
+    kic: u8,
+    kid: u8,
+    spi1: u8,
+    spi2: u8,
+    ud: &[u8],
+) -> Option<Vec<u8>> {
+    let packet =
+        command_packet_octets_cph_ud(tar, spi1, spi2, kic, kid, 1, &COMMAND_PACKET_HEADER, ud);
+    let tpdu = sms_deliver_tpdu(&packet)?;
     envelope_data_from_tpdu(class, &tpdu)
 }
 
@@ -870,6 +905,19 @@ pub fn envelope_data_passthrough(
         passthrough.udhi,
     )?;
     envelope_data_from_tpdu(class, &tpdu)
+}
+
+/// The envelope data field for an already-built Command Packet (TS 102 225),
+/// wrapped in an SMS-DELIVER TPDU and the SMS-PP-DOWNLOAD `D1` chain.
+pub fn envelope_data_from_packet(class: Class, packet: &[u8]) -> Option<Vec<u8>> {
+    let tpdu = sms_deliver_tpdu(packet)?;
+    envelope_data_from_tpdu(class, &tpdu)
+}
+
+/// One complete ENVELOPE APDU carrying an already-built Command Packet.
+pub fn envelope_apdu_from_packet(class: Class, packet: &[u8]) -> Option<Vec<u8>> {
+    let data = envelope_data_from_packet(class, packet)?;
+    envelope_apdu_from_data(class, &data)
 }
 
 fn envelope_data_from_tpdu(class: Class, tpdu: &[u8]) -> Option<Vec<u8>> {
@@ -927,7 +975,21 @@ pub fn envelope_apdu_raw(
     spi1: u8,
     spi2: u8,
 ) -> Option<Vec<u8>> {
-    let data = envelope_data_raw(tar, class, kic, kid, spi1, spi2)?;
+    envelope_apdu_raw_ud(tar, class, kic, kid, spi1, spi2, &PROBE_USER_DATA)
+}
+
+/// The same APDU as [`envelope_apdu_raw`], with the Command Packet user data
+/// supplied by the caller (TAR-type-aware payloads).
+pub fn envelope_apdu_raw_ud(
+    tar: u32,
+    class: Class,
+    kic: u8,
+    kid: u8,
+    spi1: u8,
+    spi2: u8,
+    ud: &[u8],
+) -> Option<Vec<u8>> {
+    let data = envelope_data_raw_ud(tar, class, kic, kid, spi1, spi2, ud)?;
     envelope_apdu_from_data(class, &data)
 }
 
