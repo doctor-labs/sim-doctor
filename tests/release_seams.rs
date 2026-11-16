@@ -26,9 +26,14 @@ fn contains(bytes: &[u8], needle: &str) -> bool {
 #[ignore = "builds the crate in release mode; run with --ignored (CI does)"]
 fn a_release_build_ignores_the_test_seams() {
     // The control: the binary `cargo test` built has the seams, so the check below can fail.
-    let test_binary =
-        std::fs::read(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
-            .unwrap();
+    let test_binary = std::fs::read(&*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(
+        |_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        },
+    ))
+    .unwrap();
     for seam in SEAMS {
         assert!(contains(&test_binary, seam), "the test build lost {seam}");
     }

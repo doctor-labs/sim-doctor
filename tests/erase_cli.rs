@@ -14,7 +14,11 @@ use sim_doctor::erase;
 
 /// The binary under test, as built by cargo for this integration test.
 fn binary() -> &'static str {
-    option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor")
+    &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+        option_env!("CARGO_BIN_EXE_sim-doctor")
+            .unwrap_or("target/debug/sim-doctor")
+            .to_string()
+    })
 }
 
 fn run(args: &[&str]) -> (String, String, Option<i32>) {

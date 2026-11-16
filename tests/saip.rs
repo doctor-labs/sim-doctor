@@ -40,13 +40,19 @@ fn write_fixture(name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 fn parse(path: &PathBuf, extra: &[&str]) -> Output {
-    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
-        .arg("saip")
-        .arg("parse")
-        .arg(path)
-        .args(extra)
-        .output()
-        .unwrap()
+    Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .arg("saip")
+    .arg("parse")
+    .arg(path)
+    .args(extra)
+    .output()
+    .unwrap()
 }
 
 #[test]
@@ -107,15 +113,21 @@ fn a_missing_file_is_exit_two_not_a_panic() {
 }
 
 fn personalize_cmd(path: &std::path::Path, doc: &std::path::Path, extra: &[&str]) -> Output {
-    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
-        .arg("saip")
-        .arg("personalize")
-        .arg(path)
-        .arg("--document")
-        .arg(doc)
-        .args(extra)
-        .output()
-        .unwrap()
+    Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .arg("saip")
+    .arg("personalize")
+    .arg(path)
+    .arg("--document")
+    .arg(doc)
+    .args(extra)
+    .output()
+    .unwrap()
 }
 
 #[test]
