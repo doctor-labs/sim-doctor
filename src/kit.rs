@@ -357,7 +357,27 @@ impl SimDoctor {
         }
 
         let exit_code = verdict.exit_code(args.fail_on);
-        let document = scan::doctor_json(&tree, &context, &verdict, &facts, exit_code);
+        let mut document = scan::doctor_json(&tree, &context, &verdict, &facts, exit_code);
+
+        // Opt-in anonymized submission (issue #107): compute the payload locally and contact the
+        // endpoint ONLY when --submit was given explicitly. No default endpoint, no implicit
+        // network contact.
+        if let Some(endpoint) = args.submit.as_deref() {
+            let submission = sim_doctor::submit::maybe_submit(Some(endpoint), &document);
+            if submission.error.is_some() {
+                eprintln!("sim-doctor: {}", submission.note);
+            }
+            if let Some(map) = document.as_object_mut() {
+                let data = map.entry("data").or_insert_with(|| serde_json::json!({}));
+                if let Some(dmap) = data.as_object_mut() {
+                    dmap.insert(
+                        "submission".to_owned(),
+                        sim_doctor::submit::submission_json(&submission),
+                    );
+                }
+            }
+        }
+
         let envelope: Envelope = serde_json::from_value(document)
             .map_err(|e| ScanFailure::plain(format!("sim-doctor: {e}")))?;
 

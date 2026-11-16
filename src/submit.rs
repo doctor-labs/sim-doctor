@@ -6,10 +6,13 @@
 
 use serde_json::{json, Map, Value};
 
-/// What `maybe_submit` reports, so callers can record it and tests can assert it.
+/// Outcome of an opt-in submission attempt, reported in the scan output and
+/// asserted by tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Submission {
+    /// True only when the endpoint was contacted and the request succeeded.
     pub contacted: bool,
+    /// The explicit endpoint, when `--submit` was given.
     pub endpoint: Option<String>,
     /// The anonymized payload that was (or would be) sent.
     pub payload: Value,
@@ -234,6 +237,8 @@ pub fn maybe_submit(endpoint: Option<&str>, envelope: &Value) -> Submission {
     maybe_submit_with(post_http, endpoint, envelope)
 }
 
+/// The part of a submission recorded in the scan envelope's `data` (no payload
+/// copy; the payload is the anonymized form of the envelope itself).
 pub fn submission_json(s: &Submission) -> Value {
     json!({
         "contacted": s.contacted,
