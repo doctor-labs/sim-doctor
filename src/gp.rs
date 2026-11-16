@@ -4722,9 +4722,11 @@ pub struct InstallRequest {
 }
 
 /// Which hash is the Load File Data Block Hash when a DAP block is sent (GP Card
-/// Spec v2.3.1 C.2 and Table C-3). SHA-1 is not offered.
+/// Spec v2.3.1 C.2 and Table C-3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lfdbh {
+    /// SHA-1 (20 bytes). Kept for legacy DAP schemes that still sign it.
+    Sha1,
     /// SHA-256 (Table C-3: the minimum for an AES-128 scheme).
     Sha256,
     /// SHA-384.
@@ -4737,6 +4739,7 @@ impl Lfdbh {
     /// The name shown in output.
     pub fn name(self) -> &'static str {
         match self {
+            Self::Sha1 => "sha1",
             Self::Sha256 => "sha256",
             Self::Sha384 => "sha384",
             Self::Sha512 => "sha512",
@@ -4746,8 +4749,12 @@ impl Lfdbh {
     /// The digest of the Load File Data Block, without tag `C4` and its length
     /// (C.2).
     pub fn digest(self, load_file: &[u8]) -> Vec<u8> {
-        use sha2::Digest;
+        use sha2::Digest as _;
         match self {
+            Self::Sha1 => {
+                use sha1::Digest as _;
+                sha1::Sha1::digest(load_file).to_vec()
+            }
             Self::Sha256 => sha2::Sha256::digest(load_file).to_vec(),
             Self::Sha384 => sha2::Sha384::digest(load_file).to_vec(),
             Self::Sha512 => sha2::Sha512::digest(load_file).to_vec(),
@@ -11633,6 +11640,19 @@ mod tests {
         ));
         assert_eq!(DapKey::parse("").unwrap_err(), KeyError::Count(0));
         assert_eq!(format!("{:?}", dap_key()), "DapKey { .. }");
+    }
+
+    #[test]
+    fn lfdbh_sha1_is_the_legacy_load_file_data_block_hash() {
+        assert_eq!(Lfdbh::Sha1.name(), "sha1");
+        assert_eq!(
+            hex::encode(Lfdbh::Sha1.digest(b"")),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
+        assert_eq!(
+            hex::encode(Lfdbh::Sha1.digest(b"abc")),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
     }
 
     #[test]
