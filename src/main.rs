@@ -2420,8 +2420,8 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "WHAT A CLEAN RESULT DOES AND DOES NOT MEAN\n",
     "  * Truncation is always reported. A walk that hit one of its bounds did\n",
     "    not see the whole card: the human report opens with a TRUNCATED banner,\n",
-    "    and --json carries "complete", "truncated", "truncated_by" and the\n",
-    "    full "limits_hit" list. A file list without those is a file list an\n",
+    "    and --json carries \"complete\", \"truncated\", \"truncated_by\" and the\n",
+    "    full \"limits_hit\" list. A file list without those is a file list an\n",
     "    agent could read as the card's complete contents.\n",
     "  * The default dialect is an assumption, not a fact. Reading a card's\n",
     "    capabilities template with the wrong tag table produces a file size the\n",
@@ -7888,7 +7888,7 @@ fn fuzz_opt_in(safety: &FuzzSafety, reader: Option<&str>) -> Result<(), String> 
     if !is_software && !safety.allow_real_hardware {
         return Err(format!(
             "fuzz refuses to run against {:?}: it does not look like the software card \
-             (swicc-pcsc names its reader with "swICC", see docs/swsim-fixture.md); pass \
+             (swicc-pcsc names its reader with \"swICC\", see docs/swsim-fixture.md); pass \
              --allow-real-hardware to run against it anyway",
             reader.unwrap_or("(no --reader given)")
         ));
