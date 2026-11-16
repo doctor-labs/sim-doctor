@@ -106,6 +106,7 @@
 #![deny(missing_docs)]
 
 pub mod access;
+pub mod activation;
 pub mod aka;
 pub mod apdu;
 pub mod apdu_fuzz;
@@ -129,6 +130,8 @@ pub mod erase;
 pub mod es10;
 pub mod es9;
 pub mod es9_https;
+
+pub mod es11;
 pub mod euicc;
 pub mod fcp;
 pub mod fix;
@@ -159,7 +162,13 @@ pub mod session;
 pub mod sign;
 pub mod signals;
 pub mod skill;
+pub mod smdp_server;
+
+pub mod smpp;
+
 pub mod sms;
+
+pub mod submit;
 pub mod sysmocom;
 pub mod tar;
 pub mod tlv;
@@ -391,6 +400,26 @@ pub const MODULES: &[ModuleInfo] = &[
         depends_on: &[apdu::NAME, transport::NAME, session::NAME],
     },
     ModuleInfo {
+        name: es9::NAME,
+        owns: "ES9+ (SGP.22): the JSON-over-HTTPS message layer to an SM-DP+ (address validation, request bodies, response checking and base64 payload decoding) over a caller-supplied transport; sends nothing itself.",
+        depends_on: &[es10::NAME],
+    },
+    ModuleInfo {
+        name: es9_https::NAME,
+        owns: "The HTTPS ES9+ transport: the only code that opens a network socket for ES9+, with TLS verification always on and configurable trust anchors; off until a command explicitly needs it.",
+        depends_on: &[es9::NAME],
+    },
+    ModuleInfo {
+        name: activation::NAME,
+        owns: "SGP.22 activation code parsing (LPA:1$...): SM-DP+ address, matching ID and confirmation-code requirement for a profile download; no network or card access.",
+        depends_on: &[es9::NAME],
+    },
+    ModuleInfo {
+        name: es11::NAME,
+        owns: "ES11 SM-DS discovery (SGP.22): query a root SM-DS for pending profile download events over a caller-supplied ES9 transport; no socket opened here.",
+        depends_on: &[es9::NAME],
+    },
+    ModuleInfo {
         name: euicc::NAME,
         owns: "Read-only eUICC queries: select the ISD-R on a logical channel and run GetEID, GetEuiccInfo1/2, GetProfilesInfo, ListNotification (metadata only), GetEUICCChallenge, and the SGP.32 GetCerts and GetEimConfigurationData an IoT eUICC answers, through es10; The writes are nickname (SetNickname), enable and disable (EnableProfile, DisableProfile with REFRESH), delete (DeleteProfile), reset (eUICCMemoryReset, needs the EID confirmed) and notification removal (RemoveNotificationFromList): each a dry run unless confirmed, verified by a re-read.",
         depends_on: &[apdu::NAME, session::NAME, es10::NAME, ef::NAME, contract::NAME, transport::NAME],
@@ -458,6 +487,22 @@ pub const MODULES: &[ModuleInfo] = &[
         name: profile_download::NAME,
         owns: "The SGP.22 profile download order (GetEUICCChallenge, GetEUICCInfo1, InitiateAuthentication, AuthenticateServer, AuthenticateClient, PrepareDownload, GetBoundProfilePackage, then LoadBoundProfilePackage) over an ES9+ client and a card callback, with transactionId checks, a CancelSession chain before any load, and retryable or terminal failure kinds.",
         depends_on: &[es10::NAME],
+    },
+    ModuleInfo {
+        name: smpp::NAME,
+        owns: "Self-hosted SMPP 3.4 gateway/ESME server to receive submit_sm and push OTA SMS payloads without a third-party SMSC; bounded PDU handling.",
+        depends_on: &[],
+    },
+    ModuleInfo {
+        name: smdp_server::NAME,
+        owns: "Self-hosted SM-DP+ test server (ES9+ endpoints) and RSP/OTA hosting primitives for local profile download and notification handling without third-party accounts.",
+        depends_on: &[es9::NAME, es10::NAME, bpp::NAME],
+    },
+
+    ModuleInfo {
+        name: submit::NAME,
+        owns: "Opt-in anonymized scan-result submission: redact identifiers from a doctor/1 envelope and POST it over verified HTTPS (optionally trust-anchored) to an explicit endpoint; off by default.",
+        depends_on: &[es9_https::NAME],
     },
 ];
 

@@ -95,6 +95,10 @@ struct Run {
     sffs: bool,
     /// `-X`: PC/SC exclusive access for the card read.
     exclusive: bool,
+    /// `--submit`: opt-in endpoint for anonymized envelope upload.
+    submit: Option<String>,
+    /// `--submit-ca`: PEM trust anchor for --submit.
+    submit_ca: Option<String>,
 }
 
 impl Run {
@@ -124,6 +128,8 @@ impl Run {
             legacy: false,
             sffs: false,
             exclusive: card.exclusive,
+            submit: None,
+            submit_ca: None,
         }
     }
 
@@ -161,6 +167,8 @@ impl Run {
             csv: args.csv.clone(),
             legacy: args.face.as_deref() == Some("legacy"),
             sffs: args.sffs,
+            submit: args.submit.clone(),
+            submit_ca: args.submit_ca.clone(),
         }
     }
 }
@@ -616,6 +624,21 @@ impl Doctor for SimDoctor {
                 finding
                     .as_object_mut()
                     .map(|f| f.entry("evidence").or_insert_with(|| json!([])));
+            }
+        }
+        if let Some(run) = self.run.get() {
+            if let Some(endpoint) = run.submit.as_deref() {
+                match sim_doctor::submit::submit_envelope(
+                    endpoint,
+                    &value,
+                    true,
+                    run.submit_ca.as_deref(),
+                ) {
+                    Ok(_) => {
+                        eprintln!("sim-doctor: submitted anonymized scan envelope to {endpoint}")
+                    }
+                    Err(err) => eprintln!("sim-doctor: scan submission failed: {err}"),
+                }
             }
         }
         serde_json::to_string(&value).expect("an envelope serializes") + "\n"

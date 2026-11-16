@@ -82,6 +82,8 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l theme -d 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l color -d 'Colour the face: auto (a terminal and no NO_COLOR), always or never' -r -f -a "auto\t''
 always\t''
 never\t''"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l submit -d 'Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default). Identifiers and file contents are redacted before sending' -r
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l submit-ca -d 'PEM trust anchor for --submit (certificate pinning / explicit CA)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -s X -l exclusive -d 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l json -d 'Emit one JSON envelope on stdout, and nothing else'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tui -d 'Show the findings in an interactive terminal view instead of the report'
@@ -620,10 +622,12 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_see
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from help" -f -a "store-data" -d 'Write data to the selected Application or issuer security domain with STORE DATA (GlobalPlatform Card Spec v2.3.1 11.11). CHANGES CARD CONTENT'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from help" -f -a "secure-apdu" -d 'Send ONE raw APDU you wrote over the SCP03 secure channel and report the card\'s answer verbatim. This is the raw escape hatch of the GP tool (`gp -s`), not a new kind of command. CAN WRITE TO THE CARD'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand gp; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -l bind -d 'UDP address to bind for --listen (default: 127.0.0.1:4729)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -l json -d 'Emit one JSON envelope of kind "trace" on stdout'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -l show-raw-apdu -d 'Also print each exchange\'s raw command and response hex in the table'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -l no-suppress-select -d 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -l no-suppress-status -d 'Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace'
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -l listen -d 'Listen for live GSMTAP SIM APDUs over UDP instead of reading a file'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand trace" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand cat; and not __fish_seen_subcommand_from decode help" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand cat; and not __fish_seen_subcommand_from decode help" -f -a "decode" -d 'Decode CAT data given as hex arguments, or one object per line on stdin'
@@ -884,6 +888,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -s c -d 'Run
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l script -d 'Run the commands in this file, one per line (`#` starts a comment), and exit' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l read-csv -d 'Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim\'s provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l write-csv -d 'Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim\'s provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged' -r -F
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l write-hlr -d 'Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l chv-file -d 'File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history' -r -F
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l chv-env -d 'Environment variable holding the same text (entries separated by `;` or newlines)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand card" -l key-file -d 'pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600' -r -F
