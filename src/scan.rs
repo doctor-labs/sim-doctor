@@ -3799,7 +3799,7 @@ mod tests {
         let none = Subject {
             scp03: None,
             ..subject
-        , euicc: None };
+        };
         assert!(!rule.had_evidence(&none));
         assert!(rule.run(&none).is_empty());
     }

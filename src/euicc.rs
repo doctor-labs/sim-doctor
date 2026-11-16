@@ -2278,7 +2278,7 @@ pub fn snapshot<S: CardSession + ?Sized>(
     session: &mut S,
     aid: &[u8],
 ) -> Result<Option<Snapshot>, Failure> {
-    let (channel, open) = session::open_channel(session).map_err(exchange_failed)?;
+    let (channel, _open) = session::open_channel(session).map_err(exchange_failed)?;
     let Some(channel) = channel else {
         return Ok(None);
     };
