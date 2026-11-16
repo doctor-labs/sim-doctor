@@ -41,6 +41,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand cat 'Decode Card Application Toolkit data offline (no card, no reader)'
             cand sms '`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing'
             cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing'
+            cand program 'Card personalization / programming (pySim-prog style): turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV'
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
             cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
@@ -1201,6 +1202,25 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;saip;help;help'= {
         }
+        &'sim-doctor;program'= {
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand plan 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;program;plan'= {
+            cand --json 'Emit the plan as a JSON document on stdout'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'sim-doctor;program;help'= {
+            cand plan 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'sim-doctor;program;help;plan'= {
+        }
+        &'sim-doctor;program;help;help'= {
+        }
         &'sim-doctor;ota-crypto'= {
             cand -h 'Print help'
             cand --help 'Print help'
@@ -1699,6 +1719,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand cat 'Decode Card Application Toolkit data offline (no card, no reader)'
             cand sms '`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing'
             cand saip '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing'
+            cand program 'Card personalization / programming (pySim-prog style): turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV'
             cand ota-crypto 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line'
             cand esim-cert 'Verify an eSIM certificate chain offline, up to a CI root you supply'
             cand ota-expanded 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out'
@@ -1896,6 +1917,11 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
             cand parse 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline'
         }
         &'sim-doctor;help;saip;parse'= {
+        }
+        &'sim-doctor;help;program'= {
+            cand plan 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent'
+        }
+        &'sim-doctor;help;program;plan'= {
         }
         &'sim-doctor;help;ota-crypto'= {
             cand encrypt 'Encrypt DATA (hex) with CBC, no padding, printing ciphertext as hex'

@@ -148,6 +148,7 @@ pub mod ota_expanded;
 pub mod otacrypto;
 pub mod pace;
 pub mod profile_download;
+pub mod program;
 pub mod rules;
 pub mod saip;
 pub mod sarif;
@@ -455,6 +456,11 @@ pub const MODULES: &[ModuleInfo] = &[
         name: sms::NAME,
         owns: "Offline SMS TPDU decoding (TS 23.040): SMS-DELIVER, SMS-SUBMIT, STATUS-REPORT, addresses, DCS, UDH and concatenation, GSM 7-bit and UCS2 text.",
         depends_on: &[],
+    },
+    ModuleInfo {
+        name: program::NAME,
+        owns: "Offline card personalization/programming: parse a pySim-prog-style programming document and produce the APDU sequence/plan for supported card types (document to APDU plan). Sending writes needs a live card and explicit opt-in.",
+        depends_on: &[aka::NAME, legacy::NAME, sysmocom::NAME],
     },
     ModuleInfo {
         name: saip::NAME,
