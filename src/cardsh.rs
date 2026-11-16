@@ -1700,26 +1700,43 @@ impl Shell {
             text.push_str("(no data)");
             return (text, out);
         }
-        // Common: BER-TLV tag A1 (SUCI TLV data object) wrapping the SUCI
+        // Common: BER-TLV tag A1 (SUCI TLV data object) wrapping the SUCI.
         if data[0] == 0xA1 {
             out["tlv_tag"] = serde_json::json!("A1");
-            // Try to decode length (simple forms)
             if data.len() >= 2 {
                 let len_byte = data[1];
                 if len_byte & 0x80 == 0 {
                     // short form
                     let len = len_byte as usize;
                     if data.len() >= 2 + len {
+                        let value = &data[2..2 + len];
                         out["tlv_length"] = serde_json::json!(len);
-                        out["tlv_value"] = serde_json::json!(hex_upper(&data[2..2 + len]));
-                        text.push_str(&format!("A1 (len {}) {}", len, hex_upper(&data[2..2 + len])));
+                        out["tlv_value"] = serde_json::json!(hex_upper(value));
+                        text.push_str(&format!("A1 (len {}) {}", len, hex_upper(value)));
                     } else {
                         text.push_str(&format!("A1 (truncated) {}", hex_upper(data)));
                     }
                 } else {
-                    // long form not fully parsed here; just report
-                    text.push_str(&format!("A1 (long form) {}", hex_upper(data)));
-                    out["tlv_value"] = serde_json::json!(hex_upper(&data[2..]));
+                    // definite long form
+                    let n = (len_byte & 0x7F) as usize;
+                    if n == 0 || data.len() < 2 + n {
+                        text.push_str(&format!("A1 (malformed length) {}", hex_upper(data)));
+                        out["note"] = serde_json::json!("malformed length encoding");
+                    } else {
+                        let mut len: usize = 0;
+                        for &b in &data[2..2 + n] {
+                            len = (len << 8) | b as usize;
+                        }
+                        let start = 2 + n;
+                        if data.len() >= start + len {
+                            let value = &data[start..start + len];
+                            out["tlv_length"] = serde_json::json!(len);
+                            out["tlv_value"] = serde_json::json!(hex_upper(value));
+                            text.push_str(&format!("A1 (len {}) {}", len, hex_upper(value)));
+                        } else {
+                            text.push_str(&format!("A1 (truncated) {}", hex_upper(data)));
+                        }
+                    }
                 }
             } else {
                 text.push_str(&format!("A1 {}", hex_upper(data)));
@@ -1747,8 +1764,7 @@ impl Shell {
         let sw = ex.status();
         let data = ex.data();
         let (parsed_text, parsed_json) = Self::parse_get_identity_response(data);
-        let mut text = format!("sw {} ({})\n{}", sw_text(sw), hex_wire, parsed_text);
-        if !data.is_empty() && parsed_text.is_empty() == false { /* already included */ }
+        let text = format!("sw {} ({})\n{}", sw_text(sw), hex_wire, parsed_text);
 
         let mut out_json = json!({
             "sent": true,
@@ -8659,12 +8675,49 @@ mod file_management_tests {
         let sent = log.borrow().clone();
         let get_id = sent.iter().find(|c| c[1] == 0x78);
         assert!(get_id.is_some(), "GET IDENTITY command should be in log");
-        // The response should have data and status word
         let data = r.data["data"].as_str().unwrap();
         assert!(
             !data.is_empty() || r.data["sw"] == "9000",
             "Should have identity data or SW 9000"
         );
+    }
+
+    #[test]
+    fn get_identity_builder_sets_ins_p1_p2_and_le() {
+        let suci = Shell::build_get_identity_command(0x80, false);
+        assert_eq!(suci.encode().unwrap(), [0x80, 0x78, 0x00, 0x01, 0x00]);
+        let nswo = Shell::build_get_identity_command(0x84, true);
+        assert_eq!(nswo.encode().unwrap(), [0x84, 0x78, 0x00, 0x02, 0x00]);
+    }
+
+    #[test]
+    fn get_identity_parser_handles_synthetic_fixtures() {
+        // Empty
+        let (text, v) = Shell::parse_get_identity_response(&[]);
+        assert!(text.contains("no data"), "{text}");
+        assert_eq!(v["raw"], "");
+
+        // A1 short-form TLV
+        let (text, v) = Shell::parse_get_identity_response(&[0xA1, 0x03, 0x01, 0x02, 0x03]);
+        assert!(text.contains("A1 (len 3) 010203"), "{text}");
+        assert_eq!(v["tlv_tag"], "A1");
+        assert_eq!(v["tlv_length"], 3);
+        assert_eq!(v["tlv_value"], "010203");
+
+        // A1 definite long-form length (0x81, 0x03)
+        let (text, v) = Shell::parse_get_identity_response(&[0xA1, 0x81, 0x03, 0xAA, 0xBB, 0xCC]);
+        assert!(text.contains("A1 (len 3) AABBCC"), "{text}");
+        assert_eq!(v["tlv_length"], 3);
+        assert_eq!(v["tlv_value"], "AABBCC");
+
+        // Truncated A1
+        let (text, _v) = Shell::parse_get_identity_response(&[0xA1, 0x05, 0x01]);
+        assert!(text.contains("truncated"), "{text}");
+
+        // Non-A1 payload (some cards/apps may differ)
+        let (text, v) = Shell::parse_get_identity_response(&[0x00, 0x08, 0x09]);
+        assert!(text.contains("data 000809"), "{text}");
+        assert_eq!(v["note"], "unexpected tag (expected A1)");
     }
 
     #[test]
