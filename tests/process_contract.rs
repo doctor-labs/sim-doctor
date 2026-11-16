@@ -9,7 +9,7 @@
 //! command line.
 //!
 //! So each test here spawns the built binary. `binary()` is
-//! `&*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor").to_string())`, resolved by cargo at compile time, not
+//! `std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor").to_owned())`, resolved by cargo at compile time, not
 //! `cargo run` and not a path guessed at at runtime, and the assertions are
 //! on the `ExitStatus` the kernel reported rather than on a value the crate
 //! produced for itself.
@@ -37,11 +37,11 @@ use std::time::Instant;
 use sim_doctor::contract;
 
 /// The binary under test, as built by cargo for this integration test.
-fn binary() -> &'static str {
-    &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
         option_env!("CARGO_BIN_EXE_sim-doctor")
             .unwrap_or("target/debug/sim-doctor")
-            .to_string()
+            .to_owned()
     })
 }
 
