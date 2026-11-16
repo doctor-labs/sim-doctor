@@ -894,6 +894,7 @@ fn scan_card(
         tree: &tree,
         tar: &audit,
         scp03: None,
+        euicc: None,
     })
     .expect("rules");
     (tree, found)
@@ -1124,6 +1125,7 @@ fn a_short_iccid_is_shown_in_full_by_the_scan_json() {
         tree: &tree,
         tar: &audit,
         scp03: None,
+        euicc: None,
     })
     .expect("rules");
     let verdict = scan::Verdict::new(found, scan::rules_run());

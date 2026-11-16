@@ -1,0 +1,8 @@
+{
+  "cwe": "CWE-1104",
+  "description": "the eUICC supports an outdated SGP.22 version",
+  "id": "euicc/outdated-sgp22-version",
+  "reference": "GSMA SGP.22 (svn / SGP.22 version in EUICCInfo2)",
+  "remediation": "update the eUICC firmware or replace the eUICC so it supports a current SGP.22 version (2.2.0 or later) with the required security and interoperability features, then re-scan",
+  "severity": "low"
+}

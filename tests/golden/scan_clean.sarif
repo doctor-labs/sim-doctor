@@ -6,7 +6,7 @@
         "coverage": "complete",
         "coverageReasons": [],
         "score": {
-          "coverage_gaps": 9,
+          "coverage_gaps": 13,
           "label": "incomplete",
           "model": "sim/1",
           "value": 100
@@ -206,6 +206,82 @@
               },
               "shortDescription": {
                 "text": "EF.UST marks 5GS services available but not service 124 (Subscription identifier privacy support), so the card offers no SUCI configuration"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "help": {
+                "text": "remove test and provisioning profiles before production use (disable then delete them with `sim-doctor euicc disable` / `euicc delete`, or reset test profiles with `euicc reset --test --yes --confirm-eid <EID>`), then re-scan"
+              },
+              "id": "euicc/test-or-provisioning-profile",
+              "name": "euicc/test-or-provisioning-profile",
+              "properties": {
+                "security-severity": "5.0",
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "a test or provisioning profile is present on the eUICC"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "help": {
+                "text": "replace test CI public key identifiers with production GSMA CI keys appropriate for the deployment; a production eUICC must not trust test CI certificates for profile verification or signing"
+              },
+              "id": "euicc/test-ci-key-identifier",
+              "name": "euicc/test-ci-key-identifier",
+              "properties": {
+                "security-severity": "8.0",
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "the eUICC advertises a known test CI public key identifier"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "help": {
+                "text": "set the default SM-DP+ address to the production SM-DP+ FQDN for this deployment (`sim-doctor euicc set-default-dp <address> --yes`), then re-scan"
+              },
+              "id": "euicc/test-smdp-address",
+              "name": "euicc/test-smdp-address",
+              "properties": {
+                "security-severity": "5.0",
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "the default SM-DP+ address is a test or placeholder address"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "help": {
+                "text": "update the eUICC firmware or replace the eUICC so it supports a current SGP.22 version (2.2.0 or later) with the required security and interoperability features, then re-scan"
+              },
+              "id": "euicc/outdated-sgp22-version",
+              "name": "euicc/outdated-sgp22-version",
+              "properties": {
+                "security-severity": "3.0",
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "the eUICC supports an outdated SGP.22 version"
               }
             }
           ],

@@ -58,6 +58,30 @@ $ rules explain privacy/suci-not-provisioned --json [exit 0]
 $ why privacy/suci-not-provisioned --json [exit 1]
 {"type":"rules","payload":{"code":1,"message":"cannot read privacy/suci-not-provisioned: No such file or directory (os error 2)","data":{"error":"cannot read privacy/suci-not-provisioned: No such file or directory (os error 2)"}}}
 
+$ rules explain euicc/test-or-provisioning-profile --json [exit 0]
+{"type":"rules","payload":{"code":0,"message":"ok","data":{"rule":{"cwe":"CWE-284","id":"euicc/test-or-provisioning-profile","reference":"GSMA SGP.22 (profile classes: operational, provisioning, test); SGP.23","remediation":"remove test and provisioning profiles before production use (disable then delete them with `sim-doctor euicc disable` / `euicc delete`, or reset test profiles with `euicc reset --test --yes --confirm-eid <EID>`), then re-scan","severity":"medium","summary":"a test or provisioning profile is present on the eUICC"}}}}
+
+$ why euicc/test-or-provisioning-profile --json [exit 1]
+{"type":"rules","payload":{"code":1,"message":"cannot read euicc/test-or-provisioning-profile: No such file or directory (os error 2)","data":{"error":"cannot read euicc/test-or-provisioning-profile: No such file or directory (os error 2)"}}}
+
+$ rules explain euicc/test-ci-key-identifier --json [exit 0]
+{"type":"rules","payload":{"code":0,"message":"ok","data":{"rule":{"cwe":"CWE-295","id":"euicc/test-ci-key-identifier","reference":"GSMA SGP.22 (euiccCiPKIdListForVerification/Signing); GSMA SGP.26 test PKI","remediation":"replace test CI public key identifiers with production GSMA CI keys appropriate for the deployment; a production eUICC must not trust test CI certificates for profile verification or signing","severity":"high","summary":"the eUICC advertises a known test CI public key identifier"}}}}
+
+$ why euicc/test-ci-key-identifier --json [exit 1]
+{"type":"rules","payload":{"code":1,"message":"cannot read euicc/test-ci-key-identifier: No such file or directory (os error 2)","data":{"error":"cannot read euicc/test-ci-key-identifier: No such file or directory (os error 2)"}}}
+
+$ rules explain euicc/test-smdp-address --json [exit 0]
+{"type":"rules","payload":{"code":0,"message":"ok","data":{"rule":{"cwe":"CWE-1188","id":"euicc/test-smdp-address","reference":"GSMA SGP.22 (default SM-DP+ address, ES10a GetEuiccConfiguredAddresses/SetDefaultDpAddress)","remediation":"set the default SM-DP+ address to the production SM-DP+ FQDN for this deployment (`sim-doctor euicc set-default-dp <address> --yes`), then re-scan","severity":"medium","summary":"the default SM-DP+ address is a test or placeholder address"}}}}
+
+$ why euicc/test-smdp-address --json [exit 1]
+{"type":"rules","payload":{"code":1,"message":"cannot read euicc/test-smdp-address: No such file or directory (os error 2)","data":{"error":"cannot read euicc/test-smdp-address: No such file or directory (os error 2)"}}}
+
+$ rules explain euicc/outdated-sgp22-version --json [exit 0]
+{"type":"rules","payload":{"code":0,"message":"ok","data":{"rule":{"cwe":"CWE-1104","id":"euicc/outdated-sgp22-version","reference":"GSMA SGP.22 (svn / SGP.22 version in EUICCInfo2)","remediation":"update the eUICC firmware or replace the eUICC so it supports a current SGP.22 version (2.2.0 or later) with the required security and interoperability features, then re-scan","severity":"low","summary":"the eUICC supports an outdated SGP.22 version"}}}}
+
+$ why euicc/outdated-sgp22-version --json [exit 1]
+{"type":"rules","payload":{"code":1,"message":"cannot read euicc/outdated-sgp22-version: No such file or directory (os error 2)","data":{"error":"cannot read euicc/outdated-sgp22-version: No such file or directory (os error 2)"}}}
+
 $ rules explain ts48/file-missing --json [exit 0]
 {"type":"rules","payload":{"code":0,"message":"ok","data":{"rule":{"cwe":null,"id":"ts48/file-missing","reference":"GSMA TS.48 generic test profile","remediation":"expected for an operator SIM, which is not a TS.48 card; matching TS.48 is not GCF or PTCRB conformance","severity":"low","summary":"the TS.48 test profile defines a file the card does not have"}}}}
 
