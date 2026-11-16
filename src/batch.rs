@@ -1129,10 +1129,7 @@ impl CardReport {
             label: slot.label.clone(),
             expected_iccid: slot.iccid.clone(),
             observed_iccid: record.observed_iccid.clone(),
-            reader: slot
-                .reader
-                .clone()
-                .or_else(|| record.reader.clone()),
+            reader: slot.reader.clone().or_else(|| record.reader.clone()),
             state: record.state.as_str(),
             profile: slot.profile.clone(),
             planned: slot.steps(),
@@ -1416,10 +1413,7 @@ impl Runner<'_> {
                 label: slot.label.clone(),
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: None,
-                reader: slot
-                    .reader
-                    .clone()
-                    .or_else(|| self.opts.reader.clone()),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Planned.as_str(),
                 profile: slot.profile.clone(),
                 planned: slot.steps(),
@@ -2529,6 +2523,7 @@ mod tests {
             slot: 1,
             expected_iccid: iccid_of(&CARD_A),
             observed_iccid: Some(iccid_of(&CARD_A)),
+            reader: None,
             state: CardState::Released,
             steps_planned: 4,
             steps_done: 4,
@@ -2540,6 +2535,7 @@ mod tests {
             slot: 2,
             expected_iccid: iccid_of(&CARD_B),
             observed_iccid: Some(iccid_of(&CARD_B)),
+            reader: None,
             state: CardState::InProgress,
             steps_planned: 4,
             steps_done: 1,
@@ -2990,7 +2986,6 @@ mod tests {
         assert_eq!(sim.card_profile(), Profile::Sim);
     }
 
-
     #[test]
     fn a_plan_can_name_a_reader_per_slot_and_rejects_an_empty_one() {
         let iccid_a = iccid_of(&CARD_A);
@@ -3098,7 +3093,11 @@ mod tests {
         assert_eq!(code, ExitCode::Success, "{report:?}");
         assert_eq!(report.summary.programmed, 2);
         assert_eq!(
-            report.cards.iter().map(|c| c.reader.as_deref()).collect::<Vec<_>>(),
+            report
+                .cards
+                .iter()
+                .map(|c| c.reader.as_deref())
+                .collect::<Vec<_>>(),
             vec![Some("reader-a"), Some("reader-b")]
         );
         assert!(report.cards.iter().all(|c| c.verified && c.touched));
@@ -3117,5 +3116,4 @@ mod tests {
         );
         let _ = (opens, logs, std::fs::remove_dir_all(&dir));
     }
-
 }
