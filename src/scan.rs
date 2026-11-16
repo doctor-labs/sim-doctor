@@ -3762,7 +3762,11 @@ mod tests {
         assert_eq!(id.rule(), "msl-zero-allowed");
 
         let registry = rules();
-        assert_eq!(registry.len(), 14, "fourteen rules are registered over a card");
+        assert_eq!(
+            registry.len(),
+            14,
+            "fourteen rules are registered over a card"
+        );
         let rule = registry.get(&id).expect("the rule is registered");
         assert_eq!(rule.severity(), rules::Severity::Critical);
         assert!(
@@ -4367,7 +4371,7 @@ mod tests {
             "BF2035 8203020200 A916041481370F5125D0B1D408D4C3B232E6D25E795BEBFB AA16041481370F5125D0B1D408D4C3B232E6D25E795BEBFB",
         ))
         .unwrap();
-        let mut info2 = es10::decode_euicc_info2(&h(
+        let info2 = es10::decode_euicc_info2(&h(
             // INFO2_V25: svn 2.5.0, ci pk ids 81370F51...
             "BF2281B781030201008203020500830304060084158101008204000628248304000019228504067F36C0850200FF86030300008703020301880204B0A916041481370F5125D0B1D408D4C3B232E6D25E795BEBFBAA16041481370F5125D0B1D408D4C3B232E6D25E795BEBFB8B0102990202C004030000010C0D47492D42412D55502D30343139AC1E80056C6162656C811568747470733A2F2F646C6F612E6578616D706C652F8D0205408E075452452D524546AF050403030200",
         ))
@@ -4380,7 +4384,7 @@ mod tests {
         let mut card = sample_card();
         let tree = walk_sample(&mut card, Limits::default());
         let audit = tar::Audit::not_run("test");
-        let mut profiles = vec![ProfileInfo {
+        let profiles = vec![ProfileInfo {
             iccid: Some(h("89000123456789012341")),
             profile_state: Some(ProfileState::Enabled),
             profile_class: Some(ProfileClass::Operational),

@@ -2299,9 +2299,8 @@ pub fn snapshot<S: CardSession + ?Sized>(
         }
         let cla = channel_cla(true, channel);
         let mut ask = |what: &'static str, request: Vec<u8>| -> Result<Vec<u8>, Failure> {
-            let sent =
-                es10::store_data_sized(session, cla, &request, DEFAULT_MAX_SEGMENT, &policy)
-                    .map_err(exchange_failed)?;
+            let sent = es10::store_data_sized(session, cla, &request, DEFAULT_MAX_SEGMENT, &policy)
+                .map_err(exchange_failed)?;
             let last = sent.exchanges.last();
             if !sent.complete || !last.is_some_and(session::Exchange::is_success) {
                 return Err(Failure::new(
@@ -2317,10 +2316,12 @@ pub fn snapshot<S: CardSession + ?Sized>(
             }
             Ok(sent.data().to_vec())
         };
-        let info1 = es10::decode_euicc_info1(&ask("GetEuiccInfo1", es10::get_euicc_info1_request())?)
-            .map_err(|e| bad("GetEuiccInfo1", e))?;
-        let info2 = es10::decode_euicc_info2(&ask("GetEuiccInfo2", es10::get_euicc_info2_request())?)
-            .map_err(|e| bad("GetEuiccInfo2", e))?;
+        let info1 =
+            es10::decode_euicc_info1(&ask("GetEuiccInfo1", es10::get_euicc_info1_request())?)
+                .map_err(|e| bad("GetEuiccInfo1", e))?;
+        let info2 =
+            es10::decode_euicc_info2(&ask("GetEuiccInfo2", es10::get_euicc_info2_request())?)
+                .map_err(|e| bad("GetEuiccInfo2", e))?;
         let addresses = es10::decode_configured_addresses(&ask(
             "GetEuiccConfiguredAddresses",
             es10::get_euicc_configured_addresses_request(),
