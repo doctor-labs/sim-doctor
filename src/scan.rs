@@ -4393,7 +4393,11 @@ mod tests {
         let mut snapshot = crate::euicc::Snapshot {
             info1: info1.clone(),
             info2: info2.clone(),
-            addresses: addresses.clone(),
+            addresses: es10::ConfiguredAddresses {
+                default_dp_address: Some("smdp.carrier.com".to_owned()),
+                root_ds_address: addresses.root_ds_address.clone(),
+                unknown: Vec::new(),
+            },
             profiles: profiles.clone(),
         };
 
@@ -4481,7 +4485,12 @@ mod tests {
             .any(|f| f.rule().as_str() == EUICC_TEST_SMDP_ADDRESS_RULE));
 
         // Outdated SGP.22 version.
-        snapshot.addresses = addresses;
+        snapshot.addresses = es10::ConfiguredAddresses {
+            default_dp_address: Some("smdp.carrier.com".to_owned()),
+            root_ds_address: addresses.root_ds_address.clone(),
+            unknown: Vec::new(),
+        };
+        snapshot.info2 = info2.clone();
         snapshot.info2.svn = [2, 1, 0];
         let found = findings(&Subject {
             tree: &tree,
