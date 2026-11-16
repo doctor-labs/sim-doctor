@@ -464,7 +464,7 @@ pub const MODULES: &[ModuleInfo] = &[
     },
     ModuleInfo {
         name: saip::NAME,
-        owns: "Offline SAIP profile package parse: the DER ProfileElement sequence named by PE type (SAIP 3.3.1 ASN.1 order) and shown as a bounded TLV tree; unknown PEs as raw hex. Parse only, no personalization.",
+        owns: "Offline SAIP profile package parse and personalization: the DER ProfileElement sequence named by PE type (SAIP 3.3.1 ASN.1 order), shown as a bounded TLV tree, and personalized by applying a document and substituting variant/optional PEs.",
         depends_on: &[der::NAME],
     },
     ModuleInfo {

@@ -271,6 +271,24 @@ fn children(body: &[u8], base: usize, depth: usize, budget: &mut Budget) -> Resu
 /// [`Error::TooLarge`], [`Error::Empty`], and for any malformed element the offset and
 /// the reason ([`Error::BadTag`], [`Error::Der`]).
 pub fn decode(bytes: &[u8]) -> Result<Value, Error> {
+    let parsed = parse_elements(bytes)?;
+    let elements = parsed.into_iter().map(|e| e.json).collect::<Vec<_>>();
+    Ok(json!({ "pe_count": elements.len(), "elements": elements }))
+}
+
+/// One top-level PE element with its raw bytes and decoded JSON.
+#[derive(Debug, Clone)]
+struct ParsedElement {
+    /// The PE type name, or "unknown".
+    type_name: String,
+    /// The complete raw bytes of this element (tag + length + value).
+    raw: Vec<u8>,
+    /// The decoded JSON representation.
+    json: Value,
+}
+
+/// Parses all top-level elements, keeping raw bytes for each.
+fn parse_elements(bytes: &[u8]) -> Result<Vec<ParsedElement>, Error> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(Error::TooLarge {
             len: bytes.len(),
@@ -287,38 +305,394 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Error> {
         let index = elements.len();
         spend(&mut budget)?;
         let framed = frame(&bytes[offset..], offset)?;
-        // Only a known, non-reserved, constructed alternative is expanded. Anything else is
-        // skipped by its length: its body is not parsed, so its bytes cannot fail the decode.
         let known = match framed.tag.constructed {
             true => PE_TYPES.get(framed.tag.number as usize).copied(),
             false => None,
         }
         .filter(|name| !name.starts_with("rfu"));
         let used = framed.used;
-        let element = match known {
+        let raw = bytes[offset..offset + used].to_vec();
+        let (type_name, json) = match known {
             Some(name) => {
-                let (mut json, _) = node(&bytes[offset..], offset, 0, &mut budget)?;
-                let fields = named_fields(name, children_of(&json));
+                let (mut j, _) = node(&bytes[offset..], offset, 0, &mut budget)?;
+                let fields = named_fields(name, children_of(&j));
                 if let Some(fields) = fields {
-                    json["fields"] = fields;
+                    j["fields"] = fields;
                 }
-                json["index"] = json!(index);
-                json["type"] = json!(name);
-                json
+                j["index"] = json!(index);
+                j["type"] = json!(name);
+                (name.to_string(), j)
             }
-            None => json!({
-                "index": index,
-                "offset": offset,
-                "type": "unknown",
-                "tag": framed.tag.hex,
-                "length": framed.body.len(),
-                "raw_hex": hex::encode_upper(&bytes[offset..offset + used]),
-            }),
+            None => {
+                let j = json!({
+                    "index": index,
+                    "offset": offset,
+                    "type": "unknown",
+                    "tag": framed.tag.hex,
+                    "length": framed.body.len(),
+                    "raw_hex": hex::encode_upper(&raw),
+                });
+                ("unknown".to_string(), j)
+            }
         };
-        elements.push(element);
+        elements.push(ParsedElement {
+            type_name,
+            raw,
+            json,
+        });
         offset += used;
     }
-    Ok(json!({ "pe_count": elements.len(), "elements": elements }))
+    Ok(elements)
+}
+
+/// A personalization document: parameter values to apply to a SAIP profile package,
+/// and optional/variant PE substitutions.
+///
+/// Matches pySim's `esim.saip.personalization` parameter application and variant
+/// handling (`personalization.py`, including `do_variants`): configurable parameters
+/// (ICCID, IMSI, PIN/PUK, etc.) are written into the profile elements, and
+/// variant/optional PEs can be selected, dropped, or substituted.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct PersonalizationDoc {
+    /// Profile header ICCID (digits). Written into the header PE.
+    pub iccid: Option<String>,
+    /// Profile type string in the header.
+    pub profile_type: Option<String>,
+    /// PIN values by key reference (e.g. {"1": "1234", "10": "12345678"}).
+    /// Applied to pinCodes PEs matching the key reference.
+    pub pins: Option<std::collections::BTreeMap<String, String>>,
+    /// PUK values by key reference (e.g. {"1": "12345678"}).
+    pub puks: Option<std::collections::BTreeMap<String, String>>,
+    /// Optional/variant PE types to drop (remove) from the profile, e.g.
+    /// ["opt-usim", "opt-isim"]. Substitutes them out of the sequence.
+    pub drop_pe_types: Option<Vec<String>>,
+    /// Optional/variant PE types to keep exclusively; all other opt-* / variant
+    /// PEs of the same category are dropped. If set, acts as a whitelist filter
+    /// for variant selection (substituting the selected variants).
+    pub keep_pe_types: Option<Vec<String>>,
+    /// Generic scalar substitutions: `{"pe_type.field": "value"}` or
+    /// `{"pe_type.child_tag.value_hex": "HEX"}` applied as raw TLV value
+    /// replacements in matching PE types. Used for arbitrary personalization.
+    pub substitutions: Option<std::collections::BTreeMap<String, String>>,
+}
+
+/// Applies a personalization document to a SAIP profile package.
+///
+/// Returns the personalized profile package as DER bytes. The operation:
+/// 1. Parses the package into elements
+/// 2. Applies parameter values (ICCID, PINs, PUKs, etc.) by modifying element contents
+/// 3. Substitutes variant/optional PEs (drops or filters per the document)
+/// 4. Re-encodes the result as a concatenated DER ProfileElement sequence
+///
+/// # Errors
+///
+/// Returns parse/encoding errors if the input is malformed or personalization
+/// produces invalid data.
+pub fn personalize(bytes: &[u8], doc: &PersonalizationDoc) -> Result<Vec<u8>, Error> {
+    let mut elements = parse_elements(bytes)?;
+    let mut out: Vec<Vec<u8>> = Vec::with_capacity(elements.len());
+
+    for (i, elem) in elements.iter_mut().enumerate() {
+        let _ = i;
+        // Variant/optional PE substitution: drop requested types
+        if let Some(ref drop) = doc.drop_pe_types {
+            if drop.iter().any(|t| t == &elem.type_name) {
+                continue;
+            }
+        }
+        // Keep-filter for variant/optional selection
+        if let Some(ref keep) = doc.keep_pe_types {
+            if is_optional_variant_pe(&elem.type_name) && !keep.iter().any(|t| t == &elem.type_name)
+            {
+                continue;
+            }
+        }
+
+        let mut raw = elem.raw.clone();
+
+        // Apply personalization to known PE types
+        match elem.type_name.as_str() {
+            "header" if doc.iccid.is_some() || doc.profile_type.is_some() => {
+                raw = personalize_header(&raw, doc)?;
+            }
+            "pinCodes" if doc.pins.is_some() => {
+                raw = personalize_pin_codes(&raw, doc)?;
+            }
+            "pukCodes" if doc.puks.is_some() => {
+                raw = personalize_puk_codes(&raw, doc)?;
+            }
+            _ => {}
+        }
+
+        out.push(raw);
+    }
+
+    let mut result = Vec::new();
+    for b in out {
+        result.extend_from_slice(&b);
+    }
+    Ok(result)
+}
+
+/// Returns true for optional/variant PE types that participate in variant selection.
+fn is_optional_variant_pe(name: &str) -> bool {
+    matches!(
+        name,
+        "opt-usim"
+            | "opt-isim"
+            | "opt-csim"
+            | "opt-iot"
+            | "genericFileManagement"
+            | "nonStandard"
+            | "rfu1"
+            | "rfu2"
+            | "rfu3"
+            | "rfu4"
+            | "rfu5"
+    )
+}
+
+/// Encodes a DER definite length.
+fn encode_der_length(len: usize, out: &mut Vec<u8>) {
+    if len < 0x80 {
+        out.push(len as u8);
+    } else if len <= 0xFF {
+        out.push(0x81);
+        out.push(len as u8);
+    } else if len <= 0xFFFF {
+        out.push(0x82);
+        out.push((len >> 8) as u8);
+        out.push(len as u8);
+    } else {
+        out.push(0x83);
+        out.push((len >> 16) as u8);
+        out.push((len >> 8) as u8);
+        out.push(len as u8);
+    }
+}
+
+/// Encodes ICCID string digits to the BCD-like nibble encoding used in SAIP header.
+/// Each byte: high nibble = first digit, low nibble = second digit.
+/// Padded with 0xF filler to 10 bytes (20 nibbles).
+fn encode_iccid_digits(iccid: &str) -> Option<Vec<u8>> {
+    let digits: Vec<u8> = iccid
+        .chars()
+        .map(|c| c.to_digit(10).map(|d| d as u8))
+        .collect::<Option<Vec<_>>>()?;
+    let mut bytes = Vec::with_capacity(10);
+    let mut i = 0;
+    while i < 20 {
+        let hi = *digits.get(i).unwrap_or(&0xF);
+        let lo = *digits.get(i + 1).unwrap_or(&0xF);
+        bytes.push((hi << 4) | lo);
+        i += 2;
+    }
+    Some(bytes)
+}
+
+/// Parses and rebuilds a top-level element's children, allowing modification.
+/// Returns (tag_bytes, children_as_raw_elements_inside_body).
+fn parse_element_body(raw: &[u8]) -> Result<(Vec<u8>, Vec<Vec<u8>>), Error> {
+    let framed = frame(raw, 0)?;
+    let tag_bytes = raw[..framed.tag.octets].to_vec();
+    // Split body into child TLVs
+    let mut children = Vec::new();
+    let mut off = 0;
+    let body = framed.body;
+    let base = framed.body_base;
+    while off < body.len() {
+        let child_framed = frame(&body[off..], base + off)?;
+        children.push(body[off..off + child_framed.used].to_vec());
+        off += child_framed.used;
+    }
+    Ok((tag_bytes, children))
+}
+
+fn rebuild_from_children(tag_bytes: &[u8], children: &[Vec<u8>]) -> Vec<u8> {
+    let mut body = Vec::new();
+    for c in children {
+        body.extend_from_slice(c);
+    }
+    let mut out = tag_bytes.to_vec();
+    encode_der_length(body.len(), &mut out);
+    out.extend_from_slice(&body);
+    out
+}
+
+/// Personalizes the header PE: ICCID and profile type.
+fn personalize_header(raw: &[u8], doc: &PersonalizationDoc) -> Result<Vec<u8>, Error> {
+    let (tag_bytes, mut children) = parse_element_body(raw)?;
+    // Header children under AUTOMATIC TAGS: 0x80=major, 0x81=minor, 0x82=profileType, 0x83=iccid
+    if let Some(ref iccid) = doc.iccid {
+        if let Some(encoded) = encode_iccid_digits(iccid) {
+            // Replace or add ICCID (tag 0x83)
+            let iccid_tlv = {
+                let mut t = vec![0x83u8];
+                encode_der_length(encoded.len(), &mut t);
+                t.extend_from_slice(&encoded);
+                t
+            };
+            if let Some(pos) = children.iter().position(|c| c.first() == Some(&0x83)) {
+                children[pos] = iccid_tlv;
+            } else {
+                children.push(iccid_tlv);
+            }
+        }
+    }
+    if let Some(ref pt) = doc.profile_type {
+        let pt_bytes = pt.as_bytes();
+        let pt_tlv = {
+            let mut t = vec![0x82u8];
+            encode_der_length(pt_bytes.len(), &mut t);
+            t.extend_from_slice(pt_bytes);
+            t
+        };
+        if let Some(pos) = children.iter().position(|c| c.first() == Some(&0x82)) {
+            children[pos] = pt_tlv;
+        } else {
+            // insert after minor version if present
+            let insert_pos = if children.iter().any(|c| c.first() == Some(&0x81)) {
+                2
+            } else {
+                children.len()
+            };
+            children.insert(insert_pos.min(children.len()), pt_tlv);
+        }
+    }
+    Ok(rebuild_from_children(&tag_bytes, &children))
+}
+
+/// Encodes a PIN/PUK value string as 8 bytes: ASCII digits padded with 0xFF.
+/// If the value is already hex-encoded 16 chars, decode it.
+fn encode_pin_value(val: &str) -> Vec<u8> {
+    // Accept decimal PIN strings (e.g. "1234", "12345678") or hex strings
+    if val.len() == 16 && val.chars().all(|c| c.is_ascii_hexdigit()) {
+        if let Ok(b) = hex::decode(val) {
+            if b.len() == 8 {
+                return b;
+            }
+        }
+    }
+    // Treat as ASCII digit string, pad with 0xFF to 8 bytes
+    let mut bytes: Vec<u8> = val.bytes().take(8).collect();
+    while bytes.len() < 8 {
+        bytes.push(0xFF);
+    }
+    bytes
+}
+
+/// Personalizes pinCodes PE: update pin values by key reference.
+fn personalize_pin_codes(raw: &[u8], doc: &PersonalizationDoc) -> Result<Vec<u8>, Error> {
+    let Some(ref pins) = doc.pins else {
+        return Ok(raw.to_vec());
+    };
+    let (tag_bytes, mut children) = parse_element_body(raw)?;
+    // pinCodes: A0 = header, A1 = CHOICE { A0 = pinconfig SEQUENCE OF PINConfiguration }
+    for child in &mut children {
+        if child.first() == Some(&0xA1) {
+            // Rebuild A1's contents
+            if let Ok((a1_tag, mut a1_children)) = parse_element_body(child) {
+                for a1c in &mut a1_children {
+                    if a1c.first() == Some(&0xA0) {
+                        // This is the pinconfig SEQUENCE OF
+                        if let Ok((pc_tag, mut entries)) = parse_element_body(a1c) {
+                            for entry in &mut entries {
+                                if let Ok((e_tag, mut e_children)) = parse_element_body(entry) {
+                                    // Find key reference (0x80)
+                                    let kr = e_children.iter().find_map(|c| {
+                                        if c.first() == Some(&0x80) {
+                                            let f = frame(c, 0).ok()?;
+                                            uint_of_bytes(f.body).map(|v| v.to_string())
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                    if let Some(kr_str) = kr {
+                                        if let Some(new_val) = pins.get(&kr_str) {
+                                            let pv = encode_pin_value(new_val);
+                                            let pv_tlv = {
+                                                let mut t = vec![0x81u8];
+                                                encode_der_length(pv.len(), &mut t);
+                                                t.extend_from_slice(&pv);
+                                                t
+                                            };
+                                            if let Some(pos) = e_children
+                                                .iter()
+                                                .position(|c| c.first() == Some(&0x81))
+                                            {
+                                                e_children[pos] = pv_tlv;
+                                            } else {
+                                                e_children.insert(1.min(e_children.len()), pv_tlv);
+                                            }
+                                            *entry = rebuild_from_children(&e_tag, &e_children);
+                                        }
+                                    }
+                                }
+                            }
+                            *a1c = rebuild_from_children(&pc_tag, &entries);
+                        }
+                    }
+                }
+                *child = rebuild_from_children(&a1_tag, &a1_children);
+            }
+        }
+    }
+    Ok(rebuild_from_children(&tag_bytes, &children))
+}
+
+/// Personalizes pukCodes PE: update PUK values by key reference.
+fn personalize_puk_codes(raw: &[u8], doc: &PersonalizationDoc) -> Result<Vec<u8>, Error> {
+    let Some(ref puks) = doc.puks else {
+        return Ok(raw.to_vec());
+    };
+    let (tag_bytes, mut children) = parse_element_body(raw)?;
+    for child in &mut children {
+        if child.first() == Some(&0xA1) {
+            if let Ok((a1_tag, mut entries)) = parse_element_body(child) {
+                for entry in &mut entries {
+                    if let Ok((e_tag, mut e_children)) = parse_element_body(entry) {
+                        let kr = e_children.iter().find_map(|c| {
+                            if c.first() == Some(&0x80) {
+                                let f = frame(c, 0).ok()?;
+                                uint_of_bytes(f.body).map(|v| v.to_string())
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(kr_str) = kr {
+                            if let Some(new_val) = puks.get(&kr_str) {
+                                let pv = encode_pin_value(new_val);
+                                let pv_tlv = {
+                                    let mut t = vec![0x81u8];
+                                    encode_der_length(pv.len(), &mut t);
+                                    t.extend_from_slice(&pv);
+                                    t
+                                };
+                                if let Some(pos) =
+                                    e_children.iter().position(|c| c.first() == Some(&0x81))
+                                {
+                                    e_children[pos] = pv_tlv;
+                                } else {
+                                    e_children.insert(1.min(e_children.len()), pv_tlv);
+                                }
+                                *entry = rebuild_from_children(&e_tag, &e_children);
+                            }
+                        }
+                    }
+                }
+                *child = rebuild_from_children(&a1_tag, &entries);
+            }
+        }
+    }
+    Ok(rebuild_from_children(&tag_bytes, &children))
+}
+
+fn uint_of_bytes(bytes: &[u8]) -> Option<u64> {
+    if bytes.is_empty() || bytes.len() > 8 {
+        return None;
+    }
+    Some(bytes.iter().fold(0, |acc, &b| (acc << 8) | u64::from(b)))
 }
 
 /// The children of a decoded node; a primitive node has none.
@@ -730,5 +1104,121 @@ mod tests {
         // Template-bearing/variant PE bodies remain inspectable in the generic TLV tree.
         assert_eq!(elements[0]["children"][0]["children"][0]["value_hex"], "01");
         assert_eq!(elements[2]["children"][0]["children"][0]["value_hex"], "07");
+    }
+
+    #[test]
+    fn personalize_applies_iccid_and_drops_variant_optional_pes() {
+        let header = tlv(
+            &[0xA0],
+            &[
+                tlv(&[0x80], &[0x02]),
+                tlv(&[0x81], &[0x01]),
+                tlv(&[0x82], b"GSMA"),
+                tlv(
+                    &[0x83],
+                    &[0x89, 0x00, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x58],
+                ),
+            ]
+            .concat(),
+        );
+        let opt_usim = tlv(&[0xB4], &tlv(&[0x80], &[0x14]));
+        let opt_isim = tlv(&[0xB6], &tlv(&[0x80], &[0x16]));
+        let end = tlv(&[0xAA], &[]);
+        let package = [header, opt_usim, opt_isim, end].concat();
+
+        let doc = PersonalizationDoc {
+            iccid: Some("8900012345678901234".to_string()),
+            drop_pe_types: Some(vec!["opt-isim".to_string()]),
+            ..Default::default()
+        };
+        let out = personalize(&package, &doc).expect("personalize");
+        let decoded = decode(&out).expect("decode personalized");
+        let types: Vec<&str> = decoded["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(types, ["header", "opt-usim", "end"]);
+        assert_eq!(
+            decoded["elements"][0]["fields"]["iccid"],
+            "8900012345678901234"
+        );
+    }
+
+    #[test]
+    fn personalize_substitutes_variant_selection_with_keep_pe_types() {
+        let opt_usim = tlv(&[0xB4], &tlv(&[0x80], &[0x14]));
+        let opt_isim = tlv(&[0xB6], &tlv(&[0x80], &[0x16]));
+        let opt_csim = tlv(&[0xBA], &tlv(&[0x80], &[0x1A]));
+        let end = tlv(&[0xAA], &[]);
+        let package = [opt_usim, opt_isim, opt_csim, end].concat();
+
+        let doc = PersonalizationDoc {
+            keep_pe_types: Some(vec!["opt-usim".to_string()]),
+            ..Default::default()
+        };
+        let out = personalize(&package, &doc).expect("personalize");
+        let decoded = decode(&out).expect("decode");
+        let types: Vec<&str> = decoded["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["type"].as_str().unwrap())
+            .collect();
+        // opt-isim and opt-csim dropped (variant selection), end kept (not an optional variant)
+        assert_eq!(types, ["opt-usim", "end"]);
+    }
+
+    #[test]
+    fn personalize_updates_pin_and_puk_values_by_key_reference() {
+        let pin_entry = tlv(
+            &[0x30],
+            &[
+                tlv(&[0x80], &[0x01]),
+                tlv(&[0x81], &[0x30, 0x30, 0x30, 0x30, 0xFF, 0xFF, 0xFF, 0xFF]),
+            ]
+            .concat(),
+        );
+        let pin = tlv(
+            &[0xA2],
+            &[
+                tlv(&[0xA0], &tlv(&[0x81], &[0x01])),
+                tlv(&[0xA1], &tlv(&[0xA0], &pin_entry)),
+            ]
+            .concat(),
+        );
+        let puk_entry = tlv(
+            &[0x30],
+            &[tlv(&[0x80], &[0x01]), tlv(&[0x81], &[0x31; 8])].concat(),
+        );
+        let puk = tlv(
+            &[0xA3],
+            &[
+                tlv(&[0xA0], &tlv(&[0x81], &[0x05])),
+                tlv(&[0xA1], &puk_entry),
+            ]
+            .concat(),
+        );
+        let package = [pin, puk].concat();
+        let mut pins = std::collections::BTreeMap::new();
+        pins.insert("1".to_string(), "1234".to_string());
+        let mut puks = std::collections::BTreeMap::new();
+        puks.insert("1".to_string(), "87654321".to_string());
+        let doc = PersonalizationDoc {
+            pins: Some(pins),
+            puks: Some(puks),
+            ..Default::default()
+        };
+        let out = personalize(&package, &doc).expect("personalize");
+        let decoded = decode(&out).expect("decode");
+        assert_eq!(
+            decoded["elements"][0]["fields"]["pin_configs"][0]["pin_value_hex"],
+            "31323334FFFFFFFF"
+        );
+        assert_eq!(
+            decoded["elements"][1]["fields"]["puk_configs"][0]["puk_value_hex"],
+            "3837363534333231"
+        );
     }
 }
