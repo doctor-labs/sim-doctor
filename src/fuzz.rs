@@ -82,6 +82,251 @@ use crate::transport::CardSession;
 /// [`MAX_PROBES`].
 pub mod passthrough;
 
+/// The OTA application a TAR belongs to, which decides the test payload the
+/// Command Packet's User Data carries (issue #103, TAR-type-aware fuzzing).
+///
+/// [V] ETSI TS 102 226 / TS 102 225 define the OTA security and scripting
+/// framework; RFM uses Remote File Management scripts, RAM uses Remote
+/// Application Management (GlobalPlatform card content management), and
+/// WIB / S@T drive proactive commands (e.g. SETUP CALL) over the SIM
+/// Toolkit. The payloads below are minimal, spec-shaped test payloads built
+/// from those specifications, not copied from any implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TarKind {
+    /// Remote File Management: a 2G SELECT of the MF (A0 A4 00 00 02 3F 00).
+    Rfm,
+    /// Remote Application Management: a GlobalPlatform INSTALL [for load].
+    Ram,
+    /// Wireless Internet Browser: a SETUP CALL proactive command.
+    Wib,
+    /// SIMalliance Toolbox / SAT application: a SETUP CALL proactive command.
+    Sat,
+}
+
+impl TarKind {
+    /// The name a report carries.
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Rfm => "rfm",
+            Self::Ram => "ram",
+            Self::Wib => "wib",
+            Self::Sat => "sat",
+        }
+    }
+
+    /// The Command Packet User Data tailored to this TAR type.
+    ///
+    /// - RFM: SELECT MF, `A0 A4 00 00 02 3F 00` [V] 3GPP TS 51.011 / ETSI TS 102 221.
+    /// - RAM: a minimal GP INSTALL [for load], `80 E6 02 00 00` [V] GlobalPlatform
+    ///   Card Specification v2.3.1 section 11.5 (no load parameters, empty body).
+    /// - WIB / S@T: a minimal SETUP CALL proactive command
+    ///   (command details D0 07 81 03 01 10 00, device identities 82 02 81 82,
+    ///   alpha identifier 05 00) [V] ETSI TS 102 223 section 6.4.13 / 8.6 / 8.7 / 8.2.
+    pub const fn user_data(self) -> &'static [u8] {
+        match self {
+            Self::Rfm => &tar::PROBE_USER_DATA,
+            Self::Ram => &[0x80, 0xE6, 0x02, 0x00, 0x00],
+            Self::Wib | Self::Sat => &[
+                0xD0, 0x13, // proactive command tag, length
+                0x81, 0x03, 0x01, 0x10, 0x00, // command details: SETUP CALL, qualifier 00
+                0x82, 0x02, 0x81, 0x82, // device identities: SIM to network
+                0x05, 0x00, // alpha identifier, empty
+                0x06, 0x05, 0x81, 0x21, 0x43, 0x65, 0x87, // address (minimal)
+            ],
+        }
+    }
+
+    /// Classify a TAR by its conventional OTA application assignment.
+    ///
+    /// [U] TAR assignments are operator/application-specific in general; this
+    /// uses common conventional ranges so a default list can be labelled.
+    /// RFM commonly uses B0/B2 ranges, RAM uses C0 ranges, WIB/SAT use D0/E0
+    /// ranges; everything else defaults to RFM (the safest generic probe).
+    pub fn of_tar(tar: u32) -> Self {
+        let high = ((tar >> 16) & 0xFF) as u8;
+        match high {
+            0xC0..=0xCF => Self::Ram,
+            0xD0..=0xDF => Self::Wib,
+            0xE0..=0xEF => Self::Sat,
+            _ => Self::Rfm,
+        }
+    }
+}
+
+/// One default TAR entry: a TAR value and its OTA application kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StandardTar {
+    /// The TAR value.
+    pub tar: u32,
+    /// The OTA application this TAR is conventionally assigned to.
+    pub kind: TarKind,
+}
+
+impl StandardTar {
+    const fn new(tar: u32, kind: TarKind) -> Self {
+        Self { tar, kind }
+    }
+}
+
+/// The default OTA fuzz TAR list (~140 standard RFM/RAM/WIB/S@T TARs).
+///
+/// A bounded, categorized set of commonly used OTA TARs for fuzzing. TAR
+/// assignments are not universally standardized [U]; these cover the
+/// conventional application ranges (RFM, RAM/GP, WIB, S@T) so payloads can be
+/// tailored per type as issue #103 requires.
+pub const STANDARD_TARS: &[StandardTar] = &[
+    // RFM (Remote File Management) - 50
+    StandardTar::new(0x00_00_00, TarKind::Rfm),
+    StandardTar::new(0x00_00_01, TarKind::Rfm),
+    StandardTar::new(0x00_00_02, TarKind::Rfm),
+    StandardTar::new(0x00_00_10, TarKind::Rfm),
+    StandardTar::new(0x00_01_00, TarKind::Rfm),
+    StandardTar::new(0x01_00_00, TarKind::Rfm),
+    StandardTar::new(0x10_00_00, TarKind::Rfm),
+    StandardTar::new(0xB0_00_00, TarKind::Rfm),
+    StandardTar::new(0xB0_00_01, TarKind::Rfm),
+    StandardTar::new(0xB0_00_02, TarKind::Rfm),
+    StandardTar::new(0xB0_00_03, TarKind::Rfm),
+    StandardTar::new(0xB0_00_04, TarKind::Rfm),
+    StandardTar::new(0xB0_00_05, TarKind::Rfm),
+    StandardTar::new(0xB0_00_10, TarKind::Rfm),
+    StandardTar::new(0xB0_00_11, TarKind::Rfm),
+    StandardTar::new(0xB0_00_12, TarKind::Rfm),
+    StandardTar::new(0xB0_01_00, TarKind::Rfm),
+    StandardTar::new(0xB0_01_01, TarKind::Rfm),
+    StandardTar::new(0xB0_01_10, TarKind::Rfm),
+    StandardTar::new(0xB0_02_00, TarKind::Rfm),
+    StandardTar::new(0xB0_10_00, TarKind::Rfm),
+    StandardTar::new(0xB0_10_01, TarKind::Rfm),
+    StandardTar::new(0xB0_20_00, TarKind::Rfm),
+    StandardTar::new(0xB0_20_01, TarKind::Rfm),
+    StandardTar::new(0xB1_00_00, TarKind::Rfm),
+    StandardTar::new(0xB1_00_01, TarKind::Rfm),
+    StandardTar::new(0xB1_00_10, TarKind::Rfm),
+    StandardTar::new(0xB1_01_00, TarKind::Rfm),
+    StandardTar::new(0xB2_00_00, TarKind::Rfm),
+    StandardTar::new(0xB2_00_01, TarKind::Rfm),
+    StandardTar::new(0xB2_00_02, TarKind::Rfm),
+    StandardTar::new(0xB2_00_10, TarKind::Rfm),
+    StandardTar::new(0xB2_01_00, TarKind::Rfm),
+    StandardTar::new(0xB2_01_01, TarKind::Rfm),
+    StandardTar::new(0xB2_01_40, TarKind::Rfm),
+    StandardTar::new(0xB2_02_00, TarKind::Rfm),
+    StandardTar::new(0xB3_00_00, TarKind::Rfm),
+    StandardTar::new(0xB3_00_01, TarKind::Rfm),
+    StandardTar::new(0xB4_00_00, TarKind::Rfm),
+    StandardTar::new(0xB5_00_00, TarKind::Rfm),
+    StandardTar::new(0xBF_FF_00, TarKind::Rfm),
+    StandardTar::new(0xBF_FF_01, TarKind::Rfm),
+    StandardTar::new(0xBF_FF_FF, TarKind::Rfm),
+    StandardTar::new(0xA0_00_00, TarKind::Rfm),
+    StandardTar::new(0xA0_00_01, TarKind::Rfm),
+    StandardTar::new(0xA0_01_00, TarKind::Rfm),
+    StandardTar::new(0xA1_00_00, TarKind::Rfm),
+    StandardTar::new(0x50_00_00, TarKind::Rfm),
+    StandardTar::new(0x50_00_01, TarKind::Rfm),
+    StandardTar::new(0x51_00_00, TarKind::Rfm),
+    // RAM (Remote Application Management / card content) - 35
+    StandardTar::new(0xC0_00_00, TarKind::Ram),
+    StandardTar::new(0xC0_00_01, TarKind::Ram),
+    StandardTar::new(0xC0_00_02, TarKind::Ram),
+    StandardTar::new(0xC0_00_10, TarKind::Ram),
+    StandardTar::new(0xC0_01_00, TarKind::Ram),
+    StandardTar::new(0xC0_01_01, TarKind::Ram),
+    StandardTar::new(0xC0_02_00, TarKind::Ram),
+    StandardTar::new(0xC0_10_00, TarKind::Ram),
+    StandardTar::new(0xC1_00_00, TarKind::Ram),
+    StandardTar::new(0xC1_00_01, TarKind::Ram),
+    StandardTar::new(0xC1_00_10, TarKind::Ram),
+    StandardTar::new(0xC1_01_00, TarKind::Ram),
+    StandardTar::new(0xC2_00_00, TarKind::Ram),
+    StandardTar::new(0xC2_00_01, TarKind::Ram),
+    StandardTar::new(0xC2_01_00, TarKind::Ram),
+    StandardTar::new(0xC3_00_00, TarKind::Ram),
+    StandardTar::new(0xC3_00_01, TarKind::Ram),
+    StandardTar::new(0xC4_00_00, TarKind::Ram),
+    StandardTar::new(0xC5_00_00, TarKind::Ram),
+    StandardTar::new(0xC6_00_00, TarKind::Ram),
+    StandardTar::new(0xC7_00_00, TarKind::Ram),
+    StandardTar::new(0xC8_00_00, TarKind::Ram),
+    StandardTar::new(0xC9_00_00, TarKind::Ram),
+    StandardTar::new(0xCA_00_00, TarKind::Ram),
+    StandardTar::new(0xCB_00_00, TarKind::Ram),
+    StandardTar::new(0xCC_00_00, TarKind::Ram),
+    StandardTar::new(0xCD_00_00, TarKind::Ram),
+    StandardTar::new(0xCE_00_00, TarKind::Ram),
+    StandardTar::new(0xCF_00_00, TarKind::Ram),
+    StandardTar::new(0xC0_FF_00, TarKind::Ram),
+    StandardTar::new(0xC0_FF_FF, TarKind::Ram),
+    StandardTar::new(0xC1_FF_00, TarKind::Ram),
+    StandardTar::new(0xC2_FF_00, TarKind::Ram),
+    StandardTar::new(0xC3_FF_00, TarKind::Ram),
+    StandardTar::new(0xC4_FF_00, TarKind::Ram),
+    // WIB (Wireless Internet Browser) - 30
+    StandardTar::new(0xD0_00_00, TarKind::Wib),
+    StandardTar::new(0xD0_00_01, TarKind::Wib),
+    StandardTar::new(0xD0_00_02, TarKind::Wib),
+    StandardTar::new(0xD0_00_10, TarKind::Wib),
+    StandardTar::new(0xD0_01_00, TarKind::Wib),
+    StandardTar::new(0xD0_01_01, TarKind::Wib),
+    StandardTar::new(0xD0_02_00, TarKind::Wib),
+    StandardTar::new(0xD0_10_00, TarKind::Wib),
+    StandardTar::new(0xD1_00_00, TarKind::Wib),
+    StandardTar::new(0xD1_00_01, TarKind::Wib),
+    StandardTar::new(0xD1_00_10, TarKind::Wib),
+    StandardTar::new(0xD1_01_00, TarKind::Wib),
+    StandardTar::new(0xD2_00_00, TarKind::Wib),
+    StandardTar::new(0xD2_00_01, TarKind::Wib),
+    StandardTar::new(0xD3_00_00, TarKind::Wib),
+    StandardTar::new(0xD4_00_00, TarKind::Wib),
+    StandardTar::new(0xD5_00_00, TarKind::Wib),
+    StandardTar::new(0xD6_00_00, TarKind::Wib),
+    StandardTar::new(0xD7_00_00, TarKind::Wib),
+    StandardTar::new(0xD8_00_00, TarKind::Wib),
+    StandardTar::new(0xD9_00_00, TarKind::Wib),
+    StandardTar::new(0xDA_00_00, TarKind::Wib),
+    StandardTar::new(0xDB_00_00, TarKind::Wib),
+    StandardTar::new(0xDC_00_00, TarKind::Wib),
+    StandardTar::new(0xDD_00_00, TarKind::Wib),
+    StandardTar::new(0xDE_00_00, TarKind::Wib),
+    StandardTar::new(0xDF_00_00, TarKind::Wib),
+    StandardTar::new(0xD0_FF_00, TarKind::Wib),
+    StandardTar::new(0xD0_FF_FF, TarKind::Wib),
+    StandardTar::new(0xD1_FF_00, TarKind::Wib),
+    // S@T (SIMalliance Toolbox / SAT applications) - 30
+    StandardTar::new(0xE0_00_00, TarKind::Sat),
+    StandardTar::new(0xE0_00_01, TarKind::Sat),
+    StandardTar::new(0xE0_00_02, TarKind::Sat),
+    StandardTar::new(0xE0_00_10, TarKind::Sat),
+    StandardTar::new(0xE0_01_00, TarKind::Sat),
+    StandardTar::new(0xE0_01_01, TarKind::Sat),
+    StandardTar::new(0xE0_02_00, TarKind::Sat),
+    StandardTar::new(0xE0_10_00, TarKind::Sat),
+    StandardTar::new(0xE1_00_00, TarKind::Sat),
+    StandardTar::new(0xE1_00_01, TarKind::Sat),
+    StandardTar::new(0xE1_00_10, TarKind::Sat),
+    StandardTar::new(0xE1_01_00, TarKind::Sat),
+    StandardTar::new(0xE2_00_00, TarKind::Sat),
+    StandardTar::new(0xE2_00_01, TarKind::Sat),
+    StandardTar::new(0xE3_00_00, TarKind::Sat),
+    StandardTar::new(0xE4_00_00, TarKind::Sat),
+    StandardTar::new(0xE5_00_00, TarKind::Sat),
+    StandardTar::new(0xE6_00_00, TarKind::Sat),
+    StandardTar::new(0xE7_00_00, TarKind::Sat),
+    StandardTar::new(0xE8_00_00, TarKind::Sat),
+    StandardTar::new(0xE9_00_00, TarKind::Sat),
+    StandardTar::new(0xEA_00_00, TarKind::Sat),
+    StandardTar::new(0xEB_00_00, TarKind::Sat),
+    StandardTar::new(0xEC_00_00, TarKind::Sat),
+    StandardTar::new(0xED_00_00, TarKind::Sat),
+    StandardTar::new(0xEE_00_00, TarKind::Sat),
+    StandardTar::new(0xEF_00_00, TarKind::Sat),
+    StandardTar::new(0xE0_FF_00, TarKind::Sat),
+    StandardTar::new(0xE0_FF_FF, TarKind::Sat),
+    StandardTar::new(0xE1_FF_00, TarKind::Sat),
+];
+
 /// The most (TAR, keyset, mechanism) triples one sweep may probe.
 ///
 /// Same number as [`crate::tar::MAX_PROBES`], for the same reason: a bound
@@ -514,16 +759,39 @@ fn ota_alg(nibble: u8, key: &[u8]) -> Result<otacrypto::Alg, otacrypto::Error> {
 /// `000000`/`B00001`/`B00010` are the values themselves.
 pub const POKE_TARS: [u32; 3] = [0x00_00_00, 0xB0_00_01, 0xB0_00_10];
 
+/// TARs a full sweep probes: [`crate::tar::FOCUSED_BANDS`] by default, or
+/// [`STANDARD_TARS`] when `standard` is true (issue #103). Each TAR is paired
+/// with its [`TarKind`] so the probe payload can be tailored to the type.
+pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
+    if sweep.poke {
+        return POKE_TARS
+            .iter()
+            .map(|&t| (t, TarKind::of_tar(t)))
+            .collect();
+    }
+    if sweep.standard_tars {
+        let list: Vec<(u32, TarKind)> = STANDARD_TARS.iter().map(|s| (s.tar, s.kind)).collect();
+        return if sweep.quick { list.into_iter().take(20).collect() } else { list };
+    }
+    if sweep.quick {
+        tar::CALIBRATION_TARS[..5]
+            .iter()
+            .map(|&t| (t, TarKind::of_tar(t)))
+            .collect()
+    } else {
+        let (candidates, _) = tar::candidates(&tar::Selection::focused(), tar::MAX_PROBES);
+        candidates.into_iter().map(|t| (t, TarKind::of_tar(t))).collect()
+    }
+}
+
 /// TARs a full sweep probes: [`crate::tar::FOCUSED_BANDS`], the same
 /// bounded default a TAR audit uses, for the same reason - the full
 /// 16 777 216-value space does not fit any budget this tool will ship.
 pub fn tars(quick: bool) -> Vec<u32> {
-    if quick {
-        tar::CALIBRATION_TARS[..5].to_vec()
-    } else {
-        let (candidates, _) = tar::candidates(&tar::Selection::focused(), tar::MAX_PROBES);
-        candidates
-    }
+    typed_tars(Sweep { quick, ..Sweep::default() })
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect()
 }
 
 /// Octets a sweep pins instead of sweeping (SIMTester's `-kic`, `-kid`,
@@ -582,6 +850,13 @@ pub struct Sweep {
     /// The ENVELOPE class, same meaning as [`crate::tar::Class`], and the
     /// class every CAT follow-up of the sweep goes out at too.
     pub class: Class,
+    /// Use the 17-profile FuzzerData security-policy matrix ([`FUZZERS`]) as
+    /// the mechanism/policy axis instead of the legacy SPI1/SPI2 mechanism
+    /// table (issue #103).
+    pub matrix: bool,
+    /// Use the default standard TAR list ([`STANDARD_TARS`], ~140 TARs across
+    /// RFM/RAM/WIB/S@T) with TAR-type-aware payloads (issue #103).
+    pub standard_tars: bool,
 }
 
 /// The one-line note the human report carries about the class in force.
@@ -598,6 +873,8 @@ impl Default for Sweep {
             quick: false,
             poke: false,
             class: Class::Etsi,
+            matrix: false,
+            standard_tars: false,
         }
     }
 }
@@ -1306,6 +1583,8 @@ mod tests {
                 quick: false,
                 poke: false,
                 class: Class::Etsi,
+                matrix: false,
+                standard_tars: false,
             },
             &Policy::default(),
             &mut || {
@@ -1327,6 +1606,8 @@ mod tests {
                 quick: false,
                 poke: false,
                 class: Class::Etsi,
+                matrix: false,
+                standard_tars: false,
             },
             &Policy::default(),
             &mut || false,
@@ -1661,6 +1942,8 @@ mod tests {
             quick: true,
             poke: false,
             class: Class::Etsi,
+            matrix: false,
+            standard_tars: false,
         };
         let a = audit(&mut plain, quick, &Policy::default(), &mut || false).unwrap();
         let b = audit_with(

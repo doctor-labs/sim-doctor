@@ -953,6 +953,18 @@ struct FuzzOtaArgs {
     /// is the CLA an INS-discovery sweep starts from, not an enum.
     #[arg(long, value_enum, value_name = "CLASS", help = CLASS_ARG_HELP, long_help = CLASS_ARG_LONG_HELP)]
     class: Option<tar::Class>,
+
+    /// Enumerate the 17-profile FuzzerData security-policy matrix
+    /// (counter requirement x KIC/KID algorithm x PoR request/ciphering,
+    /// per ETSI TS 102 225/226) instead of the legacy SPI mechanism table.
+    #[arg(long)]
+    matrix: bool,
+
+    /// Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with
+    /// TAR-type-aware test payloads instead of the focused TAR bands.
+    #[arg(long)]
+    standard_tars: bool,
+
     /// Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header
     /// inside one SMS-PP-DOWNLOAD, as SIMTester's OTA fuzzer does, instead of
     /// sweeping TAR x keyset x mechanism.
@@ -968,7 +980,7 @@ struct FuzzOtaArgs {
     /// hits, the value sets and the counts are all in the report's
     /// "passthrough" block. This mode sends envelopes only: it reads and writes
     /// no file on the card.
-    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["quick", "poke", "kic", "kid", "spi1", "spi2"])]
+    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["quick", "poke", "kic", "kid", "spi1", "spi2", "matrix", "standard_tars"])]
     passthrough: Option<FuzzPassthroughMode>,
 }
 
@@ -8204,6 +8216,8 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
             quick: args.safety.quick,
             poke: args.poke,
             class,
+            matrix: args.matrix,
+            standard_tars: args.standard_tars,
         };
         let overrides = fuzz::Overrides {
             kic: args.kic,
