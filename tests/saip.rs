@@ -40,7 +40,7 @@ fn write_fixture(name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 fn parse(path: &PathBuf, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
         .arg("saip")
         .arg("parse")
         .arg(path)
@@ -107,7 +107,7 @@ fn a_missing_file_is_exit_two_not_a_panic() {
 }
 
 fn personalize_cmd(path: &std::path::Path, doc: &std::path::Path, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
         .arg("saip")
         .arg("personalize")
         .arg(path)

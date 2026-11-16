@@ -11,10 +11,11 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(args)
-        .output()
-        .expect("sim-doctor runs");
+    let output =
+        Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
+            .args(args)
+            .output()
+            .expect("sim-doctor runs");
     (
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),

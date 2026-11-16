@@ -6,18 +6,19 @@ use std::process::{Command, Stdio};
 const DISPLAY_TEXT: &str = "D0 0F 81 03 01 21 80 82 02 81 02 8D 04 04 48 49 21";
 
 fn run(args: &[&str], stdin: Option<&str>) -> (Option<i32>, String, String) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["cat", "decode"])
-        .args(args)
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child =
+        Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or("target/debug/sim-doctor"))
+            .args(["cat", "decode"])
+            .args(args)
+            .stdin(if stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
     if let Some(text) = stdin {
         child
             .stdin
