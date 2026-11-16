@@ -11,7 +11,7 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let output = Command::new(std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap())
         .args(args)
         .output()
         .expect("sim-doctor runs");
