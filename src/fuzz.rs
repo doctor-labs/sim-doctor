@@ -833,7 +833,7 @@ pub fn typed_tars(sweep: Sweep) -> Vec<(u32, TarKind)> {
 pub fn tars(quick: bool) -> Vec<u32> {
     typed_tars(Sweep {
         quick,
-        ..Sweep::default()..Sweep::default()
+        ..Sweep::default()
     })
     .into_iter()
     .map(|(t, _)| t)
@@ -1907,7 +1907,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default()..Sweep::default()
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -1927,7 +1927,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default()..Sweep::default()
+                ..Sweep::default()
             },
             &Policy::default(),
             &mut || false,
@@ -2023,7 +2023,7 @@ mod tests {
         };
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default()..Sweep::default()
+            ..Sweep::default()
         };
         let audit =
             audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
@@ -2048,7 +2048,7 @@ mod tests {
         let mut card = Scripted::cycling(&[&[0x94, 0x04]]);
         let sweep = Sweep {
             quick: true,
-            ..Sweep::default()..Sweep::default()
+            ..Sweep::default()
         };
         let audit =
             audit(&mut card, sweep, &Policy::default(), &mut || false).expect("no transport error");
@@ -2278,7 +2278,7 @@ mod tests {
                 quick: true,
                 poke: false,
                 class: Class::Etsi,
-                ..Sweep::default()..Sweep::default()
+                ..Sweep::default()
             },
             overrides,
             &Policy::default(),
