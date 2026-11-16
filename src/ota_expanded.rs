@@ -1088,7 +1088,7 @@ structure for this Proof-of-Response",
         json!({
             "card_touched": false,
             "uoh": self.uoh,
-            "uoh_note": "02 71 00 is the TS 31.115 SMS user data header: UDHL 02 and the Remote Packet Identifier IE 71 of length 0. Absent means the input was the bare Response Packet.",
+            "uoh_note": "02 71 00 is the TS 31.115 SMS user data header: UDHL 02 and the Remote Packet Identifier IE 71 of length 0. Any leading SMS user data header (UDHL+IEI/IEDL/IED) is passed through as-is when present. Absent means the input was the bare Response Packet.",
             "rpl": self.rpl,
             "rhl": self.rhl,
             "tar": self.tar,
@@ -1112,7 +1112,12 @@ structure for this Proof-of-Response",
         let mut out =
             String::from("Proof-of-Response Response Packet (TS 31.115, TS 102 225 table 5)\n");
         match &self.uoh {
-            Some(u) => out.push_str(&format!("uoh      {u} (UDHL 02, RPI IE 71 length 0)\n")),
+            Some(u) if u.eq_ignore_ascii_case("027100") => {
+                out.push_str(&format!("uoh      {u} (UDHL 02, RPI IE 71 length 0)\n"))
+            }
+            Some(u) => out.push_str(&format!(
+                "uoh      {u} (SMS user data header, UDHL+IEI/IEDL/IED)\n"
+            )),
             None => out.push_str("uoh      none: the bare Response Packet was given\n"),
         }
         out.push_str(&format!("rpl      {}\n", self.rpl));
@@ -1153,13 +1158,43 @@ structure for this Proof-of-Response",
     }
 }
 
-/// Decodes a PoR Response Packet, with or without the SMS user data header in front of it.
+/// Splits a leading SMS TP user data header off a Response Packet, when one is present.
 ///
-/// The input is either the bare Response Packet or the TS 31.115 user data header
-/// [`SMS_UOH_RPI`] (`02 71 00`) followed by it; which one arrived is reported in
-/// [`Por::uoh`] rather than guessed. The header layout is RPL (2), RHL (1), TAR (3), CNTR (5),
-/// PCNTR (1) and the response status (1), then `RHL - 10` octets of CC/RC/DS, then the secure
-/// data - the field order of `osmocom/pysim` `pySim/ota.py` `OtaDialectSms.SmsResponsePacket`.
+/// A UDH is one UDHL octet followed by UDHL octets of IEI/IEDL/IED fields \[V, 3GPP TS 23.040].
+/// It is stripped only when the remainder is a consistent Response Packet (its RPL equals the
+/// octets that follow it), so a bare packet whose leading octet happens to look like a length is
+/// not mistaken for a header. Returns the header octets (hex, upper case) and the body;
+/// `(None, bytes)` when no header is present. The canonical PoR header is [`SMS_UOH_RPI`]
+/// (`02 71 00`, RPI IEI 71), but any UDH/IEI combination is passed through (issue #273).
+fn split_sms_uoh(bytes: &[u8]) -> (Option<String>, &[u8]) {
+    if let Some(udhl) = bytes.first().copied() {
+        let header_len = 1 + usize::from(udhl);
+        if header_len < bytes.len() {
+            let rest = &bytes[header_len..];
+            if rest.len() >= RESPONSE_PACKET_HEADER {
+                let rpl = u16::from_be_bytes([rest[0], rest[1]]);
+                if usize::from(rpl) == rest.len() - 2 {
+                    return (Some(hex_upper(&bytes[..header_len])), rest);
+                }
+            }
+        }
+    }
+    (None, bytes)
+}
+
+/// Decodes a PoR Response Packet, with or without an SMS user data header in front of it.
+///
+/// The input is either the bare Response Packet or a TP-UDH-prefixed form: one UDHL octet
+/// followed by UDHL octets of information elements and then the Response Packet. The canonical
+/// TS 31.115 RPI header is [`SMS_UOH_RPI`] (`02 71 00`, UDHL 02, IEI 71 length 0) \[V], but a
+/// full OTA stack must pass through any UDH/IEI combination the SMS carries rather than
+/// rejecting it (issue #273). So the header is stripped by length when it is present and the
+/// remainder is a consistent Response Packet (`RPL` counts the octets that follow it): the
+/// stripped octets are reported verbatim in [`Por::uoh`]. A bare Response Packet is left as-is.
+///
+/// The header layout is RPL (2), RHL (1), TAR (3), CNTR (5), PCNTR (1) and the response
+/// status (1), then `RHL - 10` octets of CC/RC/DS, then the secure data - the field order of
+/// `osmocom/pysim` `pySim/ota.py` `OtaDialectSms.SmsResponsePacket`.
 ///
 /// The Remote Application structure is decoded **only** when the response status is `por_ok` and
 /// the secure data is not empty, because only then is there one: TS 102 225 carries no response
@@ -1172,10 +1207,7 @@ structure for this Proof-of-Response",
 /// [`Error::ShortCompact`] and, for `--remote-format expanded`, whatever
 /// [`decode_response_scripting`] raises on the secure data.
 pub fn decode_por(bytes: &[u8], remote_format: RemoteFormat) -> Result<Por, Error> {
-    let (uoh, body) = match bytes.strip_prefix(&SMS_UOH_RPI) {
-        Some(rest) => (Some(hex_upper(&SMS_UOH_RPI)), rest),
-        None => (None, bytes),
-    };
+    let (uoh, body) = split_sms_uoh(bytes);
     if body.len() < RESPONSE_PACKET_HEADER {
         return Err(Error::ShortPor { have: body.len() });
     }
