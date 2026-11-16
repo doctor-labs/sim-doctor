@@ -1641,10 +1641,12 @@ esac
 ;;
 (trace)
 _arguments "${_arguments_options[@]}" : \
+'--bind=[UDP address to bind for --listen (default\: 127.0.0.1\:4729)]:ADDR:_default' \
 '--json[Emit one JSON envelope of kind "trace" on stdout]' \
 '--show-raw-apdu[Also print each exchange'\''s raw command and response hex in the table]' \
 '--no-suppress-select[Keep SELECT rows in the table. They are hidden by default, as in pySim-trace]' \
 '--no-suppress-status[Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace]' \
+'--listen[Listen for live GSMTAP SIM APDUs over UDP instead of reading a file]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '::file -- A trace file; stdin when omitted or "-":_default' \
@@ -2088,13 +2090,15 @@ _arguments "${_arguments_options[@]}" : \
 '--spi2=[Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it]:HEX:_default' \
 '--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
 gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
-'(--quick --poke --kic --kid --spi1 --spi2)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
+'(--quick --poke --kic --kid --spi1 --spi2 --matrix --standard-tars)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
 bruteforce\:"SIMTester'\''s -ofbf\: every PID and DCS octet. 786432 envelopes, which do not fit the budget, so this is a capped partial sweep and says so"))' \
 '--i-understand-this-can-brick-the-card[Required. Without it, \`fuzz\` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)]' \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '--quick[Probe a small, documented subset instead of the full space]' \
 '(--quick)--poke[Like \`--quick\`, but probes only the three TARs SIMTester'\''s \`-poke\` probes\: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds]' \
+'--matrix[Enumerate the 17-profile FuzzerData security-policy matrix (counter requirement x KIC/KID algorithm x PoR request/ciphering, per ETSI TS 102 225/226) instead of the legacy SPI mechanism table]' \
+'--standard-tars[Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with TAR-type-aware test payloads instead of the focused TAR bands]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
@@ -2510,6 +2514,7 @@ _arguments "${_arguments_options[@]}" : \
 '--script=[Run the commands in this file, one per line (\`#\` starts a comment), and exit]:PATH:_files' \
 '(-c --script)--read-csv=[Run the commands in the \`command\` column of this CSV file, one per row, and exit. This is a command table, not pySim'\''s provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without \`--yes\` a row that changes the card is a dry run. WARNING\: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data]:PATH:_files' \
 '--write-csv=[Append a redacted result log to this CSV file\: one row per command run (\`command,ok,text\`), with the arguments replaced by \`<args redacted>\`. It is not pySim'\''s provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged]:PATH:_files' \
+'--write-hlr=[Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched]:PATH:_files' \
 '(--chv-env)--chv-file=[File holding PINs, PUKs and ADM keys for \`verify_chv\` / \`unblock_chv\` (\`pin1=1234\` per line; keep it chmod 600). Never a value on the command line\: it would land in shell history]:PATH:_files' \
 '--chv-env=[Environment variable holding the same text (entries separated by \`;\` or newlines)]:VAR:_default' \
 '--key-file=[pySim CardKeyProvider CSV file for \`query_card_key\` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600]:PATH:_files' \
