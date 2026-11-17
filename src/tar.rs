@@ -740,6 +740,7 @@ fn command_packet_octets_cph(
 /// This is what TAR-type-aware fuzzing uses: the command packet's UD is the
 /// payload tailored to the TAR type (RFM, RAM, WIB, S@T) rather than the
 /// default SELECT-MF probe. `cpl` and the buffer size follow `ud.len()`.
+#[allow(clippy::too_many_arguments)]
 pub fn command_packet_octets_cph_ud(
     tar: u32,
     spi1: u8,
@@ -866,6 +867,7 @@ pub fn envelope_data_raw(
 
 /// The same envelope data field as [`envelope_data_raw`], with the Command
 /// Packet user data supplied by the caller (TAR-type-aware payloads).
+#[allow(clippy::too_many_arguments)]
 pub fn envelope_data_raw_ud(
     tar: u32,
     class: Class,
@@ -875,7 +877,8 @@ pub fn envelope_data_raw_ud(
     spi2: u8,
     ud: &[u8],
 ) -> Option<Vec<u8>> {
-    let packet = command_packet_octets_cph_ud(tar, spi1, spi2, kic, kid, 1, &COMMAND_PACKET_HEADER, ud);
+    let packet =
+        command_packet_octets_cph_ud(tar, spi1, spi2, kic, kid, 1, &COMMAND_PACKET_HEADER, ud);
     let tpdu = sms_deliver_tpdu(&packet)?;
     envelope_data_from_tpdu(class, &tpdu)
 }
@@ -905,7 +908,10 @@ pub fn envelope_data_passthrough(
     envelope_data_from_tpdu(class, &tpdu)
 }
 
-fn envelope_data_from_tpdu(class: Class, tpdu: &[u8]) -> Option<Vec<u8>> {
+/// Builds the SMS-PP-DOWNLOAD envelope data field (`D1` TLV) from a TPDU.
+///
+/// Exposed for fuzz payload construction that builds a custom Command Packet.
+pub fn envelope_data_from_tpdu(class: Class, tpdu: &[u8]) -> Option<Vec<u8>> {
     let (identities, address) = match class {
         Class::Etsi => (&DEVICE_IDENTITIES_3G[..], &ADDRESS_3G[..]),
         Class::Gsm => (&DEVICE_IDENTITIES_GSM[..], &ADDRESS_GSM[..]),
@@ -965,6 +971,7 @@ pub fn envelope_apdu_raw(
 
 /// The same APDU as [`envelope_apdu_raw`], with the Command Packet user data
 /// supplied by the caller (TAR-type-aware payloads).
+#[allow(clippy::too_many_arguments)]
 pub fn envelope_apdu_raw_ud(
     tar: u32,
     class: Class,
@@ -996,7 +1003,10 @@ pub fn envelope_apdu_passthrough(
     envelope_apdu_from_data(class, &data)
 }
 
-fn envelope_apdu_from_data(class: Class, data: &[u8]) -> Option<Vec<u8>> {
+/// Builds a complete ENVELOPE APDU (`CLA C2 00 00 Lc <data>`) from envelope data.
+///
+/// Exposed for fuzz payload construction that builds a custom Command Packet.
+pub fn envelope_apdu_from_data(class: Class, data: &[u8]) -> Option<Vec<u8>> {
     let len = u8::try_from(data.len()).ok()?;
     let mut apdu = vec![class.octet(), INS_ENVELOPE, 0x00, 0x00, len];
     apdu.extend_from_slice(data);
