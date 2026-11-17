@@ -3615,6 +3615,7 @@ mod tests {
             exchanges: 2,
             terminal_profile: None,
             por_mode: tar::PorMode::default(),
+            max_probes: tar::MAX_PROBES,
         };
         let ran = Verdict::new(rules::Findings::complete(Vec::new()), 2)
             .scored(true)
@@ -3724,6 +3725,7 @@ mod tests {
             exchanges: 4,
             terminal_profile: None,
             por_mode: tar::PorMode::default(),
+            max_probes: tar::MAX_PROBES,
         }
     }
 
@@ -3747,6 +3749,7 @@ mod tests {
             exchanges: 2,
             terminal_profile: None,
             por_mode: tar::PorMode::default(),
+            max_probes: tar::MAX_PROBES,
         }
     }
 
@@ -3945,7 +3948,10 @@ mod tests {
         let mut card = sample_card();
         let tree = walk_sample(&mut card, Limits::default());
         let mut audit = msl_zero_audit();
-        audit.stopped = Some("the probe budget of 4096 TARs was reached".to_owned());
+        audit.stopped = Some(format!(
+            "the probe cap of {} TARs was reached (sim-doctor caps TAR probing by design)",
+            audit.max_probes
+        ));
         let found = findings(&Subject {
             tree: &tree,
             tar: &audit,
@@ -3955,7 +3961,7 @@ mod tests {
         .expect("no misattribution");
 
         // **The finding is still true.** TAR zero was accepted, and that does
-        // not stop being true because the scan stopped at 4096 of 16 777 216.
+        // not stop being true because the scan stopped at the configured cap.
         // What cannot be claimed is that nothing else is accepted, and that is
         // what coverage says.
         assert_eq!(found.len(), 1);
@@ -3963,7 +3969,10 @@ mod tests {
         assert_eq!(
             finding.coverage(),
             &rules::Coverage::Partial {
-                reason: "the probe budget of 4096 TARs was reached".to_owned()
+                reason: format!(
+                    "the probe cap of {} TARs was reached (sim-doctor caps TAR probing by design)",
+                    audit.max_probes
+                )
             }
         );
         assert!(!found.is_exhaustive());

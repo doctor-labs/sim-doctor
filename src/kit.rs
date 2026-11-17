@@ -80,7 +80,7 @@ struct Run {
     terminal_profile: bool,
     por: tar::PorMode,
     reserved_file_ids: bool,
-    tar_uncapped: bool,
+    tar_max_probes: usize,
     severity: Option<rules::Severity>,
     score: bool,
     fail_on: rules::Severity,
@@ -116,7 +116,7 @@ impl Run {
             terminal_profile: false,
             por: tar::PorMode::default(),
             reserved_file_ids: false,
-            tar_uncapped: false,
+            tar_max_probes: tar::MAX_PROBES,
             severity: None,
             score: false,
             fail_on: rules::Severity::Critical,
@@ -156,7 +156,7 @@ impl Run {
                 tar::PorMode::default()
             },
             reserved_file_ids: args.reserved_file_ids,
-            tar_uncapped: args.tar_uncapped,
+            tar_max_probes: args.tar_max_probes,
             severity: args.severity,
             score: args.score,
             fail_on: args.fail_on,
@@ -296,16 +296,13 @@ impl SimDoctor {
 
         // The TAR audit, over the same live session. It polls doctor_kit::interrupt::interrupted()
         // before every probe: a Ctrl-C during a full sweep is acted on rather than queued.
-        let audit = if args.tar_uncapped {
-            tar::audit_uncapped
-        } else {
-            tar::audit_with_por
-        }(
+        let audit = tar::audit_with_max(
             session,
             &args.tar,
             &session::Policy::default(),
             args.terminal_profile,
             args.por,
+            args.tar_max_probes,
             &mut || doctor_kit::interrupt::interrupted(),
         )
         .map_err(|e| refuse("tar-audit-failed", &e))?;
@@ -840,23 +837,26 @@ pub fn scan(d: &SimDoctor, args: ScanArgs) -> contract::ExitCode {
         eprintln!("sim-doctor: --sms-deliver-report is only meaningful with --tar other than off");
         return contract::ExitCode::Error;
     }
-    if args.tar_uncapped && matches!(args.tar.mode, tar::Mode::Off) {
-        eprintln!("sim-doctor: --tar-uncapped is only meaningful with --tar other than off");
+    if args.tar_max_probes == 0 || args.tar_max_probes > tar::CONFIGURABLE_MAX_PROBES {
+        eprintln!(
+            "sim-doctor: --tar-max-probes must be between 1 and {} (sim-doctor caps TAR probing by design)",
+            tar::CONFIGURABLE_MAX_PROBES
+        );
+        return contract::ExitCode::Error;
+    }
+    if args.tar_max_probes != tar::MAX_PROBES && matches!(args.tar.mode, tar::Mode::Off) {
+        eprintln!("sim-doctor: --tar-max-probes is only meaningful with --tar other than off");
         return contract::ExitCode::Error;
     }
     // The dry run (F-1): every TAR probe sweep sends one ENVELOPE per TAR, so the count is shown and
     // nothing is sent, and no reader is opened, until --yes is given. The count is the one the
     // audit's bound allows, so `--yes` sends exactly this many.
     if !matches!(args.tar.mode, tar::Mode::Off) && !args.yes {
-        let bound = if args.tar_uncapped {
-            tar::UNCAPPED_MAX_PROBES
-        } else {
-            tar::MAX_PROBES
-        };
-        let sweep = tar::tars(&args.tar).take(bound).count();
+        let bound = args.tar_max_probes.min(tar::CONFIGURABLE_MAX_PROBES);
+        let sweep = tar::probe_count(&args.tar, bound);
         let total = sweep + tar::CALIBRATION_PROBES;
         eprintln!(
-            "sim-doctor: --tar {} would send {total} ENVELOPEs ({sweep} TAR probes and {} calibration probes; the full TAR space is {}). Dry run: nothing was sent. Add --yes to send them.",
+            "sim-doctor: --tar {} would send {total} ENVELOPEs ({sweep} TAR probes and {} calibration probes at a cap of {bound}; sim-doctor caps TAR probing by design, the TAR space is {}). Dry run: nothing was sent. Add --yes to send them.",
             args.tar,
             tar::CALIBRATION_PROBES,
             tar::TAR_SPACE

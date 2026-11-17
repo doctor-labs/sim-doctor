@@ -297,7 +297,7 @@ finished. Full reasoning in [CONTEXT.md](CONTEXT.md) section 3.
 | `--score` | implemented | adds the score and its formula to the human report; the JSON always carries `score` |
 | `--fail-on <level>` | implemented | gate threshold, default `critical`; see Exit codes |
 | `--severity <level>` | implemented | remove findings below a minimum severity |
-| `--tar <selection>` | implemented | which TARs to probe for MSL 0: `off`, `focused`, `full`, `range:FIRST-LAST`, `regex:PATTERN`; capped at 4096 probes unless `--tar-uncapped` (issue #266) lifts it to the full space; a dry run unless `--yes` |
+| `--tar <selection>` | implemented | which TARs to probe for MSL 0: `off`, `focused`, `full`, `range:FIRST-LAST`, `regex:PATTERN`; capped at 4096 probes by design and configurable with `--tar-max-probes` (bounded, never unbounded, #266); a dry run unless `--yes` |
 | `--tar-filter <regex>` | implemented | SIMTester's `-stre`: a sweep probe whose response (uppercase hex, data then status word) matches is `filtered`, not accepted and not raised; the calibration pass is never filtered; ignored under `--tar off` |
 | `--terminal-profile` | implemented | with `--tar` other than `off` (else exit 2): send TERMINAL PROFILE `80 10 00 00 01 13` before the TAR audit; see [TERMINAL PROFILE and a generic-error baseline](#terminal-profile-and-a-generic-error-baseline) |
 | `--baseline <file>` | implemented | compare this run against a previous `scan --json` envelope; new findings at or above `--fail-on` exit 3 |
@@ -397,7 +397,7 @@ ceiling rather than `fs::read`, so the ceiling holds while reading. A reduced ba
 kilobytes, but the full envelope (which carries the whole file tree) must still load for local
 use, so the ceiling stays at 8 MiB instead of returning to 1 MiB. From the envelope only the
 fields above are used, and `parse` refuses any string over **1024 characters**, any array over
-**4096 items**, and any fingerprint that is not 16 lowercase hex digits, before the typed parse.
+**4096 items** by default (configurable up to a hard ceiling for TAR probes), and any fingerprint that is not 16 lowercase hex digits, before the typed parse.
 `RuleId` re-validates itself on the way in, which is issue #13's deliberate choice and the reason
 reading one back is safe at all.
 
@@ -566,7 +566,7 @@ nothing is raised.
 #### The probe count is bounded, and the range is justified
 
 The TAR space is 16 777 216 values. **Nothing here will send them all to a
-card.** `tar::MAX_PROBES` caps one scan at **4096** whatever `--tar` asks for; a
+card.** `tar::MAX_PROBES` is the **4096** default cap by design; `--tar-max-probes` raises it deliberately but it remains bounded (never unbounded). A
 selection that runs past it stops there, reports `data.tar.stopped`, and every
 finding it carries is marked `partial` rather than read as an exhaustive audit of
 the card's TAR allow-list.

@@ -182,7 +182,7 @@ fn build_argv(scan: &Command, name: &str, args: &Value) -> Result<Vec<String>, S
             for (key, value) in obj {
                 if key.as_str() == "yes" {
                     return Err(
-                        "\"yes\" is not available over MCP: start an uncapped sweep from the CLI"
+                        "\"yes\" is not available over MCP: run a TAR sweep from the CLI when you intend to send probes"
                             .to_string(),
                     );
                 }

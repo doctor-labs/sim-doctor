@@ -1554,7 +1554,7 @@ fn g4_mcp_refuses_write_verbs_and_yes_and_sends_no_apdu() {
             answers[&id]
         );
     }
-    // --tar-uncapped without --yes is the dry run (exit 2): an error, and no ENVELOPE.
+    // --tar with probes but without --yes is the dry run (exit 2): an error, and no ENVELOPE.
     assert!(refused(&answers[&6]), "{}", answers[&6]);
     assert_eq!(
         fake.ins(0xC2),
@@ -1630,22 +1630,26 @@ fn g5_delete_and_crs_succeed_only_when_the_read_back_agrees() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn g6_scan_tar_uncapped_is_a_dry_run_that_prints_the_count() {
+fn g6_scan_tar_max_probes_is_a_dry_run_that_prints_the_count() {
     let ctx = Ctx::new("g6a");
-    for (selection, count) in [("focused", "656"), ("full", "16777216")] {
+    // "focused" fits in the default cap (656 probes); "full" at an explicit cap is bounded.
+    for (selection, extra, count) in [
+        ("focused", vec![], "656"),
+        ("full", vec!["--tar-max-probes", "10000"], "10000"),
+    ] {
         let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));
-        let args: Vec<String> = [
+        let mut args: Vec<String> = [
             "scan",
             "--simulator",
             &fake.spec,
             "--tar",
             selection,
-            "--tar-uncapped",
             "--json",
         ]
         .iter()
         .map(|s| s.to_string())
         .collect();
+        args.extend(extra.iter().map(|s| s.to_string()));
         let out = run_in(&ctx.work.dir, &args, &[], None);
         assert_eq!(out.code, Some(2), "{}", out.all());
         assert_eq!(fake.count(), 0, "{selection}: APDUs without --yes");
@@ -1656,11 +1660,12 @@ fn g6_scan_tar_uncapped_is_a_dry_run_that_prints_the_count() {
             out.stderr
         );
         assert!(out.stderr.contains("--yes"), "{}", out.stderr);
+        assert!(out.stderr.contains("by design"), "{}", out.stderr);
     }
 }
 
 #[test]
-fn g6_scan_tar_uncapped_with_yes_sends_exactly_the_printed_count() {
+fn g6_scan_tar_with_yes_sends_exactly_the_printed_count() {
     // 656 is the bounded "focused" selection, small enough to run for real against the fake.
     let ctx = Ctx::new("g6b");
     let fake = Fake::start(card(CANARY_KEY, World::new(), Mode::Honest));
@@ -1670,7 +1675,6 @@ fn g6_scan_tar_uncapped_with_yes_sends_exactly_the_printed_count() {
         &fake.spec,
         "--tar",
         "focused",
-        "--tar-uncapped",
         "--yes",
         "--json",
     ]

@@ -93,7 +93,7 @@ Options:
       --terminal-profile       Send a TERMINAL PROFILE to the card before the TAR audit
       --sms-deliver-report     Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT
       --reserved-file-ids      Scan reserved file identifiers 7FF0-7FFF inside an application [alias: --sfrv]
-      --tar-uncapped           Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266)
+      --tar-max-probes <N>     The cap on TAR probes, 4096 by design (issue #266) [default: 4096]
       --yes                    Send the TAR probes. Required with --tar focused, full or range (F-1)
       --face <FACE>            The human report: a doctor-kit face (rich, plain or compact), or the full legacy report [possible values: rich, plain, compact, legacy]
       --theme <THEME>          The face's colours: mono, clinical or contrast (default: the tool's own)
