@@ -378,6 +378,9 @@ pub struct Record {
     /// The ICCID the card actually said, once it was read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_iccid: Option<String>,
+    /// The reader this slot was driven on, when the plan or the run named one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reader: Option<String>,
     /// Where the card got to.
     pub state: CardState,
     /// How many commands the slot has, verification included.
@@ -920,6 +923,12 @@ pub struct Slot {
     /// `uicc` (class 00) or `sim` (class A0, GSM 11.11).
     #[serde(default = "uicc")]
     pub profile: String,
+    /// The reader to use for this slot, matched against the driver's own name.
+    /// When absent, the run's `--reader` (if any) is used, and when neither is
+    /// set the first reader is taken - so a plan can drive a batch of operations
+    /// across several readers by naming one per slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reader: Option<String>,
     /// The card-shell commands to send, in order. `;` separates, as in the
     /// shell's own `-c`.
     #[serde(default)]
@@ -1036,6 +1045,13 @@ impl Plan {
             if slot.profile != "uicc" && slot.profile != "sim" {
                 return Err(bad("`profile` is `uicc` or `sim`"));
             }
+            if slot
+                .reader
+                .as_ref()
+                .is_some_and(|reader| reader.trim().is_empty())
+            {
+                return Err(bad("`reader` names the PC/SC reader and cannot be empty"));
+            }
             let steps = slot.steps();
             if !slot.commands.is_empty() && steps.is_empty() {
                 return Err(bad("`commands` holds only blanks"));
@@ -1080,6 +1096,9 @@ pub struct CardReport {
     pub expected_iccid: String,
     /// The ICCID the card said, when a card was read.
     pub observed_iccid: Option<String>,
+    /// The reader this slot was driven on, when the plan or the run named one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reader: Option<String>,
     /// Where it got to.
     pub state: &'static str,
     /// The class byte set it was programmed with.
@@ -1110,6 +1129,7 @@ impl CardReport {
             label: slot.label.clone(),
             expected_iccid: slot.iccid.clone(),
             observed_iccid: record.observed_iccid.clone(),
+            reader: slot.reader.clone().or_else(|| record.reader.clone()),
             state: record.state.as_str(),
             profile: slot.profile.clone(),
             planned: slot.steps(),
@@ -1393,6 +1413,7 @@ impl Runner<'_> {
                 label: slot.label.clone(),
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: None,
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Planned.as_str(),
                 profile: slot.profile.clone(),
                 planned: slot.steps(),
@@ -1447,7 +1468,8 @@ impl Runner<'_> {
 
         // Identifying.
         let mut shell = (self.shells)();
-        if let Err(message) = shell.equip(self.opts.reader.as_deref(), slot.card_profile()) {
+        let reader = slot.reader.as_deref().or(self.opts.reader.as_deref());
+        if let Err(message) = shell.equip(reader, slot.card_profile()) {
             return self.fail(
                 slot,
                 None,
@@ -1491,6 +1513,7 @@ impl Runner<'_> {
                 slot: slot.slot,
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: Some(observed.clone()),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Swapped,
                 steps_planned: planned_len,
                 steps_done: 0,
@@ -1507,6 +1530,7 @@ impl Runner<'_> {
                 label: slot.label.clone(),
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: Some(observed),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Swapped.as_str(),
                 profile: slot.profile.clone(),
                 planned: steps,
@@ -1527,6 +1551,7 @@ impl Runner<'_> {
             slot: slot.slot,
             expected_iccid: slot.iccid.clone(),
             observed_iccid: Some(observed.clone()),
+            reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
             state: CardState::InProgress,
             steps_planned: planned_len,
             steps_done: 0,
@@ -1542,6 +1567,7 @@ impl Runner<'_> {
                 label: slot.label.clone(),
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: Some(observed),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Ready.as_str(),
                 profile: slot.profile.clone(),
                 planned: steps,
@@ -1640,6 +1666,7 @@ impl Runner<'_> {
             slot: slot.slot,
             expected_iccid: slot.iccid.clone(),
             observed_iccid: Some(observed.clone()),
+            reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
             state: CardState::Programmed,
             steps_planned: planned_len,
             steps_done: done,
@@ -1658,6 +1685,7 @@ impl Runner<'_> {
                 label: slot.label.clone(),
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: Some(observed),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Programmed.as_str(),
                 profile: slot.profile.clone(),
                 planned: steps,
@@ -1686,6 +1714,7 @@ impl Runner<'_> {
                 slot: slot.slot,
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: Some(observed.clone()),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Programmed,
                 steps_planned: planned_len,
                 steps_done: done,
@@ -1701,6 +1730,7 @@ impl Runner<'_> {
                 label: slot.label.clone(),
                 expected_iccid: slot.iccid.clone(),
                 observed_iccid: Some(observed),
+                reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
                 state: CardState::Programmed.as_str(),
                 profile: slot.profile.clone(),
                 planned: steps,
@@ -1718,6 +1748,7 @@ impl Runner<'_> {
             slot: slot.slot,
             expected_iccid: slot.iccid.clone(),
             observed_iccid: Some(observed),
+            reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
             state: CardState::Released,
             steps_planned: planned_len,
             steps_done: done,
@@ -1739,6 +1770,7 @@ impl Runner<'_> {
                 .state
                 .record(slot.slot)
                 .and_then(|r| r.observed_iccid.clone()),
+            reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
             state: CardState::Released.as_str(),
             profile: slot.profile.clone(),
             planned: steps,
@@ -1765,6 +1797,7 @@ impl Runner<'_> {
             slot: slot.slot,
             expected_iccid: slot.iccid.clone(),
             observed_iccid: observed.clone(),
+            reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
             state: CardState::Failed,
             steps_planned: planned_len,
             steps_done: done,
@@ -1783,6 +1816,7 @@ impl Runner<'_> {
             label: slot.label.clone(),
             expected_iccid: slot.iccid.clone(),
             observed_iccid: observed,
+            reader: slot.reader.clone().or_else(|| self.opts.reader.clone()),
             state: CardState::Failed.as_str(),
             profile: slot.profile.clone(),
             planned: slot.steps(),
@@ -1942,11 +1976,8 @@ mod tests {
                         match behaviour {
                             Behaviour::Card(mut card) => {
                                 card.sent = log;
-                                Ok((
-                                    card as Box<dyn CardSession>,
-                                    "test card".to_owned(),
-                                    Some(vec![0x3B, 0x9F]),
-                                ))
+                                let card: Box<dyn CardSession> = card;
+                                Ok((card, "test card".to_owned(), Some(vec![0x3B, 0x9F])))
                             }
                             Behaviour::NoCard => Err("no card in the reader".to_owned()),
                         }
@@ -2064,6 +2095,7 @@ mod tests {
             iccid: iccid.to_owned(),
             label: None,
             profile: "uicc".to_owned(),
+            reader: None,
             commands: commands.iter().map(|c| (*c).to_owned()).collect(),
             verify: verify.map(str::to_owned),
             idempotent: true,
@@ -2488,6 +2520,7 @@ mod tests {
             slot: 1,
             expected_iccid: iccid_of(&CARD_A),
             observed_iccid: Some(iccid_of(&CARD_A)),
+            reader: None,
             state: CardState::Released,
             steps_planned: 4,
             steps_done: 4,
@@ -2499,6 +2532,7 @@ mod tests {
             slot: 2,
             expected_iccid: iccid_of(&CARD_B),
             observed_iccid: Some(iccid_of(&CARD_B)),
+            reader: None,
             state: CardState::InProgress,
             steps_planned: 4,
             steps_done: 1,
@@ -2947,5 +2981,137 @@ mod tests {
         let mut sim = slot.clone();
         sim.profile = "sim".to_owned();
         assert_eq!(sim.card_profile(), Profile::Sim);
+    }
+
+    #[test]
+    fn a_plan_can_name_a_reader_per_slot_and_rejects_an_empty_one() {
+        let iccid_a = iccid_of(&CARD_A);
+        let iccid_b = iccid_of(&CARD_B);
+        let plan: Plan = serde_json::from_str(&format!(
+            r#"{{
+              "batch": "multi-reader",
+              "cards": [
+                {{"slot": 1, "iccid": "{iccid_a}", "reader": "reader-a", "commands": ["{VERIFY}"], "verify": "{VERIFY}"}},
+                {{"slot": 2, "iccid": "{iccid_b}", "reader": "reader-b", "commands": [], "verify": null}}
+              ]
+            }}"#
+        ))
+        .expect("a plan naming a reader per slot");
+        plan.validate().expect("readers named per slot are valid");
+        assert_eq!(plan.cards[0].reader.as_deref(), Some("reader-a"));
+        assert_eq!(plan.cards[1].reader.as_deref(), Some("reader-b"));
+
+        let empty: Plan = serde_json::from_str(&format!(
+            r#"{{
+              "cards": [{{"slot": 1, "iccid": "{iccid_a}", "reader": "   ", "commands": ["{VERIFY}"], "verify": "{VERIFY}"}}]
+            }}"#
+        ))
+        .expect("json parses");
+        let err = empty.validate().unwrap_err();
+        assert_eq!(err.kind, FailureKind::PlanInvalid);
+        assert!(
+            err.detail.contains("reader") && err.detail.contains("empty"),
+            "{}",
+            err.detail
+        );
+    }
+
+    #[test]
+    fn one_batch_can_drive_operations_across_several_readers() {
+        let dir = clear("multi-reader");
+        let state = dir.join("batch.json");
+        let iccid_a = iccid_of(&CARD_A);
+        let iccid_b = iccid_of(&CARD_B);
+        let plan = plan_of(vec![
+            Slot {
+                reader: Some("reader-a".to_owned()),
+                ..slot(1, &iccid_a, &WRITE, Some(VERIFY))
+            },
+            Slot {
+                reader: Some("reader-b".to_owned()),
+                ..slot(2, &iccid_b, &WRITE, Some(VERIFY))
+            },
+        ]);
+
+        // One scripted card sits behind each named reader; asking for the wrong reader
+        // (or no card) is refused so the plan must address them explicitly.
+        let opens = Rc::new(Cell::new(0usize));
+        let logs: Rc<RefCell<Vec<WireLog>>> = Rc::default();
+        let seen: Rc<RefCell<Vec<Option<String>>>> = Rc::default();
+        let counter = opens.clone();
+        let collected = logs.clone();
+        let requests = seen.clone();
+        let a = iccid_a.clone();
+        let b = iccid_b.clone();
+        let mut factory = Box::new(move || {
+            let counter = counter.clone();
+            let collected = collected.clone();
+            let requests = requests.clone();
+            let a = a.clone();
+            let b = b.clone();
+            Shell::new(
+                Box::new(move |requested| {
+                    counter.set(counter.get() + 1);
+                    requests.borrow_mut().push(requested.map(str::to_owned));
+                    let iccid = match requested {
+                        Some("reader-a") => CARD_A,
+                        Some("reader-b") => CARD_B,
+                        _ => return Err("no card in the reader".to_owned()),
+                    };
+                    let mut card = card_with_iccid(&iccid);
+                    let log: WireLog = Rc::default();
+                    card.sent = log.clone();
+                    collected.borrow_mut().push(log);
+                    let _ = (&a, &b);
+                    let card: Box<dyn CardSession> = Box::new(card);
+                    Ok((
+                        card,
+                        requested.unwrap_or("test card").to_owned(),
+                        Some(vec![0x3B, 0x9F]),
+                    ))
+                }),
+                Opts {
+                    yes: true,
+                    dialect: crate::scan::Dialect::Ts102221.tag_set(),
+                    secrets: None,
+                    card_key: None,
+                    card_keys: None,
+                },
+            )
+        });
+
+        let mut handler = Recording::default();
+        let (code, report) = execute(
+            &plan,
+            &options(&state, true, OnFailure::Stop),
+            &mut factory,
+            &mut handler,
+        );
+
+        assert_eq!(code, ExitCode::Success, "{report:?}");
+        assert_eq!(report.summary.programmed, 2);
+        assert_eq!(
+            report
+                .cards
+                .iter()
+                .map(|c| c.reader.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("reader-a"), Some("reader-b")]
+        );
+        assert!(report.cards.iter().all(|c| c.verified && c.touched));
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[Some("reader-a".to_owned()), Some("reader-b".to_owned())]
+        );
+        let written = read_state(&state);
+        assert_eq!(
+            written.record(1).and_then(|r| r.reader.as_deref()),
+            Some("reader-a")
+        );
+        assert_eq!(
+            written.record(2).and_then(|r| r.reader.as_deref()),
+            Some("reader-b")
+        );
+        let _ = (opens, logs, std::fs::remove_dir_all(&dir));
     }
 }

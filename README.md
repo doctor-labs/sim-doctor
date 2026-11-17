@@ -427,17 +427,24 @@ MCP.** A partial install (a loaded package without the application) is reported 
 failed; `gp status` shows what the card now holds and `gp delete --aid <package>` removes it.
 
 **DAP.** `gp install --dap-key-file PATH | --dap-key-env VAR` signs the Load File Data Block Hash
-(SHA-256 by default, `--dap-hash sha384|sha512`) with a symmetric AES DAP key (16, 24 or 32 bytes of hex,
-optionally `KEY/KCV`) as AES-CMAC (GlobalPlatform Card Spec v2.3.1 C.3 and B.2.2), puts the hash in
-INSTALL [for load] and the `E2` DAP block in front of the load file. `--dap-sd HEX` names the Security
-Domain that verifies it (default: the ISD being authenticated). The registry must show that Security
-Domain with the DAP Verification or Mandated DAP Verification privilege or nothing is sent; the dry run
-lists the DAP-capable domains in `data.pre_read.dap_security_domains` and the plan shows the block.
-The DAP key is never printed. **Not done:** DES, RSA and ECC DAP keys, SHA-1, several DAP blocks, tokens
-(delegated management), DELETE [key], other INSTALL kinds and STORE DATA. The channel is C-MAC only (no
-C-DECRYPTION), which INSTALL, LOAD, DELETE and PUT KEY do not need. Verified by replay against byte
-vectors produced by pySim's own SCP03 implementation and the AES-CMAC checked with openssl (see
-`src/gp.rs` tests), not on a live card.
+(SHA-256 by default, `--dap-hash sha384|sha512`) and places one or more `E2` DAP blocks in front of the
+load file (GlobalPlatform Card Spec v2.3.1 C.2, C.3, Table 11-58). `--dap-alg` selects the scheme:
+AES-CMAC (B.2.2, 16-byte signature, 16/24/32-byte key), the DES retail MAC (B.1.2.2, 8-byte signature,
+16-byte key) or ECDSA over P-256 with SHA-256 (B.4.3, plain `r || s`, 32-byte key). Several keys are
+several DAP blocks; repeat `--dap-domain HEX` once per block to name the verifying Security Domain
+(default: the authenticated ISD). The registry must show that Security Domain with the DAP Verification
+or Mandated DAP Verification privilege or nothing is sent; the dry run lists the DAP-capable domains in
+`data.pre_read.dap_security_domains` and the plan shows the block. The DAP key is never printed.
+
+**RSA DAP is not implemented.** `--dap-alg rsa` is recognized, but this crate cannot produce an RSA DAP
+signature (RSASSA-PKCS1-v1_5 with SHA-1, B.3.1.1, or RSASSA-PSS with SHA-256, B.3.2.1) because RSA
+arithmetic and an unambiguous RSA private-key encoding for signing are not available here; a request to
+use RSA is refused with a clear error before the card is touched.
+
+**Not done:** SHA-1 LFDBH, tokens (delegated management), DELETE [key], other INSTALL kinds and STORE
+DATA. The channel is C-MAC only (no C-DECRYPTION), which INSTALL, LOAD, DELETE and PUT KEY do not need.
+Verified by replay against byte vectors produced by pySim's own SCP03 implementation and checked with
+openssl/`cryptography` (see `src/gp.rs` tests), not on a live card.
 
 **`gp put-key`** adds or replaces the ISD's SCP03 key set (three AES-128 keys: ENC, MAC, DEK) with
 PUT KEY (Card Spec v2.3.1 11.8) over the same channel. **It can permanently lock administrative access

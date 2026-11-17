@@ -43,7 +43,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('trace', 'trace', [CompletionResultType]::ParameterValue, 'Decode a captured APDU trace offline (no card, no reader)')
             [CompletionResult]::new('cat', 'cat', [CompletionResultType]::ParameterValue, 'Decode Card Application Toolkit data offline (no card, no reader)')
             [CompletionResult]::new('sms', 'sms', [CompletionResultType]::ParameterValue, '`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing')
-            [CompletionResult]::new('saip', 'saip', [CompletionResultType]::ParameterValue, '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing')
+            [CompletionResult]::new('saip', 'saip', [CompletionResultType]::ParameterValue, '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. `saip personalize` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing')
+            [CompletionResult]::new('program', 'program', [CompletionResultType]::ParameterValue, 'Card personalization / programming (pySim-prog style): turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV')
             [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('esim-cert', 'esim-cert', [CompletionResultType]::ParameterValue, 'Verify an eSIM certificate chain offline, up to a CI root you supply')
             [CompletionResult]::new('ota-expanded', 'ota-expanded', [CompletionResultType]::ParameterValue, 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out')
@@ -86,6 +87,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--face', '--face', [CompletionResultType]::ParameterName, 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report')
             [CompletionResult]::new('--theme', '--theme', [CompletionResultType]::ParameterName, 'The face''s colours: mono, clinical or contrast (default: the tool''s own)')
             [CompletionResult]::new('--color', '--color', [CompletionResultType]::ParameterName, 'Colour the face: auto (a terminal and no NO_COLOR), always or never')
+            [CompletionResult]::new('--submit', '--submit', [CompletionResultType]::ParameterName, 'Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default). Identifiers and file contents are redacted before sending')
+            [CompletionResult]::new('--submit-ca', '--submit-ca', [CompletionResultType]::ParameterName, 'PEM trust anchor for --submit (certificate pinning / explicit CA)')
             [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
@@ -795,7 +798,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--dap-key-file', '--dap-key-file', [CompletionResultType]::ParameterName, 'File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)')
             [CompletionResult]::new('--dap-key-env', '--dap-key-env', [CompletionResultType]::ParameterName, 'Environment variable holding the DAP keys')
             [CompletionResult]::new('--dap-domain', '--dap-domain', [CompletionResultType]::ParameterName, 'The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated')
-            [CompletionResult]::new('--dap-alg', '--dap-alg', [CompletionResultType]::ParameterName, 'The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)')
+            [CompletionResult]::new('--dap-alg', '--dap-alg', [CompletionResultType]::ParameterName, 'The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding are unavailable here')
             [CompletionResult]::new('--dap-hash', '--dap-hash', [CompletionResultType]::ParameterName, 'The Load File Data Block Hash the DAP signs')
             [CompletionResult]::new('--dm-key-file', '--dm-key-file', [CompletionResultType]::ParameterName, 'File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)')
             [CompletionResult]::new('--dm-key-env', '--dm-key-env', [CompletionResultType]::ParameterName, 'Environment variable holding the AES token calculation key')
@@ -1279,10 +1282,12 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;trace' {
+            [CompletionResult]::new('--bind', '--bind', [CompletionResultType]::ParameterName, 'UDP address to bind for --listen (default: 127.0.0.1:4729)')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "trace" on stdout')
             [CompletionResult]::new('--show-raw-apdu', '--show-raw-apdu', [CompletionResultType]::ParameterName, 'Also print each exchange''s raw command and response hex in the table')
             [CompletionResult]::new('--no-suppress-select', '--no-suppress-select', [CompletionResultType]::ParameterName, 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace')
             [CompletionResult]::new('--no-suppress-status', '--no-suppress-status', [CompletionResultType]::ParameterName, 'Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace')
+            [CompletionResult]::new('--listen', '--listen', [CompletionResultType]::ParameterName, 'Listen for live GSMTAP SIM APDUs over UDP instead of reading a file')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
@@ -1340,6 +1345,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('parse', 'parse', [CompletionResultType]::ParameterValue, 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline')
+            [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim''s SAIP personalization (`personalization.py`, including `do_variants`)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -1349,15 +1355,52 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'sim-doctor;saip;personalize' {
+            [CompletionResult]::new('--document', '--document', [CompletionResultType]::ParameterName, 'Path to the personalization document (JSON) with parameter values (iccid, profile_type, pins, puks) and variant handling (drop_pe_types, keep_pe_types)')
+            [CompletionResult]::new('-o', '-o', [CompletionResultType]::ParameterName, 'Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written')
+            [CompletionResult]::new('--output', '--output', [CompletionResultType]::ParameterName, 'Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "saip" on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'sim-doctor;saip;help' {
             [CompletionResult]::new('parse', 'parse', [CompletionResultType]::ParameterValue, 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline')
+            [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim''s SAIP personalization (`personalization.py`, including `do_variants`)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
         'sim-doctor;saip;help;parse' {
             break
         }
+        'sim-doctor;saip;help;personalize' {
+            break
+        }
         'sim-doctor;saip;help;help' {
+            break
+        }
+        'sim-doctor;program' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('plan', 'plan', [CompletionResultType]::ParameterValue, 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;program;plan' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit the plan as a JSON document on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;program;help' {
+            [CompletionResult]::new('plan', 'plan', [CompletionResultType]::ParameterValue, 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;program;help;plan' {
+            break
+        }
+        'sim-doctor;program;help;help' {
             break
         }
         'sim-doctor;ota-crypto' {
@@ -1553,6 +1596,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
             [CompletionResult]::new('--quick', '--quick', [CompletionResultType]::ParameterName, 'Probe a small, documented subset instead of the full space')
             [CompletionResult]::new('--poke', '--poke', [CompletionResultType]::ParameterName, 'Like `--quick`, but probes only the three TARs SIMTester''s `-poke` probes: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds')
+            [CompletionResult]::new('--matrix', '--matrix', [CompletionResultType]::ParameterName, 'Enumerate the 17-profile FuzzerData security-policy matrix (counter requirement x KIC/KID algorithm x PoR request/ciphering, per ETSI TS 102 225/226) instead of the legacy SPI mechanism table')
+            [CompletionResult]::new('--standard-tars', '--standard-tars', [CompletionResultType]::ParameterName, 'Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with TAR-type-aware test payloads instead of the focused TAR bands')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
@@ -1878,6 +1923,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--script', '--script', [CompletionResultType]::ParameterName, 'Run the commands in this file, one per line (`#` starts a comment), and exit')
             [CompletionResult]::new('--read-csv', '--read-csv', [CompletionResultType]::ParameterName, 'Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim''s provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data')
             [CompletionResult]::new('--write-csv', '--write-csv', [CompletionResultType]::ParameterName, 'Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim''s provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged')
+            [CompletionResult]::new('--write-hlr', '--write-hlr', [CompletionResultType]::ParameterName, 'Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched')
             [CompletionResult]::new('--chv-file', '--chv-file', [CompletionResultType]::ParameterName, 'File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history')
             [CompletionResult]::new('--chv-env', '--chv-env', [CompletionResultType]::ParameterName, 'Environment variable holding the same text (entries separated by `;` or newlines)')
             [CompletionResult]::new('--key-file', '--key-file', [CompletionResultType]::ParameterName, 'pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600')
@@ -1935,7 +1981,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('trace', 'trace', [CompletionResultType]::ParameterValue, 'Decode a captured APDU trace offline (no card, no reader)')
             [CompletionResult]::new('cat', 'cat', [CompletionResultType]::ParameterValue, 'Decode Card Application Toolkit data offline (no card, no reader)')
             [CompletionResult]::new('sms', 'sms', [CompletionResultType]::ParameterValue, '`sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing')
-            [CompletionResult]::new('saip', 'saip', [CompletionResultType]::ParameterValue, '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing')
+            [CompletionResult]::new('saip', 'saip', [CompletionResultType]::ParameterValue, '`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. `saip personalize` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing')
+            [CompletionResult]::new('program', 'program', [CompletionResultType]::ParameterValue, 'Card personalization / programming (pySim-prog style): turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV')
             [CompletionResult]::new('ota-crypto', 'ota-crypto', [CompletionResultType]::ParameterValue, 'Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim''s OTA layer uses them. No card and no reader: pure crypto over hex given on the command line')
             [CompletionResult]::new('esim-cert', 'esim-cert', [CompletionResultType]::ParameterValue, 'Verify an eSIM certificate chain offline, up to a CI root you supply')
             [CompletionResult]::new('ota-expanded', 'ota-expanded', [CompletionResultType]::ParameterValue, 'Offline OTA expanded-command and Proof-of-Response decoder, as pySim''s OTA layer uses them. No card and no reader: hex in, hex out')
@@ -2199,9 +2246,20 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;help;saip' {
             [CompletionResult]::new('parse', 'parse', [CompletionResultType]::ParameterValue, 'Decode a SAIP profile package (DER, the concatenated ProfileElements) offline')
+            [CompletionResult]::new('personalize', 'personalize', [CompletionResultType]::ParameterValue, 'Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim''s SAIP personalization (`personalization.py`, including `do_variants`)')
             break
         }
         'sim-doctor;help;saip;parse' {
+            break
+        }
+        'sim-doctor;help;saip;personalize' {
+            break
+        }
+        'sim-doctor;help;program' {
+            [CompletionResult]::new('plan', 'plan', [CompletionResultType]::ParameterValue, 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent')
+            break
+        }
+        'sim-doctor;help;program;plan' {
             break
         }
         'sim-doctor;help;ota-crypto' {

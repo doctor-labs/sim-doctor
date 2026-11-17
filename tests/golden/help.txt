@@ -25,7 +25,8 @@ Commands:
   trace         Decode a captured APDU trace offline (no card, no reader)
   cat           Decode Card Application Toolkit data offline (no card, no reader)
   sms           `sms decode` decodes SMS TPDUs offline (TS 23.040): SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing
-  saip          `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing
+  saip          `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. `saip personalize` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing
+  program       Card personalization / programming (pySim-prog style): turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV
   ota-crypto    Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them. No card and no reader: pure crypto over hex given on the command line
   esim-cert     Verify an eSIM certificate chain offline, up to a CI root you supply
   ota-expanded  Offline OTA expanded-command and Proof-of-Response decoder, as pySim's OTA layer uses them. No card and no reader: hex in, hex out
@@ -98,6 +99,8 @@ Options:
       --theme <THEME>          The face's colours: mono, clinical or contrast (default: the tool's own)
       --color <COLOR>          Colour the face: auto (a terminal and no NO_COLOR), always or never [possible values: auto, always, never]
       --headless               A face in plain text without colour, for CI and pipes
+      --submit <URL>           Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default). Identifiers and file contents are redacted before sending
+      --submit-ca <PEM>        PEM trust anchor for --submit (certificate pinning / explicit CA)
       --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
   -h, --help                   Print help (see more with '--help')
 
@@ -839,8 +842,8 @@ Options:
       --dap-key-file <PATH>     File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)
       --dap-key-env <VAR>       Environment variable holding the DAP keys
       --dap-domain <HEX>        The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated
-      --dap-alg <DAP_ALG>       The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1) [default: aes] [possible values: aes, des, ecc]
-      --dap-hash <DAP_HASH>     The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha256, sha384, sha512]
+      --dap-alg <DAP_ALG>       The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding are unavailable here [default: aes] [possible values: aes, des, ecc, rsa]
+      --dap-hash <DAP_HASH>     The Load File Data Block Hash the DAP signs [default: sha256] [possible values: sha1, sha256, sha384, sha512]
       --dm-key-file <PATH>      File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)
       --dm-key-env <VAR>        Environment variable holding the AES token calculation key
       --dm-token-file <PATH>    File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)
@@ -1176,6 +1179,8 @@ Options:
       --show-raw-apdu          Also print each exchange's raw command and response hex in the table
       --no-suppress-select     Keep SELECT rows in the table. They are hidden by default, as in pySim-trace
       --no-suppress-status     Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace
+      --listen                 Listen for live GSMTAP SIM APDUs over UDP instead of reading a file
+      --bind <ADDR>            UDP address to bind for --listen (default: 127.0.0.1:4729) [default: 127.0.0.1:4729]
       --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
   -h, --help                   Print help (see more with '--help')
 
@@ -1231,13 +1236,14 @@ Options:
   -h, --help  Print help
 
 $ sim-doctor saip -h [exit 0]
-`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing
+`saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. `saip personalize` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing
 
 Usage: sim-doctor saip [OPTIONS] <COMMAND>
 
 Commands:
-  parse  Decode a SAIP profile package (DER, the concatenated ProfileElements) offline
-  help   Print this message or the help of the given subcommand(s)
+  parse        Decode a SAIP profile package (DER, the concatenated ProfileElements) offline
+  personalize  Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim's SAIP personalization (`personalization.py`, including `do_variants`)
+  help         Print this message or the help of the given subcommand(s)
 
 Options:
       --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
@@ -1253,6 +1259,45 @@ Arguments:
 
 Options:
       --json  Emit one JSON envelope of kind "saip" on stdout
+  -h, --help  Print help
+
+$ sim-doctor saip personalize -h [exit 0]
+Personalize a SAIP profile package: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim's SAIP personalization (`personalization.py`, including `do_variants`)
+
+Usage: sim-doctor saip personalize [OPTIONS] --document <DOCUMENT> <FILE>
+
+Arguments:
+  <FILE>  Path to the input profile package (DER). Read-only; capped at 8 MiB
+
+Options:
+      --document <DOCUMENT>  Path to the personalization document (JSON) with parameter values (iccid, profile_type, pins, puks) and variant handling (drop_pe_types, keep_pe_types)
+  -o, --output <OUTPUT>      Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written
+      --json                 Emit one JSON envelope of kind "saip" on stdout
+  -h, --help                 Print help
+
+$ sim-doctor program -h [exit 0]
+Card personalization / programming (pySim-prog style): turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV
+
+Usage: sim-doctor program [OPTIONS] <COMMAND>
+
+Commands:
+  plan  Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help
+
+$ sim-doctor program plan -h [exit 0]
+Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent
+
+Usage: sim-doctor program plan [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  Path to the programming document (JSON, sim-doctor-program/1)
+
+Options:
+      --json  Emit the plan as a JSON document on stdout
   -h, --help  Print help
 
 $ sim-doctor ota-crypto -h [exit 0]
@@ -1495,6 +1540,10 @@ Options:
           Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it
       --class <CLASS>
           The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0). [possible values: etsi, gsm]
+      --matrix
+          Enumerate the 17-profile FuzzerData security-policy matrix (counter requirement x KIC/KID algorithm x PoR request/ciphering, per ETSI TS 102 225/226) instead of the legacy SPI mechanism table
+      --standard-tars
+          Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with TAR-type-aware test payloads instead of the focused TAR bands
       --passthrough <MODE>
           Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester's OTA fuzzer does, instead of sweeping TAR x keyset x mechanism [possible values: default, bruteforce]
   -h, --help
@@ -1802,6 +1851,7 @@ Options:
       --script <PATH>           Run the commands in this file, one per line (`#` starts a comment), and exit
       --read-csv <PATH>         Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim's provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data
       --write-csv <PATH>        Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim's provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged
+      --write-hlr <PATH>        Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched
       --json                    Print every reply as one JSON record (for agents)
       --chv-file <PATH>         File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history
       --chv-env <VAR>           Environment variable holding the same text (entries separated by `;` or newlines)

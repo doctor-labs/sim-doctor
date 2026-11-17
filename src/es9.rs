@@ -63,6 +63,9 @@
 //! a `host:port` SM-DP+ address (the spec type is a bare FQDN), and splitting
 //! the returned BoundProfilePackage into STORE DATA segments.
 
+/// This module's name.
+pub const NAME: &str = "es9";
+
 use serde_json::Value;
 
 use crate::es10::{self, AuthenticateServerRequest, PrepareDownloadRequest};

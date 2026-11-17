@@ -60,6 +60,9 @@
 //! C TLS library to cross-build (the aarch64 CI job needs nothing extra), and
 //! it can disable redirects and cap bodies. reqwest/hyper would pull tokio.
 
+/// This module's name.
+pub const NAME: &str = "es9_https";
+
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::Arc;

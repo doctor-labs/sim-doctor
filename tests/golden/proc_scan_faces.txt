@@ -2,7 +2,7 @@
 exit 1
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION>  score 50/100 critical
 critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card answered this TAR with 6D00, which is not how it answers TARs it has no opinion about (9404), so MSL is 0 and any command under any TAR may be run without cryptographic verification
@@ -13,7 +13,7 @@ exit 1
 --- stderr
 sim-doctor: warning: the walk stopped early, so this is not the whole card; bounds hit: maximum number of files
 --- stdout
-WARNING: INCOMPLETE: 10 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 14 coverage gap(s); findings may be missing
 ERROR: TRUNCATED: this walk did NOT see the whole card; a file outside it is neither present nor absent here; first bound hit: nodes; every bound hit: nodes
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 NOTE: 1 walk note(s) on individual files; `--json` lists them
@@ -144,7 +144,7 @@ FINDINGS: 1 (no severity filter)
 exit 1
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION>  score 50/100 critical
 critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card answered this TAR with 6D00, which is not how it answers TARs it has no opinion about (9404), so MSL is 0 and any command under any TAR may be run without cryptographic verification
@@ -154,7 +154,7 @@ critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card
 exit 1
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION> | 50/100 critical | 1 findings: 1 critical
 SEV       RULE                   LOCATION      MESSAGE
@@ -165,7 +165,7 @@ exit 1
 --- stderr
 --- stdout
 ╭─ sim-doctor <VERSION> ───────────────────────────────────────────────────────────╮
-│ WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing              │
+│ WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing             │
 │ NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 ide… │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Score  ███████████████░░░░░░░░░░░░░░░  50/100  critical                      │
@@ -181,7 +181,7 @@ exit 1
 exit 1
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION>  score 50/100 critical
 critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card answered this TAR with 6D00, which is not how it answers TARs it has no opinion about (9404), so MSL is 0 and any command under any TAR may be run without cryptographic verification
@@ -191,7 +191,7 @@ critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card
 exit 1
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION>  score 50/100 critical
 critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card answered this TAR with 6D00, which is not how it answers TARs it has no opinion about (9404), so MSL is 0 and any command under any TAR may be run without cryptographic verification
@@ -201,7 +201,7 @@ critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card
 exit 0
 --- stderr
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION>  score 100/100 incomplete
 no findings
@@ -211,7 +211,7 @@ exit 3
 --- stderr
 sim-doctor: compared against the baseline: 1 new, 0 fixed, 0 persisting
 --- stdout
-WARNING: INCOMPLETE: 9 coverage gap(s); findings may be missing
+WARNING: INCOMPLETE: 13 coverage gap(s); findings may be missing
 NOTE: the default candidate set (SimFamilies) probes the five GSM 11.11 identifier families 2Fxx/4Fxx/5Fxx/6Fxx/7Fxx only; a file whose identifier starts outside those families is INVISIBLE to this scan rather than reported missing, so a clean result is not proof the card holds nothing else
 sim-doctor <VERSION>  score 50/100 critical
 critical  gsma/msl-zero-allowed  tar:00000000  TAR 000000 was accepted: the card answered this TAR with 6D00, which is not how it answers TARs it has no opinion about (9404), so MSL is 0 and any command under any TAR may be run without cryptographic verification

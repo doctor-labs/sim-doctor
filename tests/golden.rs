@@ -279,6 +279,7 @@ fn scan_card(
         tree: &tree,
         tar: &audit,
         scp03: None,
+        euicc: None,
     })
     .expect("rules");
     let mut verdict = Verdict::new(found, scan::rules_run())
@@ -394,7 +395,13 @@ struct Out {
 /// Runs `sim-doctor args` with a clean environment (no agent variables, no
 /// record log), in `cwd` when given.
 fn bin(args: &[&str], cwd: Option<&Path>, stdin: Option<&str>) -> Out {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_sim-doctor"));
+    let mut cmd = Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    );
     cmd.args(args)
         .env_remove("SIM_DOCTOR_RECORD")
         .env_remove("CLAUDECODE")

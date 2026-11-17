@@ -283,9 +283,16 @@ enum Command {
     Sms(SmsArgs),
 
     /// `saip parse` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement
-    /// sequence) offline into JSON: each element named by its PE type, the rest a bounded TLV
-    /// tree. Parse only, no personalization. Sends nothing.
+    /// sequence) offline into JSON. `saip personalize` applies a personalization document
+    /// (substituting variant/optional PEs and setting profile parameters) and writes the
+    /// resulting profile package. Sends nothing.
     Saip(SaipArgs),
+
+    /// Card personalization / programming (pySim-prog style): turn a programming
+    /// document into an APDU sequence. The offline half (document parser and APDU
+    /// plan) needs no card; applying writes to a card is gated behind an explicit
+    /// opt-in (dry run unless --yes) and needs a live card and ADM/CHV.
+    Program(ProgramArgs),
 
     /// Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt,
     /// CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them.
@@ -953,6 +960,18 @@ struct FuzzOtaArgs {
     /// is the CLA an INS-discovery sweep starts from, not an enum.
     #[arg(long, value_enum, value_name = "CLASS", help = CLASS_ARG_HELP, long_help = CLASS_ARG_LONG_HELP)]
     class: Option<tar::Class>,
+
+    /// Enumerate the 17-profile FuzzerData security-policy matrix
+    /// (counter requirement x KIC/KID algorithm x PoR request/ciphering,
+    /// per ETSI TS 102 225/226) instead of the legacy SPI mechanism table.
+    #[arg(long)]
+    matrix: bool,
+
+    /// Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with
+    /// TAR-type-aware test payloads instead of the focused TAR bands.
+    #[arg(long)]
+    standard_tars: bool,
+
     /// Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header
     /// inside one SMS-PP-DOWNLOAD, as SIMTester's OTA fuzzer does, instead of
     /// sweeping TAR x keyset x mechanism.
@@ -968,7 +987,7 @@ struct FuzzOtaArgs {
     /// hits, the value sets and the counts are all in the report's
     /// "passthrough" block. This mode sends envelopes only: it reads and writes
     /// no file on the card.
-    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["quick", "poke", "kic", "kid", "spi1", "spi2"])]
+    #[arg(long, value_name = "MODE", value_enum, conflicts_with_all = ["quick", "poke", "kic", "kid", "spi1", "spi2", "matrix", "standard_tars"])]
     passthrough: Option<FuzzPassthroughMode>,
 }
 
@@ -2165,9 +2184,10 @@ struct GpDapArgs {
     )]
     dap_domain: Vec<String>,
     /// The signature scheme of every key (GP Card Spec v2.3.1 C.3): AES-CMAC
-    /// (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3).
-    /// There is no RSA scheme: this crate cannot sign RSASSA-PKCS1-v1_5
-    /// (B.3.1.1) or RSASSA-PSS (B.3.2.1).
+    /// (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or
+    /// RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented
+    /// in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key
+    /// encoding are unavailable here.
     #[arg(long, value_enum, default_value = "aes", requires = "dap_key_source")]
     dap_alg: DapAlg,
     /// The Load File Data Block Hash the DAP signs.
@@ -2281,10 +2301,14 @@ enum DapAlg {
     Des,
     /// ECDSA over P-256 with SHA-256 (B.4.3): plain `r || s`, 64 bytes.
     Ecc,
+    /// RSA DAP (B.3.1.1/B.3.2.1): recognized but not implemented for signing
+    /// in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS).
+    Rsa,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum DapHash {
+    Sha1,
     Sha256,
     Sha384,
     Sha512,
@@ -2420,8 +2444,8 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "WHAT A CLEAN RESULT DOES AND DOES NOT MEAN\n",
     "  * Truncation is always reported. A walk that hit one of its bounds did\n",
     "    not see the whole card: the human report opens with a TRUNCATED banner,\n",
-    "    and --json carries "complete", "truncated", "truncated_by" and the\n",
-    "    full "limits_hit" list. A file list without those is a file list an\n",
+    "    and --json carries \"complete\", \"truncated\", \"truncated_by\" and the\n",
+    "    full \"limits_hit\" list. A file list without those is a file list an\n",
     "    agent could read as the card's complete contents.\n",
     "  * The default dialect is an assumption, not a fact. Reading a card's\n",
     "    capabilities template with the wrong tag table produces a file size the\n",
@@ -3025,6 +3049,14 @@ struct ScanArgs {
     /// A face in plain text without colour, for CI and pipes.
     #[arg(long, conflicts_with_all = ["json", "tui", "face"])]
     headless: bool,
+
+    /// Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default).
+    /// Identifiers and file contents are redacted before sending.
+    #[arg(long, value_name = "URL")]
+    submit: Option<String>,
+    /// PEM trust anchor for --submit (certificate pinning / explicit CA).
+    #[arg(long, value_name = "PEM", requires = "submit")]
+    submit_ca: Option<String>,
 }
 
 /// `readers` takes no card, only the switch for a JSON envelope.
@@ -3573,6 +3605,15 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Saip(args) => match args.action {
             SaipAction::Parse { file, json } => run_saip_parse(&file, json),
+            SaipAction::Personalize {
+                file,
+                document,
+                output,
+                json,
+            } => run_saip_personalize(&file, &document, output.as_deref(), json),
+        },
+        Command::Program(args) => match args.action {
+            ProgramAction::Plan { file, json } => run_program_plan(&file, json),
         },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
@@ -6005,10 +6046,12 @@ fn load_dap(args: &GpDapArgs) -> Result<Vec<gp::DapRequest>, (&'static str, Stri
         DapAlg::Aes => gp::DapScheme::Aes,
         DapAlg::Des => gp::DapScheme::Des,
         DapAlg::Ecc => gp::DapScheme::Ecc,
+        DapAlg::Rsa => gp::DapScheme::Rsa,
     };
     let keys = gp::DapKeys::load(scheme, source).map_err(|e| {
         let kind = match e {
             gp::KeyError::Kcv { .. } => "key-kcv-mismatch",
+            gp::KeyError::RsaNotImplemented => "dap-rsa-unsupported",
             _ => "keys-unusable",
         };
         (kind, format!("DAP key: {e}"))
@@ -6034,6 +6077,7 @@ fn load_dap(args: &GpDapArgs) -> Result<Vec<gp::DapRequest>, (&'static str, Stri
         })
         .collect::<Result<Vec<_>, _>>()?;
     let hash = match args.dap_hash {
+        DapHash::Sha1 => gp::Lfdbh::Sha1,
         DapHash::Sha256 => gp::Lfdbh::Sha256,
         DapHash::Sha384 => gp::Lfdbh::Sha384,
         DapHash::Sha512 => gp::Lfdbh::Sha512,
@@ -7331,6 +7375,100 @@ fn run_otacrypto(args: OtaCryptoArgs) -> contract::ExitCode {
     }
 }
 
+/// Everything `sim-doctor program` takes.
+#[derive(Args)]
+struct ProgramArgs {
+    #[command(subcommand)]
+    action: ProgramAction,
+}
+
+#[derive(Subcommand)]
+enum ProgramAction {
+    /// Parse a pySim-prog-style programming document and emit the APDU sequence
+    /// (offline). No card is touched and nothing is sent.
+    Plan {
+        /// Path to the programming document (JSON, sim-doctor-program/1).
+        file: std::path::PathBuf,
+        /// Emit the plan as a JSON document on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Runs `sim-doctor program plan`: reads a programming document and prints the
+/// APDU sequence that would be sent. Offline: no card, no reader, nothing sent.
+fn run_program_plan(path: &std::path::Path, json: bool) -> contract::ExitCode {
+    const KIND: &str = "program";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the program plan error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(err) => return refuse(format!("cannot read {}: {err}", path.display())),
+    };
+    let plan = match sim_doctor::program::plan_json(&text) {
+        Ok(p) => p,
+        Err(err) => return refuse(format!("{}: {}", err.kind, err.detail)),
+    };
+    if json {
+        let value = match serde_json::to_value(&plan) {
+            Ok(v) => v,
+            Err(e) => return refuse(e.to_string()),
+        };
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            value,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the program plan") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let mut out = String::new();
+    out.push_str(&format!(
+        "sim-doctor program plan: {} ({} step(s))\n",
+        plan.card_type,
+        plan.steps.len()
+    ));
+    out.push_str(&format!("WARNING: {}\n", plan.warning));
+    out.push_str("card_touched: false (offline plan; no card, no reader, nothing sent)\n");
+    for (i, step) in plan.steps.iter().enumerate() {
+        out.push_str(&format!("{:>3}. {}", i + 1, step.description));
+        if let Some(apdu) = &step.apdu {
+            out.push_str(&format!("  [{apdu}]"));
+        }
+        out.push('\n');
+        for note in &step.notes {
+            out.push_str(&format!("     note: {note}\n"));
+        }
+    }
+    if !plan.needs_live_card.is_empty() {
+        out.push_str("needs a live card:\n");
+        for n in &plan.needs_live_card {
+            out.push_str(&format!("  - {n}\n"));
+        }
+    }
+    match emit_stdout(out.trim_end(), "the program plan") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
+    }
+}
+
 /// Everything `sim-doctor saip` takes.
 #[derive(Args)]
 struct SaipArgs {
@@ -7344,6 +7482,25 @@ enum SaipAction {
     Parse {
         /// Path to the profile package. Read-only; the file is capped at 8 MiB.
         file: std::path::PathBuf,
+        /// Emit one JSON envelope of kind "saip" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Personalize a SAIP profile package: apply a personalization document
+    /// (parameter values and variant/optional PE substitution) and write the result.
+    /// Matches pySim's SAIP personalization (`personalization.py`, including `do_variants`).
+    Personalize {
+        /// Path to the input profile package (DER). Read-only; capped at 8 MiB.
+        file: std::path::PathBuf,
+        /// Path to the personalization document (JSON) with parameter values
+        /// (iccid, profile_type, pins, puks) and variant handling
+        /// (drop_pe_types, keep_pe_types).
+        #[arg(long)]
+        document: std::path::PathBuf,
+        /// Where to write the personalized profile package (DER). If omitted, the
+        /// personalized package is decoded and reported instead of written.
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
         /// Emit one JSON envelope of kind "saip" on stdout.
         #[arg(long)]
         json: bool,
@@ -7383,6 +7540,132 @@ fn run_saip_parse(path: &std::path::Path, json: bool) -> contract::ExitCode {
     let decoded = match saip::decode(&bytes) {
         Ok(value) => value,
         Err(err) => return refuse(err.to_string()),
+    };
+    if json {
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            decoded,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the saip result") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let mut out = String::new();
+    for element in decoded["elements"].as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "{:>3}  {:<22} tag {:<6} length {}\n",
+            element["index"],
+            element["type"].as_str().unwrap_or("?"),
+            element["tag"].as_str().unwrap_or("?"),
+            element["length"],
+        ));
+    }
+    out.push_str(&format!("{} profile elements\n", decoded["pe_count"]));
+    match emit_stdout(out.trim_end(), "the saip result") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
+    }
+}
+
+/// Runs `sim-doctor saip personalize`: reads a profile package and a personalization
+/// document (JSON), applies parameter substitution and variant/optional PE handling,
+/// and writes the personalized DER or reports it. Matches pySim's SAIP personalization
+/// (`esim/saip/personalization.py`, including `do_variants`).
+fn run_saip_personalize(
+    path: &std::path::Path,
+    doc_path: &std::path::Path,
+    output: Option<&std::path::Path>,
+    json: bool,
+) -> contract::ExitCode {
+    use std::io::Read;
+    const KIND: &str = "saip";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the saip error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let read_capped = |p: &std::path::Path| -> Result<Vec<u8>, String> {
+        let file =
+            std::fs::File::open(p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+        let mut bytes = Vec::new();
+        let cap = saip::MAX_FILE_BYTES as u64 + 1;
+        file.take(cap)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+        Ok(bytes)
+    };
+    let bytes = match read_capped(path) {
+        Ok(b) => b,
+        Err(m) => return refuse(m),
+    };
+    let doc_bytes = match read_capped(doc_path) {
+        Ok(b) => b,
+        Err(m) => return refuse(m),
+    };
+    let doc: saip::PersonalizationDoc = match serde_json::from_slice(&doc_bytes) {
+        Ok(d) => d,
+        Err(e) => {
+            return refuse(format!(
+                "cannot parse personalization document {}: {e}",
+                doc_path.display()
+            ))
+        }
+    };
+    let personalized = match saip::personalize(&bytes, &doc) {
+        Ok(b) => b,
+        Err(e) => return refuse(e.to_string()),
+    };
+    if let Some(out_path) = output {
+        if let Err(e) = std::fs::write(out_path, &personalized) {
+            return refuse(format!("cannot write {}: {e}", out_path.display()));
+        }
+        if json {
+            let decoded = saip::decode(&personalized).unwrap_or_else(|_| serde_json::json!({}));
+            let data = serde_json::json!({
+                "output": out_path.display().to_string(),
+                "bytes": personalized.len(),
+                "profile": decoded,
+            });
+            let envelope = contract::Envelope::new(
+                KIND,
+                contract::ExitCode::Success,
+                contract::OK_MESSAGE,
+                data,
+            );
+            let line = match envelope.to_json() {
+                Ok(l) => l,
+                Err(e) => return refuse(e.to_string()),
+            };
+            return match emit_stdout(&line, "the saip result") {
+                Ok(()) => contract::ExitCode::Success,
+                Err(message) => refuse(message),
+            };
+        }
+        println!(
+            "wrote {} bytes to {}",
+            personalized.len(),
+            out_path.display()
+        );
+        return contract::ExitCode::Success;
+    }
+    // No output file: decode and report the personalized result
+    let decoded = match saip::decode(&personalized) {
+        Ok(v) => v,
+        Err(e) => return refuse(e.to_string()),
     };
     if json {
         let envelope = contract::Envelope::new(
@@ -7880,7 +8163,7 @@ fn fuzz_opt_in(safety: &FuzzSafety, reader: Option<&str>) -> Result<(), String> 
     if !is_software && !safety.allow_real_hardware {
         return Err(format!(
             "fuzz refuses to run against {:?}: it does not look like the software card \
-             (swicc-pcsc names its reader with "swICC", see docs/swsim-fixture.md); pass \
+             (swicc-pcsc names its reader with \"swICC\", see docs/swsim-fixture.md); pass \
              --allow-real-hardware to run against it anyway",
             reader.unwrap_or("(no --reader given)")
         ));
@@ -8204,6 +8487,8 @@ fn run_fuzz_ota(args: FuzzOtaArgs) -> contract::ExitCode {
             quick: args.safety.quick,
             poke: args.poke,
             class,
+            matrix: args.matrix,
+            standard_tars: args.standard_tars,
         };
         let overrides = fuzz::Overrides {
             kic: args.kic,

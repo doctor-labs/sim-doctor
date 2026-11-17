@@ -63,6 +63,8 @@ gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
 '(--json --tui)--face=[The human report\: a doctor-kit face (rich, plain or compact), or the full legacy report]:FACE:(rich plain compact legacy)' \
 '(--json --tui)--theme=[The face'\''s colours\: mono, clinical or contrast (default\: the tool'\''s own)]:THEME:_default' \
 '(--json --tui)--color=[Colour the face\: auto (a terminal and no NO_COLOR), always or never]:COLOR:(auto always never)' \
+'--submit=[Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default). Identifiers and file contents are redacted before sending]:URL:_default' \
+'--submit-ca=[PEM trust anchor for --submit (certificate pinning / explicit CA)]:PEM:_default' \
 '-X[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--exclusive[Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE)\: no other process can use the card while this runs. Off by default, which shares it]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
@@ -1007,10 +1009,11 @@ _arguments "${_arguments_options[@]}" : \
 '--dap-key-file=[File holding the DAP keys (hex, one key per DAP block, optionally KEY/KCV; chmod 600). Several keys are several DAP blocks (Table 11-58)]:PATH:_files' \
 '--dap-key-env=[Environment variable holding the DAP keys]:VAR:_default' \
 '*--dap-domain=[The Security Domain that verifies a DAP block, 5 to 16 bytes of hex. Repeat it once per DAP block\: a Load File may carry several (Table 11-58). Without it every block is verified by the issuer security domain being authenticated]:HEX:_default' \
-'--dap-alg=[The signature scheme of every key (GP Card Spec v2.3.1 C.3)\: AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2) or ECDSA over P-256 (B.4.3). There is no RSA scheme\: this crate cannot sign RSASSA-PKCS1-v1_5 (B.3.1.1) or RSASSA-PSS (B.3.2.1)]:DAP_ALG:((aes\:"AES-CMAC (B.2.2)\: a 16 byte signature"
+'--dap-alg=[The signature scheme of every key (GP Card Spec v2.3.1 C.3)\: AES-CMAC (B.2.2), the DES retail MAC (B.1.2.2), ECDSA over P-256 (B.4.3), or RSA (B.3.1.1/B.3.2.1). RSA is recognized but signing is not implemented in this crate because RSASSA-PKCS1-v1_5/RSASSA-PSS and an RSA private-key encoding are unavailable here]:DAP_ALG:((aes\:"AES-CMAC (B.2.2)\: a 16 byte signature"
 des\:"Single DES plus final triple DES MAC (B.1.2.2)\: an 8 byte signature"
-ecc\:"ECDSA over P-256 with SHA-256 (B.4.3)\: plain \`r || s\`, 64 bytes"))' \
-'--dap-hash=[The Load File Data Block Hash the DAP signs]:DAP_HASH:(sha256 sha384 sha512)' \
+ecc\:"ECDSA over P-256 with SHA-256 (B.4.3)\: plain \`r || s\`, 64 bytes"
+rsa\:"RSA DAP (B.3.1.1/B.3.2.1)\: recognized but not implemented for signing in this crate (RSASSA-PKCS1-v1_5 / RSASSA-PSS)"))' \
+'--dap-hash=[The Load File Data Block Hash the DAP signs]:DAP_HASH:(sha1 sha256 sha384 sha512)' \
 '--dm-key-file=[File holding the AES token calculation key (hex, optionally KEY/KCV; chmod 600)]:PATH:_files' \
 '--dm-key-env=[Environment variable holding the AES token calculation key]:VAR:_default' \
 '--dm-token-file=[File holding a Delegated Management token your Card Issuer already signed (2 to 510 hex digits; chmod 600)]:PATH:_files' \
@@ -1641,10 +1644,12 @@ esac
 ;;
 (trace)
 _arguments "${_arguments_options[@]}" : \
+'--bind=[UDP address to bind for --listen (default\: 127.0.0.1\:4729)]:ADDR:_default' \
 '--json[Emit one JSON envelope of kind "trace" on stdout]' \
 '--show-raw-apdu[Also print each exchange'\''s raw command and response hex in the table]' \
 '--no-suppress-select[Keep SELECT rows in the table. They are hidden by default, as in pySim-trace]' \
 '--no-suppress-status[Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace]' \
+'--listen[Listen for live GSMTAP SIM APDUs over UDP instead of reading a file]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '::file -- A trace file; stdin when omitted or "-":_default' \
@@ -1773,6 +1778,17 @@ _arguments "${_arguments_options[@]}" : \
 ':file -- Path to the profile package. Read-only; the file is capped at 8 MiB:_files' \
 && ret=0
 ;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+'--document=[Path to the personalization document (JSON) with parameter values (iccid, profile_type, pins, puks) and variant handling (drop_pe_types, keep_pe_types)]:DOCUMENT:_files' \
+'-o+[Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written]:OUTPUT:_files' \
+'--output=[Where to write the personalized profile package (DER). If omitted, the personalized package is decoded and reported instead of written]:OUTPUT:_files' \
+'--json[Emit one JSON envelope of kind "saip" on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':file -- Path to the input profile package (DER). Read-only; capped at 8 MiB:_files' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__saip__subcmd__help_commands" \
@@ -1786,6 +1802,60 @@ _arguments "${_arguments_options[@]}" : \
         curcontext="${curcontext%:*:*}:sim-doctor-saip-help-command-$line[1]:"
         case $line[1] in
             (parse)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(program)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_sim-doctor__subcmd__program_commands" \
+"*::: :->program" \
+&& ret=0
+
+    case $state in
+    (program)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-program-command-$line[1]:"
+        case $line[1] in
+            (plan)
+_arguments "${_arguments_options[@]}" : \
+'--json[Emit the plan as a JSON document on stdout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':file -- Path to the programming document (JSON, sim-doctor-program/1):_files' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__program__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-program-help-command-$line[1]:"
+        case $line[1] in
+            (plan)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2088,13 +2158,15 @@ _arguments "${_arguments_options[@]}" : \
 '--spi2=[Pin the SPI2 octet (one hex byte, like 29) in every probe instead of sweeping it]:HEX:_default' \
 '--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
 gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
-'(--quick --poke --kic --kid --spi1 --spi2)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
+'(--quick --poke --kic --kid --spi1 --spi2 --matrix --standard-tars)--passthrough=[Vary TP-PID, TP-DCS, the TP-UDHI flag and the Command Packet Header inside one SMS-PP-DOWNLOAD, as SIMTester'\''s OTA fuzzer does, instead of sweeping TAR x keyset x mechanism]:MODE:((default\:"SIMTester'\''s -of\: four PIDs, nine DCS values, six CPHs, UDHI both ways. 432 envelopes, which fit the budget and run whole"
 bruteforce\:"SIMTester'\''s -ofbf\: every PID and DCS octet. 786432 envelopes, which do not fit the budget, so this is a capped partial sweep and says so"))' \
 '--i-understand-this-can-brick-the-card[Required. Without it, \`fuzz\` refuses to run at all (exit 1, error kind fuzz-needs-opt-in)]' \
 '--allow-real-hardware[Required in addition to the opt-in above when the reader'\''s name does not match the software card (swicc-pcsc names its reader with "swICC"). Without it, \`fuzz\` refuses to run against anything that is not recognisably the software card]' \
 '--json[Emit one JSON envelope on stdout, and nothing else]' \
 '--quick[Probe a small, documented subset instead of the full space]' \
 '(--quick)--poke[Like \`--quick\`, but probes only the three TARs SIMTester'\''s \`-poke\` probes\: 000000, B00001 and B00010 - the quick keysets and mechanisms still apply, so a run finishes in milliseconds]' \
+'--matrix[Enumerate the 17-profile FuzzerData security-policy matrix (counter requirement x KIC/KID algorithm x PoR request/ciphering, per ETSI TS 102 225/226) instead of the legacy SPI mechanism table]' \
+'--standard-tars[Use the default standard TAR list (~140 RFM/RAM/WIB/S@T TARs) with TAR-type-aware test payloads instead of the focused TAR bands]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
@@ -2510,6 +2582,7 @@ _arguments "${_arguments_options[@]}" : \
 '--script=[Run the commands in this file, one per line (\`#\` starts a comment), and exit]:PATH:_files' \
 '(-c --script)--read-csv=[Run the commands in the \`command\` column of this CSV file, one per row, and exit. This is a command table, not pySim'\''s provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without \`--yes\` a row that changes the card is a dry run. WARNING\: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data]:PATH:_files' \
 '--write-csv=[Append a redacted result log to this CSV file\: one row per command run (\`command,ok,text\`), with the arguments replaced by \`<args redacted>\`. It is not pySim'\''s provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged]:PATH:_files' \
+'--write-hlr=[Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched]:PATH:_files' \
 '(--chv-env)--chv-file=[File holding PINs, PUKs and ADM keys for \`verify_chv\` / \`unblock_chv\` (\`pin1=1234\` per line; keep it chmod 600). Never a value on the command line\: it would land in shell history]:PATH:_files' \
 '--chv-env=[Environment variable holding the same text (entries separated by \`;\` or newlines)]:VAR:_default' \
 '--key-file=[pySim CardKeyProvider CSV file for \`query_card_key\` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600]:PATH:_files' \
@@ -2993,6 +3066,30 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(personalize)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(program)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__program_commands" \
+"*::: :->program" \
+&& ret=0
+
+    case $state in
+    (program)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-program-command-$line[1]:"
+        case $line[1] in
+            (plan)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3247,7 +3344,8 @@ _sim-doctor_commands() {
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
-'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
+'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. \`saip personalize\` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing' \
+'program:Card personalization / programming (pySim-prog style)\: turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
@@ -4372,7 +4470,8 @@ _sim-doctor__subcmd__help_commands() {
 'trace:Decode a captured APDU trace offline (no card, no reader)' \
 'cat:Decode Card Application Toolkit data offline (no card, no reader)' \
 'sms:\`sms decode\` decodes SMS TPDUs offline (TS 23.040)\: SMS-DELIVER, SMS-SUBMIT and STATUS-REPORT, addresses, DCS, the user-data header and concatenation, GSM 7-bit and UCS2 text. Sends nothing' \
-'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON\: each element named by its PE type, the rest a bounded TLV tree. Parse only, no personalization. Sends nothing' \
+'saip:\`saip parse\` decodes a SIMalliance eUICC profile package (SAIP, the DER ProfileElement sequence) offline into JSON. \`saip personalize\` applies a personalization document (substituting variant/optional PEs and setting profile parameters) and writes the resulting profile package. Sends nothing' \
+'program:Card personalization / programming (pySim-prog style)\: turn a programming document into an APDU sequence. The offline half (document parser and APDU plan) needs no card; applying writes to a card is gated behind an explicit opt-in (dry run unless --yes) and needs a live card and ADM/CHV' \
 'ota-crypto:Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim'\''s OTA layer uses them. No card and no reader\: pure crypto over hex given on the command line' \
 'esim-cert:Verify an eSIM certificate chain offline, up to a CI root you supply' \
 'ota-expanded:Offline OTA expanded-command and Proof-of-Response decoder, as pySim'\''s OTA layer uses them. No card and no reader\: hex in, hex out' \
@@ -4938,6 +5037,18 @@ _sim-doctor__subcmd__help__subcmd__profile__subcmd__probe_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help profile probe commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__help__subcmd__program_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__program_commands() {
+    local commands; commands=(
+'plan:Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent' \
+    )
+    _describe -t commands 'sim-doctor help program commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__program__subcmd__plan_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__program__subcmd__plan_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help program plan commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__help__subcmd__readers_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__readers_commands() {
     local commands; commands=()
@@ -4965,6 +5076,7 @@ _sim-doctor__subcmd__help__subcmd__rules__subcmd__list_commands() {
 _sim-doctor__subcmd__help__subcmd__saip_commands() {
     local commands; commands=(
 'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'personalize:Personalize a SAIP profile package\: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim'\''s SAIP personalization (\`personalization.py\`, including \`do_variants\`)' \
     )
     _describe -t commands 'sim-doctor help saip commands' commands "$@"
 }
@@ -4972,6 +5084,11 @@ _sim-doctor__subcmd__help__subcmd__saip_commands() {
 _sim-doctor__subcmd__help__subcmd__saip__subcmd__parse_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help saip parse commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__saip__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__saip__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help saip personalize commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__scan_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__scan_commands() {
@@ -5209,6 +5326,37 @@ _sim-doctor__subcmd__profile__subcmd__probe_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor profile probe commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__program_commands] )) ||
+_sim-doctor__subcmd__program_commands() {
+    local commands; commands=(
+'plan:Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor program commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__program__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__program__subcmd__help_commands() {
+    local commands; commands=(
+'plan:Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor program help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__program__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__program__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor program help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__program__subcmd__help__subcmd__plan_commands] )) ||
+_sim-doctor__subcmd__program__subcmd__help__subcmd__plan_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor program help plan commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__program__subcmd__plan_commands] )) ||
+_sim-doctor__subcmd__program__subcmd__plan_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor program plan commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__readers_commands] )) ||
 _sim-doctor__subcmd__readers_commands() {
     local commands; commands=()
@@ -5261,6 +5409,7 @@ _sim-doctor__subcmd__rules__subcmd__list_commands() {
 _sim-doctor__subcmd__saip_commands() {
     local commands; commands=(
 'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'personalize:Personalize a SAIP profile package\: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim'\''s SAIP personalization (\`personalization.py\`, including \`do_variants\`)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor saip commands' commands "$@"
@@ -5269,6 +5418,7 @@ _sim-doctor__subcmd__saip_commands() {
 _sim-doctor__subcmd__saip__subcmd__help_commands() {
     local commands; commands=(
 'parse:Decode a SAIP profile package (DER, the concatenated ProfileElements) offline' \
+'personalize:Personalize a SAIP profile package\: apply a personalization document (parameter values and variant/optional PE substitution) and write the result. Matches pySim'\''s SAIP personalization (\`personalization.py\`, including \`do_variants\`)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor saip help commands' commands "$@"
@@ -5283,10 +5433,20 @@ _sim-doctor__subcmd__saip__subcmd__help__subcmd__parse_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor saip help parse commands' commands "$@"
 }
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__help__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__help__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip help personalize commands' commands "$@"
+}
 (( $+functions[_sim-doctor__subcmd__saip__subcmd__parse_commands] )) ||
 _sim-doctor__subcmd__saip__subcmd__parse_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor saip parse commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__saip__subcmd__personalize_commands] )) ||
+_sim-doctor__subcmd__saip__subcmd__personalize_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor saip personalize commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__scan_commands] )) ||
 _sim-doctor__subcmd__scan_commands() {

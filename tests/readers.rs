@@ -16,11 +16,17 @@ fn replay_log(name: &str) -> PathBuf {
 }
 
 fn run(args: &[&str], replay: &PathBuf) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(args)
-        .env("SIM_DOCTOR_TEST_REPLAY", replay)
-        .output()
-        .expect("run sim-doctor")
+    Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args(args)
+    .env("SIM_DOCTOR_TEST_REPLAY", replay)
+    .output()
+    .expect("run sim-doctor")
 }
 
 #[test]

@@ -95,6 +95,10 @@ struct Run {
     sffs: bool,
     /// `-X`: PC/SC exclusive access for the card read.
     exclusive: bool,
+    /// `--submit`: opt-in endpoint for anonymized envelope upload.
+    submit: Option<String>,
+    /// `--submit-ca`: PEM trust anchor for --submit.
+    submit_ca: Option<String>,
 }
 
 impl Run {
@@ -124,6 +128,8 @@ impl Run {
             legacy: false,
             sffs: false,
             exclusive: card.exclusive,
+            submit: None,
+            submit_ca: None,
         }
     }
 
@@ -161,6 +167,8 @@ impl Run {
             csv: args.csv.clone(),
             legacy: args.face.as_deref() == Some("legacy"),
             sffs: args.sffs,
+            submit: args.submit.clone(),
+            submit_ca: args.submit_ca.clone(),
         }
     }
 }
@@ -271,6 +279,14 @@ impl SimDoctor {
         ef::read(session, &mut tree, &session::Policy::default())
             .map_err(|e| refuse("ef-read-failed", &e))?;
 
+        // ES10 eUICC data for scan rules (issue #142): try to read EUICCInfo1/2,
+        // configured addresses and the profile list from the ISD-R. Not an eUICC,
+        // or a read that cannot be completed, means no eUICC evidence.
+        // Not an eUICC, or ES10 data cannot be read on this card/transport:
+        // no eUICC evidence for scan rules (issue #142).
+        let euicc_snapshot =
+            sim_doctor::euicc::snapshot(session, &sim_doctor::euicc::ISDR_AID).unwrap_or_default();
+
         // The second of three checkpoints. Everything the tree knows is still only
         // in memory here, so stopping now costs the whole run rather than emitting
         // something a caller could mistake for a result.
@@ -305,6 +321,7 @@ impl SimDoctor {
                 tree: &tree,
                 tar: &audit,
                 scp03: None,
+                euicc: euicc_snapshot.as_ref(),
             },
             progress.as_ref(),
         )
@@ -616,6 +633,21 @@ impl Doctor for SimDoctor {
                 finding
                     .as_object_mut()
                     .map(|f| f.entry("evidence").or_insert_with(|| json!([])));
+            }
+        }
+        if let Some(run) = self.run.get() {
+            if let Some(endpoint) = run.submit.as_deref() {
+                match sim_doctor::submit::submit_envelope(
+                    endpoint,
+                    &value,
+                    true,
+                    run.submit_ca.as_deref(),
+                ) {
+                    Ok(_) => {
+                        eprintln!("sim-doctor: submitted anonymized scan envelope to {endpoint}")
+                    }
+                    Err(err) => eprintln!("sim-doctor: scan submission failed: {err}"),
+                }
             }
         }
         serde_json::to_string(&value).expect("an envelope serializes") + "\n"

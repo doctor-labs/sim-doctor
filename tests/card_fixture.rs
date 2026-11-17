@@ -1211,10 +1211,16 @@ fn scans_a_real_card_end_to_end() {
     //    a scan exits 1 for a finding at or above `--fail-on`, and the default is
     //    `critical`; swSIM implements no MSL, so the only critical rule
     //    (`gsma/msl-zero-allowed`) cannot fire on it and the fixture stays at 0.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["scan", "--json", "--reader", reader.as_str()])
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args(["scan", "--json", "--reader", reader.as_str()])
+    .output()
+    .expect("the binary should run");
     assert!(
         output.status.success(),
         concat!(
@@ -1315,11 +1321,17 @@ fn the_score_and_severity_flags_reach_the_envelope_against_a_real_card() {
     /// envelope. One helper so every case below is held to the same purity
     /// check rather than one of them being allowed to skip it.
     fn scan(args: &[&str]) -> (i32, String, serde_json::Value) {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .output()
-            .expect("the binary should run");
+        let output = std::process::Command::new(
+            &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+                option_env!("CARGO_BIN_EXE_sim-doctor")
+                    .unwrap_or("target/debug/sim-doctor")
+                    .to_string()
+            }),
+        )
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the binary should run");
         let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
         assert!(
             stdout.ends_with('\n'),
@@ -1512,19 +1524,25 @@ fn the_score_and_severity_flags_reach_the_envelope_against_a_real_card() {
     println!("severity/score: --severity critical --score scored what the report shows");
 
     // cannot check is the same defect in a different font.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        // The kit's face is the default human output; the formula is in the full report.
-        .args([
-            "scan",
-            "--score",
-            "--face",
-            "legacy",
-            "--reader",
-            reader.as_str(),
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    // The kit's face is the default human output; the formula is in the full report.
+    .args([
+        "scan",
+        "--score",
+        "--face",
+        "legacy",
+        "--reader",
+        reader.as_str(),
+    ])
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     let human = String::from_utf8(output.stdout).expect("stdout is UTF-8");
     assert!(
         output.status.success(),
@@ -1570,11 +1588,17 @@ fn a_saved_envelope_is_a_baseline_and_a_truncated_one_is_refused() {
         });
 
     fn scan(args: &[&str]) -> (i32, String, serde_json::Value) {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .output()
-            .expect("the binary should run");
+        let output = std::process::Command::new(
+            &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+                option_env!("CARGO_BIN_EXE_sim-doctor")
+                    .unwrap_or("target/debug/sim-doctor")
+                    .to_string()
+            }),
+        )
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the binary should run");
         let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
         assert!(
             stdout.ends_with('\n'),
@@ -1692,11 +1716,17 @@ fn scan_json_conforms_to_doctor_1_against_a_real_card() {
             )
         });
     let run = || {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .args(["scan", "--json", "--reader", reader.as_str()])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .expect("the binary should run");
+        let output = std::process::Command::new(
+            &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+                option_env!("CARGO_BIN_EXE_sim-doctor")
+                    .unwrap_or("target/debug/sim-doctor")
+                    .to_string()
+            }),
+        )
+        .args(["scan", "--json", "--reader", reader.as_str()])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the binary should run");
         let envelope: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("stdout is one envelope");
         (output.status.code().expect("an exit code"), envelope)
@@ -1775,11 +1805,17 @@ fn ts48_compare_accounts_for_every_profile_file_against_a_real_card() {
             )
         });
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["ts48", "compare", "--json", "--reader", reader.as_str()])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args(["ts48", "compare", "--json", "--reader", reader.as_str()])
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     assert_eq!(output.status.code(), Some(0), "{:?}", output.stderr);
     let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
     assert_eq!(
@@ -1831,19 +1867,25 @@ fn fuzz_apdu_quick_discovers_within_the_cap_against_a_real_card() {
             )
         });
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "fuzz",
-            "apdu",
-            "--quick",
-            "--i-understand-this-can-brick-the-card",
-            "--json",
-            "--reader",
-            reader.as_str(),
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args([
+        "fuzz",
+        "apdu",
+        "--quick",
+        "--i-understand-this-can-brick-the-card",
+        "--json",
+        "--reader",
+        reader.as_str(),
+    ])
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     assert_eq!(output.status.code(), Some(0), "{:?}", output.stderr);
     let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
     assert_eq!(
@@ -1922,11 +1964,17 @@ fn security_rules_agree_with_what_a_real_card_reports() {
                 reader_list(&readers)
             )
         });
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["scan", "--json", "--reader", reader.as_str()])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args(["scan", "--json", "--reader", reader.as_str()])
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     let envelope: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout is one envelope");
     let data = &envelope["data"];
@@ -2066,11 +2114,17 @@ fn card_shell_drives_a_real_card() {
             )
         });
     let run = |script: &str| {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .args(["card", "--json", "--reader", reader.as_str(), "-c", script])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .expect("the binary should run");
+        let output = std::process::Command::new(
+            &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+                option_env!("CARGO_BIN_EXE_sim-doctor")
+                    .unwrap_or("target/debug/sim-doctor")
+                    .to_string()
+            }),
+        )
+        .args(["card", "--json", "--reader", reader.as_str(), "-c", script])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the binary should run");
         let records: Vec<serde_json::Value> = String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{l}: {e}")))
@@ -2134,21 +2188,27 @@ fn card_shell_drives_a_real_card() {
     println!("card shell: decoded EF.ICCID of {} digits", iccid.len());
 
     // verify_chv: never against the live card's counters in CI. A dry run must reach nothing and show nothing.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "--reader",
-            reader.as_str(),
-            "--chv-env",
-            "SIMDOC_FIXTURE_CHV",
-            "-c",
-            "verify_chv",
-        ])
-        .env("SIMDOC_FIXTURE_CHV", "pin1=4321")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args([
+        "card",
+        "--json",
+        "--reader",
+        reader.as_str(),
+        "--chv-env",
+        "SIMDOC_FIXTURE_CHV",
+        "-c",
+        "verify_chv",
+    ])
+    .env("SIMDOC_FIXTURE_CHV", "pin1=4321")
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     let text = String::from_utf8_lossy(&output.stdout);
     assert_eq!(output.status.code(), Some(0), "{text}");
     assert!(
@@ -2158,21 +2218,27 @@ fn card_shell_drives_a_real_card() {
     println!("card shell: verify_chv was a dry run and masked the value");
 
     // unblock_chv: also only as a dry run against the live card (a PUK try is not spent in CI).
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "--reader",
-            reader.as_str(),
-            "--chv-env",
-            "SIMDOC_FIXTURE_CHV",
-            "-c",
-            "unblock_chv",
-        ])
-        .env("SIMDOC_FIXTURE_CHV", "puk1=12345678; new-pin1=4321")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args([
+        "card",
+        "--json",
+        "--reader",
+        reader.as_str(),
+        "--chv-env",
+        "SIMDOC_FIXTURE_CHV",
+        "-c",
+        "unblock_chv",
+    ])
+    .env("SIMDOC_FIXTURE_CHV", "puk1=12345678; new-pin1=4321")
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     let text = String::from_utf8_lossy(&output.stdout);
     assert_eq!(output.status.code(), Some(0), "{text}");
     assert!(
@@ -2186,19 +2252,25 @@ fn card_shell_drives_a_real_card() {
     let (code, records) = run("run_gsm_algorithm --rand 000102030405060708090a0b0c0d0e0f");
     assert_eq!(code, Some(0), "{records:?}");
     assert_eq!(records[0]["data"]["sent"], false);
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "--yes",
-            "--reader",
-            reader.as_str(),
-            "-c",
-            "run_gsm_algorithm --rand 000102030405060708090a0b0c0d0e0f --repeat 2",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args([
+        "card",
+        "--json",
+        "--yes",
+        "--reader",
+        reader.as_str(),
+        "-c",
+        "run_gsm_algorithm --rand 000102030405060708090a0b0c0d0e0f --repeat 2",
+    ])
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     let record: serde_json::Value = String::from_utf8_lossy(&output.stdout)
         .lines()
         .next()
@@ -2218,21 +2290,27 @@ fn card_shell_drives_a_real_card() {
 
     // run_gsm_algorithm with the GSM command set (swSIM implements RUN GSM ALGORITHM in class A0; its USIM
     // application refuses the GSM security context with 6700, which the call above reports).
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "--yes",
-            "--profile",
-            "sim",
-            "--reader",
-            reader.as_str(),
-            "-c",
-            "run_gsm_algorithm --rand 000102030405060708090a0b0c0d0e0f --repeat 2",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("the binary should run");
+    let output = std::process::Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args([
+        "card",
+        "--json",
+        "--yes",
+        "--profile",
+        "sim",
+        "--reader",
+        reader.as_str(),
+        "-c",
+        "run_gsm_algorithm --rand 000102030405060708090a0b0c0d0e0f --repeat 2",
+    ])
+    .stdin(std::process::Stdio::null())
+    .output()
+    .expect("the binary should run");
     let record: serde_json::Value = String::from_utf8_lossy(&output.stdout)
         .lines()
         .next()
@@ -2252,7 +2330,13 @@ fn card_shell_drives_a_real_card() {
 
     // authenticate: a token the card cannot verify is a MAC failure (98 62).
     let auth = |extra_env: Option<&str>, script: &str| {
-        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_sim-doctor"));
+        let mut cmd = std::process::Command::new(
+            &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+                option_env!("CARGO_BIN_EXE_sim-doctor")
+                    .unwrap_or("target/debug/sim-doctor")
+                    .to_string()
+            }),
+        );
         cmd.args([
             "card",
             "--json",

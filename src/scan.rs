@@ -329,7 +329,14 @@ pub struct Subject<'a> {
     /// Recorded SCP03 exchanges, if any. `None` on every scan today: nothing
     /// sends SCP03 to a card (issue #22 is forbidden on the live SIM).
     pub scp03: Option<&'a scp03::Audit>,
+    /// ES10 eUICC data (EUICCInfo1/2, configured addresses, profile list), read
+    /// from the ISD-R when the card is an eUICC. `None` on a card that is not an
+    /// eUICC or when the ISD-R could not be read.
+    pub euicc: Option<&'a crate::euicc::Snapshot>,
 }
+
+/// ES10 data a scan read from an eUICC, the subject of the `euicc/*` rules.
+pub type EuiccData = crate::euicc::Snapshot;
 
 /// The ID of the TAR rule, exactly as AGENTS.md section 3 spells it.
 ///
@@ -933,6 +940,162 @@ fn suci_not_provisioned_evidence(subject: &Subject<'_>) -> bool {
     ust_of(subject).is_some()
 }
 
+// ---------------------------------------------------------------------------
+// eUICC security rules from ES10 data (issue #142)
+// ---------------------------------------------------------------------------
+
+/// eUICC profiles (test or provisioning class) left present on the card.
+pub const EUICC_TEST_OR_PROVISIONING_PROFILE_RULE: &str = "euicc/test-or-provisioning-profile";
+/// Known GSMA SGP.26 test CI public key identifiers advertised by the eUICC.
+pub const EUICC_TEST_CI_KEY_RULE: &str = "euicc/test-ci-key-identifier";
+/// Default SM-DP+ address points at a known test/development host.
+pub const EUICC_TEST_SMDP_ADDRESS_RULE: &str = "euicc/test-smdp-address";
+/// SGP.22 version (svn) older than 2.2.0.
+pub const EUICC_OUTDATED_SGP22_RULE: &str = "euicc/outdated-sgp22-version";
+
+/// Known test CI SubjectKeyIdentifiers (upper-case hex). SGP.26 v3 NIST/BRP
+/// test CI key ids observed in the SGP.26 v3.0.1 test PKI (Variant O, NIST P-256):
+/// the CI certificate's subject key identifier is the authority key identifier
+/// of certificates it signs (e.g. the test SM-DP+ DPauth certificate).
+const TEST_CI_KEY_IDS: &[&str] = &["F54172BDF98A95D65CBEB88A38A1C11D800A85C3"];
+
+fn euicc_evidence(subject: &Subject<'_>) -> bool {
+    subject.euicc.is_some()
+}
+
+fn euicc_test_or_provisioning_profile(subject: &Subject<'_>) -> Vec<rules::Finding> {
+    let Some(euicc) = subject.euicc else {
+        return Vec::new();
+    };
+    use crate::es10::ProfileClass;
+    euicc
+        .profiles
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, profile)| {
+            let class = profile.profile_class?;
+            let (class_name, severity) = match class {
+                ProfileClass::Test => ("test", rules::Severity::Medium),
+                ProfileClass::Provisioning => ("provisioning", rules::Severity::Medium),
+                _ => return None,
+            };
+            let iccid = profile
+                .iccid
+                .as_deref()
+                .map(|raw| {
+                    let mut digits = String::with_capacity(20);
+                    for byte in raw {
+                        digits.push(char::from(b'0' + (byte & 0x0F)));
+                        digits.push(char::from(b'0' + (byte >> 4)));
+                    }
+                    digits.trim_end_matches('F').to_owned()
+                })
+                .unwrap_or_else(|| "<unknown iccid>".to_owned());
+            let state = profile
+                .profile_state
+                .map(|s| match s {
+                    crate::es10::ProfileState::Disabled => "disabled",
+                    crate::es10::ProfileState::Enabled => "enabled",
+                    crate::es10::ProfileState::Unknown(_) => "unknown",
+                })
+                .unwrap_or("unknown");
+            Some(rules::Finding::new(
+                rules::RuleId::new(EUICC_TEST_OR_PROVISIONING_PROFILE_RULE)
+                    .expect("a validated constant"),
+                severity,
+                format!(
+                    "eUICC profile {iccid} is a {class_name} profile ({state}); test or provisioning profiles left on a production chip increase attack surface"
+                ),
+                rules::Location::other("profile", &iccid),
+                rules::Evidence::text(format!("class={class_name} state={state} index={idx}")),
+            ))
+        })
+        .collect()
+}
+
+fn euicc_test_ci_key_identifier(subject: &Subject<'_>) -> Vec<rules::Finding> {
+    let Some(euicc) = subject.euicc else {
+        return Vec::new();
+    };
+    let mut findings = Vec::new();
+    let lists = [
+        ("verification", &euicc.info2.ci_pk_id_for_verification),
+        ("signing", &euicc.info2.ci_pk_id_for_signing),
+    ];
+    for (list_name, ids) in lists {
+        for id in ids {
+            let hex = hex::encode_upper(id);
+            if TEST_CI_KEY_IDS.iter().any(|t| *t == hex) {
+                findings.push(rules::Finding::new(
+                    rules::RuleId::new(EUICC_TEST_CI_KEY_RULE).expect("a validated constant"),
+                    rules::Severity::High,
+                    format!(
+                        "eUICC advertises a known test CI public key identifier in the {list_name} list ({hex}); a test CI key on a production eUICC can allow installation of test or untrusted profiles"
+                    ),
+                    rules::Location::other("euicc-ci-pk-id", &hex),
+                    rules::Evidence::text(format!("list={list_name} kid={hex}")),
+                ));
+            }
+        }
+    }
+    findings
+}
+
+fn is_test_smdp_address(addr: &str) -> bool {
+    let lower = addr.to_ascii_lowercase();
+    lower.contains("smdp-plus.test.gsma.com")
+        || lower.contains("testsmdpplus")
+        || lower.contains(".test.gsma.")
+        || lower == "localhost"
+        || lower.ends_with(".example.com")
+        || lower.ends_with(".example")
+}
+
+fn euicc_test_smdp_address(subject: &Subject<'_>) -> Vec<rules::Finding> {
+    let Some(euicc) = subject.euicc else {
+        return Vec::new();
+    };
+    let Some(addr) = euicc.addresses.default_dp_address.as_deref() else {
+        return Vec::new();
+    };
+    if !is_test_smdp_address(addr) {
+        return Vec::new();
+    }
+    vec![rules::Finding::new(
+        rules::RuleId::new(EUICC_TEST_SMDP_ADDRESS_RULE).expect("a validated constant"),
+        rules::Severity::Medium,
+        format!(
+            "default SM-DP+ address {addr:?} looks like a test or placeholder address; a misconfigured default SM-DP+ can prevent profile downloads or route them to a non-production server"
+        ),
+        rules::Location::other("euicc-default-smdp", addr),
+        rules::Evidence::text(format!("default_smdp={addr}")),
+    )]
+}
+
+fn svn_is_outdated(svn: [u8; 3]) -> bool {
+    (svn[0], svn[1]) < (2, 2)
+}
+
+fn euicc_outdated_sgp22_version(subject: &Subject<'_>) -> Vec<rules::Finding> {
+    let Some(euicc) = subject.euicc else {
+        return Vec::new();
+    };
+    let svn = euicc.info2.svn;
+    if !svn_is_outdated(svn) {
+        return Vec::new();
+    }
+    let ver = format!("{}.{}.{}", svn[0], svn[1], svn[2]);
+    vec![rules::Finding::new(
+        rules::RuleId::new(EUICC_OUTDATED_SGP22_RULE).expect("a validated constant"),
+        rules::Severity::Low,
+        format!(
+            "eUICC reports SGP.22 version {ver} (svn), which is older than 2.2.0; older SGP.22 versions may lack security and interoperability improvements"
+        ),
+        rules::Location::other("euicc-sgp22-svn", &ver),
+        rules::Evidence::text(format!("svn={ver}")),
+    )]
+}
+
 /// The rules this scan runs over one card: the TAR and SCP03 rules, the access
 /// and PIN rules over the walk, the risky-service rule and the 5G SUCI rules
 /// over the decoded EFs. `docs/rule_docs/` documents each.
@@ -1101,6 +1264,71 @@ fn rules<'a>() -> rules::Registry<Subject<'a>> {
         )
         .expect("the SUCI not-provisioned rule ID is unique in this registry");
     registry
+        .register(
+            rules::RuleSpec::new(
+                rules::RuleId::new(EUICC_TEST_OR_PROVISIONING_PROFILE_RULE)
+                    .expect("a validated constant"),
+                rules::Severity::Medium,
+                "a test or provisioning profile is present on the eUICC",
+            )
+            .with_remediation(
+                "remove test and provisioning profiles before production use (disable then delete them with `sim-doctor euicc disable` / `euicc delete`, or reset test profiles with `euicc reset --test --yes --confirm-eid <EID>`), then re-scan",
+            )
+            .with_cwe("CWE-284")
+            .with_reference("GSMA SGP.22 (profile classes: operational, provisioning, test); SGP.23"),
+            euicc_test_or_provisioning_profile,
+            euicc_evidence,
+        )
+        .expect("the eUICC test/provisioning profile rule ID is unique in this registry");
+    registry
+        .register(
+            rules::RuleSpec::new(
+                rules::RuleId::new(EUICC_TEST_CI_KEY_RULE).expect("a validated constant"),
+                rules::Severity::High,
+                "the eUICC advertises a known test CI public key identifier",
+            )
+            .with_remediation(
+                "replace test CI public key identifiers with production GSMA CI keys appropriate for the deployment; a production eUICC must not trust test CI certificates for profile verification or signing",
+            )
+            .with_cwe("CWE-295")
+            .with_reference("GSMA SGP.22 (euiccCiPKIdListForVerification/Signing); GSMA SGP.26 test PKI"),
+            euicc_test_ci_key_identifier,
+            euicc_evidence,
+        )
+        .expect("the eUICC test CI key rule ID is unique in this registry");
+    registry
+        .register(
+            rules::RuleSpec::new(
+                rules::RuleId::new(EUICC_TEST_SMDP_ADDRESS_RULE).expect("a validated constant"),
+                rules::Severity::Medium,
+                "the default SM-DP+ address is a test or placeholder address",
+            )
+            .with_remediation(
+                "set the default SM-DP+ address to the production SM-DP+ FQDN for this deployment (`sim-doctor euicc set-default-dp <address> --yes`), then re-scan",
+            )
+            .with_cwe("CWE-1188")
+            .with_reference("GSMA SGP.22 (default SM-DP+ address, ES10a GetEuiccConfiguredAddresses/SetDefaultDpAddress)"),
+            euicc_test_smdp_address,
+            euicc_evidence,
+        )
+        .expect("the eUICC test SM-DP+ address rule ID is unique in this registry");
+    registry
+        .register(
+            rules::RuleSpec::new(
+                rules::RuleId::new(EUICC_OUTDATED_SGP22_RULE).expect("a validated constant"),
+                rules::Severity::Low,
+                "the eUICC supports an outdated SGP.22 version",
+            )
+            .with_remediation(
+                "update the eUICC firmware or replace the eUICC so it supports a current SGP.22 version (2.2.0 or later) with the required security and interoperability features, then re-scan",
+            )
+            .with_cwe("CWE-1104")
+            .with_reference("GSMA SGP.22 (svn / SGP.22 version in EUICCInfo2)"),
+            euicc_outdated_sgp22_version,
+            euicc_evidence,
+        )
+        .expect("the eUICC outdated SGP.22 rule ID is unique in this registry");
+    registry
 }
 
 /// Whether the MSL 0 rule had a TAR audit to decide from.
@@ -1237,6 +1465,7 @@ pub fn run_facts(tree: &Tree, context: &Context<'_>, verdict: &Verdict) -> basel
             tree,
             tar: verdict.tar(),
             scp03: None,
+            euicc: None,
         }),
     )
 }
@@ -3533,7 +3762,11 @@ mod tests {
         assert_eq!(id.rule(), "msl-zero-allowed");
 
         let registry = rules();
-        assert_eq!(registry.len(), 10, "ten rules are registered over a card");
+        assert_eq!(
+            registry.len(),
+            14,
+            "fourteen rules are registered over a card"
+        );
         let rule = registry.get(&id).expect("the rule is registered");
         assert_eq!(rule.severity(), rules::Severity::Critical);
         assert!(
@@ -3557,6 +3790,7 @@ mod tests {
             tree: &tree,
             tar: &audit,
             scp03: Some(&recorded),
+            euicc: None,
         };
         let found = findings(&subject).expect("no misattribution");
         assert_eq!(found.len(), 1);
@@ -3613,10 +3847,10 @@ mod tests {
     #[test]
     fn a_scan_evaluates_its_rules_so_the_no_rules_warning_cannot_fire() {
         // **The warning going null here is CORRECT rather than defeated.**
-        // rules_run is 1 because a rule really ran, so the 100 it sits beside
+        // rules_run is the number of rules that ran, so the 100 it sits beside
         // is a score over an audit rather than an absence of one. That is the
         // whole difference NO_RULES_WARNING was written to make visible.
-        assert_eq!(rules_run(), 10);
+        assert_eq!(rules_run(), 14);
 
         let mut card = sample_card();
         let tree = walk_sample(&mut card, Limits::default());
@@ -3625,6 +3859,7 @@ mod tests {
             tree: &tree,
             tar: &audit,
             scp03: None,
+            euicc: None,
         })
         .expect("no misattribution");
         assert!(
@@ -3640,7 +3875,7 @@ mod tests {
             .tar_audit(audit);
         let block = verdict.fields();
         let score = &block["score"];
-        assert_eq!(score["rules_run"], serde_json::json!(10));
+        assert_eq!(score["rules_run"], serde_json::json!(14));
         assert_eq!(score["value"], serde_json::json!(rules::SCORE_MAX));
         assert_eq!(
             score["warning"],
@@ -3659,6 +3894,7 @@ mod tests {
             tree: &tree,
             tar: &audit,
             scp03: None,
+            euicc: None,
         })
         .expect("no misattribution");
 
@@ -3714,6 +3950,7 @@ mod tests {
             tree: &tree,
             tar: &audit,
             scp03: None,
+            euicc: None,
         })
         .expect("no misattribution");
 
@@ -3748,6 +3985,7 @@ mod tests {
             tree: &tree,
             tar: &audit,
             scp03: None,
+            euicc: None,
         })
         .expect("no misattribution");
 
@@ -4093,6 +4331,7 @@ mod tests {
             tree: &tree,
             tar: &audit,
             scp03: None,
+            euicc: None,
         };
 
         let recorder = Arc::new(EventRecorder {
@@ -4118,5 +4357,167 @@ mod tests {
                 .any(|e| matches!(e, ProgressEvent::Done { .. })),
             "should emit Done"
         );
+    }
+
+    #[test]
+    fn euicc_rules_fire_on_es10_findings_and_have_negative_cases() {
+        use crate::es10::{self, ProfileClass, ProfileInfo, ProfileState};
+
+        fn h(s: &str) -> Vec<u8> {
+            hex::decode(s.replace([' ', '\n'], "")).unwrap()
+        }
+        // A valid EUICCInfo1/2 pair from existing vectors.
+        let info1 = es10::decode_euicc_info1(&h(
+            "BF2035 8203020200 A916041481370F5125D0B1D408D4C3B232E6D25E795BEBFB AA16041481370F5125D0B1D408D4C3B232E6D25E795BEBFB",
+        ))
+        .unwrap();
+        let info2 = es10::decode_euicc_info2(&h(
+            // INFO2_V25: svn 2.5.0, ci pk ids 81370F51...
+            "BF2281B781030201008203020500830304060084158101008204000628248304000019228504067F36C0850200FF86030300008703020301880204B0A916041481370F5125D0B1D408D4C3B232E6D25E795BEBFBAA16041481370F5125D0B1D408D4C3B232E6D25E795BEBFB8B0102990202C004030000010C0D47492D42412D55502D30343139AC1E80056C6162656C811568747470733A2F2F646C6F612E6578616D706C652F8D0205408E075452452D524546AF050403030200",
+        ))
+        .unwrap();
+        let addresses = es10::decode_configured_addresses(&h(
+            "BF3C15 801364702D706C75732E6578616D706C652E636F6D",
+        ))
+        .unwrap();
+
+        let mut card = sample_card();
+        let tree = walk_sample(&mut card, Limits::default());
+        let audit = tar::Audit::not_run("test");
+        let profiles = vec![ProfileInfo {
+            iccid: Some(h("89000123456789012341")),
+            profile_state: Some(ProfileState::Enabled),
+            profile_class: Some(ProfileClass::Operational),
+            ..ProfileInfo::default()
+        }];
+        let mut snapshot = crate::euicc::Snapshot {
+            info1: info1.clone(),
+            info2: info2.clone(),
+            addresses: es10::ConfiguredAddresses {
+                default_dp_address: Some("smdp.carrier.com".to_owned()),
+                root_ds_address: addresses.root_ds_address.clone(),
+                unknown: Vec::new(),
+            },
+            profiles: profiles.clone(),
+        };
+
+        // Negative: operational profile, non-test CI, production-like SM-DP+, current svn.
+        let found = findings(&Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+            euicc: Some(&snapshot),
+        })
+        .unwrap();
+        for id in [
+            EUICC_TEST_OR_PROVISIONING_PROFILE_RULE,
+            EUICC_TEST_CI_KEY_RULE,
+            EUICC_TEST_SMDP_ADDRESS_RULE,
+            EUICC_OUTDATED_SGP22_RULE,
+        ] {
+            assert!(
+                !found.iter().any(|f| f.rule().as_str() == id),
+                "unexpected {id} in negative case: {found:?}"
+            );
+        }
+
+        // Test/provisioning profile present.
+        snapshot.profiles = vec![
+            ProfileInfo {
+                iccid: Some(h("89000123456789012341")),
+                profile_state: Some(ProfileState::Disabled),
+                profile_class: Some(ProfileClass::Test),
+                ..ProfileInfo::default()
+            },
+            ProfileInfo {
+                iccid: Some(h("89000987654321098761")),
+                profile_state: Some(ProfileState::Disabled),
+                profile_class: Some(ProfileClass::Provisioning),
+                ..ProfileInfo::default()
+            },
+        ];
+        let found = findings(&Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+            euicc: Some(&snapshot),
+        })
+        .unwrap();
+        assert_eq!(
+            found
+                .iter()
+                .filter(|f| f.rule().as_str() == EUICC_TEST_OR_PROVISIONING_PROFILE_RULE)
+                .count(),
+            2
+        );
+
+        // Known test CI key identifier.
+        snapshot.profiles = profiles.clone();
+        snapshot.info2.ci_pk_id_for_verification =
+            vec![h("F54172BDF98A95D65CBEB88A38A1C11D800A85C3")];
+        let found = findings(&Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+            euicc: Some(&snapshot),
+        })
+        .unwrap();
+        assert!(found
+            .iter()
+            .any(|f| f.rule().as_str() == EUICC_TEST_CI_KEY_RULE));
+
+        // Test/default SM-DP+ address.
+        snapshot.info2 = info2.clone();
+        snapshot.addresses = es10::ConfiguredAddresses {
+            default_dp_address: Some("smdp-plus.test.gsma.com".to_owned()),
+            root_ds_address: addresses.root_ds_address.clone(),
+            unknown: Vec::new(),
+        };
+        let found = findings(&Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+            euicc: Some(&snapshot),
+        })
+        .unwrap();
+        assert!(found
+            .iter()
+            .any(|f| f.rule().as_str() == EUICC_TEST_SMDP_ADDRESS_RULE));
+
+        // Outdated SGP.22 version.
+        snapshot.addresses = es10::ConfiguredAddresses {
+            default_dp_address: Some("smdp.carrier.com".to_owned()),
+            root_ds_address: addresses.root_ds_address.clone(),
+            unknown: Vec::new(),
+        };
+        snapshot.info2 = info2.clone();
+        snapshot.info2.svn = [2, 1, 0];
+        let found = findings(&Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+            euicc: Some(&snapshot),
+        })
+        .unwrap();
+        assert!(found
+            .iter()
+            .any(|f| f.rule().as_str() == EUICC_OUTDATED_SGP22_RULE));
+
+        // No eUICC data -> no evidence, no findings.
+        let found = findings(&Subject {
+            tree: &tree,
+            tar: &audit,
+            scp03: None,
+            euicc: None,
+        })
+        .unwrap();
+        for id in [
+            EUICC_TEST_OR_PROVISIONING_PROFILE_RULE,
+            EUICC_TEST_CI_KEY_RULE,
+            EUICC_TEST_SMDP_ADDRESS_RULE,
+            EUICC_OUTDATED_SGP22_RULE,
+        ] {
+            assert!(!found.iter().any(|f| f.rule().as_str() == id));
+        }
     }
 }

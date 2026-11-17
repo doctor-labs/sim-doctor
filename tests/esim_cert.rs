@@ -29,10 +29,16 @@ M2IOIIskVvtMhvECICPDG2YKnGqzt5Sj6ulwq/ZLI2sH3yjElnCp9JVhudTz
 ";
 
 fn run(args: &[&str]) -> (Option<i32>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(args)
-        .output()
-        .expect("sim-doctor runs");
+    let out = Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .args(args)
+    .output()
+    .expect("sim-doctor runs");
     (
         out.status.code(),
         String::from_utf8_lossy(&out.stdout).into_owned(),

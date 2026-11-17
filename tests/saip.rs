@@ -40,13 +40,19 @@ fn write_fixture(name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 fn parse(path: &PathBuf, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("saip")
-        .arg("parse")
-        .arg(path)
-        .args(extra)
-        .output()
-        .unwrap()
+    Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .arg("saip")
+    .arg("parse")
+    .arg(path)
+    .args(extra)
+    .output()
+    .unwrap()
 }
 
 #[test]
@@ -104,4 +110,78 @@ fn a_missing_file_is_exit_two_not_a_panic() {
     let out = parse(&path, &[]);
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("cannot read"));
+}
+
+fn personalize_cmd(path: &std::path::Path, doc: &std::path::Path, extra: &[&str]) -> Output {
+    Command::new(
+        &*std::env::var("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|_| {
+            option_env!("CARGO_BIN_EXE_sim-doctor")
+                .unwrap_or("target/debug/sim-doctor")
+                .to_string()
+        }),
+    )
+    .arg("saip")
+    .arg("personalize")
+    .arg(path)
+    .arg("--document")
+    .arg(doc)
+    .args(extra)
+    .output()
+    .unwrap()
+}
+
+#[test]
+fn personalize_applies_document_and_can_drop_variant_optional_pes() {
+    let input = write_fixture("saip-pers-in.der", &package());
+    let doc_path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("saip-pers-doc.json");
+    std::fs::write(
+        &doc_path,
+        br#"{"drop_pe_types":["iot"],"keep_pe_types":[]}"#,
+    )
+    .unwrap();
+    let out = personalize_cmd(&input, &doc_path, &["--json"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(envelope["type"], "saip");
+    let elements = envelope["payload"]["data"]["elements"].as_array().unwrap();
+    let types: Vec<&str> = elements
+        .iter()
+        .map(|e| e["type"].as_str().unwrap())
+        .collect();
+    assert!(!types.contains(&"iot"), "{types:?}");
+    assert!(
+        types.contains(&"header") && types.contains(&"end"),
+        "{types:?}"
+    );
+}
+
+#[test]
+fn personalize_writes_output_der_when_requested() {
+    let header = tlv(&[0xA0], &tlv(&[0x80], &[0x02]));
+    let end = tlv(&[0xAA], &[]);
+    let pkg = [header, end].concat();
+    let input = write_fixture("saip-pers-out-in.der", &pkg);
+    let doc_path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("saip-pers-out-doc.json");
+    std::fs::write(&doc_path, br#"{"profile_type":"TEST"}"#).unwrap();
+    let out_path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("saip-pers-out.der");
+    let out = personalize_cmd(
+        &input,
+        &doc_path,
+        &["-o", out_path.to_str().unwrap(), "--json"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert!(!bytes.is_empty());
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(envelope["payload"]["data"]["bytes"], bytes.len());
 }
