@@ -720,20 +720,20 @@ fn terminal_profile_without_a_tar_audit_exits_2() {
     }
 }
 
-/// `--tar-uncapped` raises the TAR audit's bound, so it is only accepted with a TAR audit: without
-/// `--tar` (default off) or with `--tar off` it is refused with 2, before any reader is opened and
-/// with nothing on stdout.
+/// A non-default `--tar-max-probes` is only meaningful with a TAR audit: without `--tar`
+/// (default off) or with `--tar off` it is refused with 2, before any reader is opened and
+/// with nothing on stdout. sim-doctor caps TAR probing by design (#266).
 #[test]
-fn tar_uncapped_without_a_tar_audit_exits_2() {
+fn tar_max_probes_without_a_tar_audit_exits_2() {
     for args in [
-        &["scan", "--tar-uncapped", "--json"][..],
-        &["scan", "--tar", "off", "--tar-uncapped", "--json"][..],
+        &["scan", "--tar-max-probes", "8192", "--json"][..],
+        &["scan", "--tar", "off", "--tar-max-probes", "8192", "--json"][..],
     ] {
         let run = run_piped(args);
         assert_eq!(run.code(), 2, "{args:?}: {:?}", run.stderr);
         assert_eq!(run.stdout, "", "{args:?}");
         assert!(
-            run.stderr.contains("--tar-uncapped"),
+            run.stderr.contains("--tar-max-probes"),
             "{args:?}: {:?}",
             run.stderr
         );
@@ -3374,13 +3374,24 @@ fn gp_help_warns_that_dm_tokens_are_live_credentials() {
     }
 }
 
-/// `--tar-uncapped` without `--yes` is a dry run: it names the probe count of the full space and
-/// `--yes`, sends nothing, and exits 2 before any reader is opened.
+/// A raised `--tar-max-probes` without `--yes` is a dry run: it names the probe count at the
+/// configured (bounded) cap and `--yes`, sends nothing, and exits 2 before any reader is opened.
 #[test]
-fn tar_uncapped_full_space_is_a_dry_run_without_yes() {
-    let run = run_piped(&["scan", "--tar", "full", "--tar-uncapped", "--json"][..]);
+fn tar_max_probes_is_a_dry_run_without_yes() {
+    let run = run_piped(
+        &[
+            "scan",
+            "--tar",
+            "full",
+            "--tar-max-probes",
+            "10000",
+            "--json",
+        ][..],
+    );
     assert_eq!(run.code(), 2, "{:?}", run.stderr);
     assert_eq!(run.stdout, "");
-    assert!(run.stderr.contains("16777216"), "{:?}", run.stderr);
+    assert!(run.stderr.contains("10000"), "{:?}", run.stderr);
+    assert!(run.stderr.contains("cap of 10000"), "{:?}", run.stderr);
     assert!(run.stderr.contains("--yes"), "{:?}", run.stderr);
+    assert!(run.stderr.contains("by design"), "{:?}", run.stderr);
 }

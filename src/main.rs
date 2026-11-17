@@ -2472,18 +2472,16 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "  which TARs the card will act on. --tar selects them: off (none), focused\n",
     "  (592 TARs, the default), full (from 000000), range:FIRST-LAST, or\n",
     "  regex:PATTERN over the six-hex-digit spelling.\n",
-    "  THE PROBE COUNT IS CAPPED AT 4096 WHATEVER YOU ASK FOR. The full TAR\n",
-    "  space is 16 777 216 values and this tool will not send them all to a\n",
-    "  card. A selection larger than the cap stops at it; data.tar.stopped says\n",
-    "  so, and any finding it carries is marked partial rather than read as an\n",
-    "  exhaustive audit of the card's TAR accept-list.\n",
-    "  --tar-uncapped raises that bound to the full TAR space (issue #266): the TARs are\n",
-    "  streamed, so `full` is reachable, and memory stays bounded: at most 10 000 plain\n",
-    "  refused rows and 10 000 other rows are kept, the rest are counted per outcome\n",
-    "  (data.tar.rows_summarised, data.tar.rows_omitted).\n",
-    "  It is a dry run unless --yes: the probe count is printed and nothing is sent.\n",
-    "  A sweep stopped at the bound is reported as not exhausted. Each probe is one ENVELOPE\n",
-    "  sent to the card: hours of traffic, and each may act on the card.\n",
+    "  THE PROBE COUNT IS CAPPED AT 4096 BY DESIGN, and is configurable with\n",
+    "  --tar-max-probes (bounded by a hard ceiling, never unbounded). The full\n",
+    "  TAR space is 16 777 216 values and this tool will not send it all to a\n",
+    "  card by default: each probe is a live OTA envelope the card may act on,\n",
+    "  and an unbounded sweep means hours to days of traffic. A selection larger\n",
+    "  than the configured cap stops at it; data.tar.stopped says so, and any\n",
+    "  finding it carries is marked partial rather than read as an exhaustive\n",
+    "  audit of the card's TAR accept-list.\n",
+    "  Raising --tar-max-probes is a dry run unless --yes: the probe count is\n",
+    "  printed and nothing is sent. Each probe is one ENVELOPE sent to the card.\n",
     "  A TAR is reported as ACCEPTED when the card answers it DIFFERENTLY from\n",
     "  the way it answers TARs it has no opinion about. That is a measurement,\n",
     "  not a status word this tool guesses at: no 3GPP TS 31.111 text has been\n",
@@ -3008,24 +3006,24 @@ struct ScanArgs {
     #[arg(long, visible_alias = "sfrv")]
     reserved_file_ids: bool,
 
-    /// Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266).
+    /// The cap on TAR probes, 4096 by design (issue #266).
     ///
-    /// The TARs are streamed, so `full` is reachable, and memory stays bounded: at most 10 000 plain
-    /// `refused` rows and 10 000 other rows are kept, the rest are counted per outcome and the JSON
-    /// says so (`data.tar.rows_summarised`, `data.tar.rows_omitted`). This is a dry run unless --yes
-    /// is given: the probe count is printed, nothing is sent and the exit is 2.
+    /// sim-doctor caps TAR probing by design: each probe is a live OTA envelope the card may act on,
+    /// and an unbounded sweep (the full TAR space is 16 777 216 values) can mean hours to days of
+    /// traffic and an unreadable report. The default 4096 is intentional. Raise it only when you
+    /// knowingly accept the cost; the value is bounded by a hard ceiling so the sweep is never
+    /// unbounded. A selection larger than this cap stops at it and the report says so.
     ///
-    /// WARNING: a full sweep sends one ENVELOPE per TAR, up to 16 777 216, which can take hours to
-    /// days of card traffic, and each one is an SMS-PP download the card may act on. Use it only on a
-    /// card you are allowed to exercise. Only meaningful with --tar other than `off` (else exit 2).
-    #[arg(long)]
-    tar_uncapped: bool,
+    /// Only meaningful with --tar other than `off` (else exit 2). A raised cap is a dry run unless
+    /// --yes is given: the probe count is printed and nothing is sent.
+    #[arg(long, value_name = "N", default_value_t = tar::MAX_PROBES, value_parser = clap::value_parser!(usize))]
+    tar_max_probes: usize,
 
     /// Send the TAR probes. Required with --tar focused, full or range (F-1).
     ///
     /// Without it, --tar focused, full or range is a dry run: it prints how many ENVELOPEs the sweep
-    /// would send (the cap, or the full space with --tar-uncapped), opens no reader, sends nothing
-    /// and exits 2. With it, exactly the printed count is sent.
+    /// would send at the configured cap, opens no reader, sends nothing and exits 2. With it,
+    /// exactly the printed count is sent.
     #[arg(long)]
     yes: bool,
 

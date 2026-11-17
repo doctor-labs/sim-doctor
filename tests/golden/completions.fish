@@ -75,6 +75,7 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar -d 'W
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar-filter -d 'SIMTester\'s `-stre`: skip TAR probes whose response matches this regex' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l class -d 'The class byte the ENVELOPE and its CAT follow-ups are sent at: etsi (CLA 80, the default) or gsm (CLA A0).' -r -f -a "etsi\t'CLA `0x80`, ETSI TS 102 221 clause 10.1.2. The default'
 gsm\t'CLA `0xA0`, GSM 11.11. `--class gsm`'"
+complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar-max-probes -d 'The cap on TAR probes, 4096 by design (issue #266)' -r
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l face -d 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report' -r -f -a "rich\t''
 plain\t''
 compact\t''
@@ -94,7 +95,6 @@ complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l score -d 
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l terminal-profile -d 'Send a TERMINAL PROFILE to the card before the TAR audit'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l sms-deliver-report -d 'Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l reserved-file-ids -l sfrv -d 'Scan reserved file identifiers 7FF0-7FFF inside an application'
-complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l tar-uncapped -d 'Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266)'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l yes -d 'Send the TAR probes. Required with --tar focused, full or range (F-1)'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -l headless -d 'A face in plain text without colour, for CI and pipes'
 complete -c sim-doctor -n "__fish_sim_doctor_using_subcommand scan" -s h -l help -d 'Print help (see more with \'--help\')'

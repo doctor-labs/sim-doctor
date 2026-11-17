@@ -132,32 +132,37 @@ pub const TAR_MIN: u32 = 0x00_00_00;
 /// `private final static int HIGHEST_TAR = 16777215; // this is 0xFF_FF_FF`.
 pub const TAR_MAX: u32 = 0xFF_FF_FF;
 
-/// The most TAR values one scan may put on a card.
+/// The default, and design, cap on TAR values one scan may put on a card.
 ///
-/// **This is the answer to "the full sweep is 16.7 million values and is not
-/// something to send to a card blindly".** SIMTester's `-st full` does sweep
-/// all 16 777 216, prints a progress line every hundred, and says "go get a
-/// (few) coffee(s)"; its `-stbs` smart mode exists precisely because the naive
-/// sweep is impractical. This crate will not ship an unbounded probe loop
-/// behind a flag, so the bound is a constant and it is published:
+/// **The 4096-probe cap is intentional, not a missing feature.** SIMTester's
+/// `-st full` sweeps all 16 777 216 TARs and says "go get a (few) coffee(s)";
+/// a real card is not software and each probe is a live OTA envelope. Sending
+/// an unbounded sweep to a card blindly is unsafe (hours to days of traffic,
+/// and every envelope is something the card may act on) and produces a report
+/// nobody can read. sim-doctor therefore caps probes by design.
 ///
 /// - the focused default set is [`FOCUSED_PROBES`] values and fits inside it,
-/// - `full` scans from zero and **stops at this bound**, reporting
+/// - `full` scans from zero and **stops at the configured cap**, reporting
 ///   `"stopped": "probe budget"` rather than pretending it finished,
 /// - and a run that hit the bound is not complete, so [`Audit::is_complete`]
 ///   says so and every finding raised from it is marked
 ///   [`crate::rules::Coverage::Partial`] rather than read as exhaustive.
+///
+/// The operator may raise the cap with `--tar-max-probes` (bounded, never the
+/// whole space by default) when they knowingly accept the cost; that is an
+/// explicit, configurable choice rather than an unbounded one.
 pub const MAX_PROBES: usize = 4096;
 
-/// The number of TAR values, `TAR_MAX - TAR_MIN + 1` (2^24). Not a probe budget: it is the size
-/// of the space a full sweep would cover, used by the tests of the enumerator.
-pub const TAR_SPACE: usize = TAR_MAX as usize + 1;
+/// The largest value `--tar-max-probes` accepts.
+///
+/// A hard ceiling keeps the sweep bounded even when configured: the operator
+/// can spend more budget deliberately, but this tool never turns a flag into an
+/// unbounded loop over the 16 777 216-value TAR space.
+pub const CONFIGURABLE_MAX_PROBES: usize = 100_000;
 
-/// The bound `--tar-uncapped` raises the probe bound to (issue #266): the whole TAR space, so the
-/// full `-st full` sweep is reachable. The TARs are streamed ([`tars`]), never collected into a
-/// list, and the results are bounded too: see [`DETAIL_CAP`]. The binary makes such a sweep a dry
-/// run unless `--yes` is given.
-pub const UNCAPPED_MAX_PROBES: usize = TAR_SPACE;
+/// The number of TAR values, `TAR_MAX - TAR_MIN + 1` (2^24). Not a probe
+/// budget: it is the size of the space, used for enumeration/tests only.
+pub const TAR_SPACE: usize = TAR_MAX as usize + 1;
 
 /// How many probe rows of each kind `Audit::probes` keeps in full detail (issue #266): at most this
 /// many plain `refused` rows and at most this many other rows (`accepted` or `filtered`), so memory
@@ -1486,14 +1491,17 @@ fn parse_tar(text: &str) -> Result<u32, UnknownSelection> {
 /// scan that stopped early must say so" rule at this level**: a caller that
 /// drops the flag reports a partial answer as an exhaustive one, so
 /// [`Audit::is_complete`] carries it all the way to the output.
+///
+/// `limit` is the configured probe cap for this run.
 pub fn candidates(selection: &Selection, limit: usize) -> (Vec<u32>, bool) {
-    enumerate(selection, limit.min(MAX_PROBES))
+    enumerate(selection, limit)
 }
 
-/// How many probes an uncapped sweep of `selection` would send: the TARs it resolves to, up to
-/// [`UNCAPPED_MAX_PROBES`]. Streamed and counted, never sent; the binary shows it before `--yes`.
-pub fn uncapped_probe_count(selection: &Selection) -> usize {
-    tars(selection).take(UNCAPPED_MAX_PROBES).count()
+/// How many probes a sweep of `selection` would send at `max_probes`: the TARs
+/// it resolves to, up to the configured cap. Counted without collecting every
+/// TAR into memory, so the dry-run `--yes` gate can report it honestly.
+pub fn probe_count(selection: &Selection, max_probes: usize) -> usize {
+    tars(selection).take(max_probes).count()
 }
 
 /// The TARs a selection resolves to, lazily and in probe order.
@@ -1907,6 +1915,8 @@ pub struct Audit {
     /// The proof-of-receipt mode the probes' Command Packets asked for
     /// (`--sms-deliver-report`). The default is SMS-SUBMIT.
     pub por_mode: PorMode,
+    /// The probe cap this audit ran under (the configured `--tar-max-probes`).
+    pub max_probes: usize,
 }
 
 impl Audit {
@@ -1922,6 +1932,7 @@ impl Audit {
             exchanges: 0,
             terminal_profile: None,
             por_mode: PorMode::default(),
+            max_probes: MAX_PROBES,
         }
     }
 
@@ -2023,7 +2034,7 @@ impl Audit {
             "class": self.selection.class.id(),
             "class_octet": format!("{:02X}", self.selection.class.octet()),
             "class_assumption": class_assumption(self.selection.class),
-            "max_probes": MAX_PROBES,
+            "max_probes": self.max_probes,
             "probed": self.probed(),
             "rows_summarised": self.summarised(),
             "detail_cap": DETAIL_CAP,
@@ -2598,14 +2609,17 @@ pub fn audit_with_por<S: CardSession + ?Sized>(
     )
 }
 
-/// [`audit_with_por`] with the bound raised to [`UNCAPPED_MAX_PROBES`] (issue #266).
-/// It sends one ENVELOPE per TAR, up to that ceiling; a sweep that reaches it stops and says so.
-pub fn audit_uncapped<S: CardSession + ?Sized>(
+/// [`audit_with_por`] with an explicit probe cap (`--tar-max-probes`).
+///
+/// The sweep is bounded by `max_probes` (clamped to [`CONFIGURABLE_MAX_PROBES`]):
+/// sim-doctor never runs an unbounded TAR sweep by design.
+pub fn audit_with_max<S: CardSession + ?Sized>(
     session: &mut S,
     selection: &Selection,
     policy: &Policy,
     terminal_profile: bool,
     por: PorMode,
+    max_probes: usize,
     interrupt: &mut dyn FnMut() -> bool,
 ) -> Result<Audit, Error> {
     audit_bounded(
@@ -2614,13 +2628,12 @@ pub fn audit_uncapped<S: CardSession + ?Sized>(
         policy,
         terminal_profile,
         por,
-        UNCAPPED_MAX_PROBES,
+        max_probes.min(CONFIGURABLE_MAX_PROBES),
         interrupt,
     )
 }
 
-/// The audit with its probe `bound`. Crate-visible so the ceiling can be tested with a tiny
-/// bound; the binary calls [`audit_with_por`] or [`audit_uncapped`].
+/// The audit with its probe `bound`. The bound is the configured, clamped cap.
 pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
     session: &mut S,
     selection: &Selection,
@@ -2641,6 +2654,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
             exchanges: 0,
             terminal_profile: None,
             por_mode: por,
+            max_probes: bound,
         });
     }
 
@@ -2657,6 +2671,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
             exchanges: 0,
             terminal_profile: None,
             por_mode: por,
+            max_probes: bound,
         });
     };
     let mut stream = std::iter::once(first).chain(stream);
@@ -2796,11 +2811,9 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
             }
         })
     } else {
-        Some(if bound == MAX_PROBES {
-            format!("the probe budget of {MAX_PROBES} TARs was reached and the selection had more")
-        } else {
-            format!("the probe ceiling of {bound} TARs was reached and the selection had more")
-        })
+        Some(format!(
+            "the probe cap of {bound} TARs was reached and the selection had more (sim-doctor caps TAR probing by design; raise --tar-max-probes deliberately, within its hard ceiling)"
+        ))
     };
 
     Ok(Audit {
@@ -2813,6 +2826,7 @@ pub(crate) fn audit_bounded<S: CardSession + ?Sized>(
         exchanges,
         terminal_profile: sent_profile,
         por_mode: por,
+        max_probes: bound,
     })
 }
 
@@ -3538,12 +3552,13 @@ mod tests {
         assert_eq!(*tars.last().expect("non-empty"), (MAX_PROBES - 1) as u32);
     }
 
-    /// The bound holds even when a caller asks for more than it is allowed.
+    /// The candidate list respects the configured limit; the audit (not the
+    /// caller) enforces the hard ceiling, so the cap is explicit and bounded.
     #[test]
-    fn the_bound_is_not_the_callers_to_raise() {
+    fn candidates_respect_the_configured_limit() {
         let full: Selection = "full".parse().expect("full");
-        let (tars, exhausted) = candidates(&full, 10 * MAX_PROBES);
-        assert_eq!(tars.len(), MAX_PROBES);
+        let (tars, exhausted) = candidates(&full, MAX_PROBES + 10);
+        assert_eq!(tars.len(), MAX_PROBES + 10);
         assert!(!exhausted);
     }
 
@@ -4602,54 +4617,47 @@ mod tests {
         }
     }
 
-    /// **Issue #266.** `--tar-uncapped` lifts the [`MAX_PROBES`] bound: a
-    /// selection past it is probed to its end, and nothing says it stopped.
-    /// The default audit, same card and selection, stops at the bound.
+    /// **Issue #266.** The cap is explicit and configurable (bounded), not unbounded:
+    /// a raised `--tar-max-probes` probes up to that configured cap, and the default
+    /// audit stops at the 4096 design cap.
     #[test]
-    fn an_uncapped_audit_probes_past_the_budget_and_a_default_one_stops_there() {
-        let past: Selection = format!("range:000000-{:06X}", MAX_PROBES + 9)
+    fn a_configured_cap_probes_past_the_default_budget_and_a_default_one_stops_there() {
+        let cap = MAX_PROBES + 10;
+        let past: Selection = format!("range:000000-{:06X}", cap + 9)
             .parse()
             .expect("range");
 
         let mut card = Scripted::new(&[&[0x90, 0x00]]).swicc();
-        let uncapped = audit_uncapped(
+        let raised = audit_with_max(
             &mut card,
             &past,
             &Policy::default(),
             false,
             PorMode::default(),
+            cap,
             &mut never,
         )
         .expect("no transport error");
-        assert_eq!(uncapped.probes.len(), MAX_PROBES + 10);
-        assert!(uncapped.is_complete(), "{:?}", uncapped.stopped);
+        assert_eq!(raised.probes.len(), cap);
+        assert_eq!(raised.max_probes, cap);
+        assert!(!raised.is_complete(), "{:?}", raised.stopped);
 
         let mut card = Scripted::new(&[&[0x90, 0x00]]).swicc();
         let capped = audit_with(&mut card, &past, &Policy::default(), false, &mut never)
             .expect("no transport error");
         assert_eq!(capped.probes.len(), MAX_PROBES);
+        assert_eq!(capped.max_probes, MAX_PROBES);
         assert!(!capped.is_complete());
     }
 
-    /// The whole space ends at `FF FF FF`; the uncapped sweep is exhausted there, not
-    /// one value further.
+    /// The TAR space is finite and streamed; a sweep is bounded by the configured cap.
     #[test]
-    fn the_uncapped_full_space_is_exactly_the_tar_space_and_exhausted() {
-        let full: Selection = "full".parse().expect("full");
-        let (tars, exhausted) = enumerate(&full, TAR_SPACE);
-        assert_eq!(tars.len(), TAR_SPACE);
-        assert!(exhausted);
-        assert_eq!(*tars.last().expect("non-empty"), TAR_MAX);
-    }
-
-    /// **Issue #266, part 2.** The full space is streamed: the first TARs come lazily, the whole
-    /// space is counted, and the uncapped bound covers it, so `-st full` is reachable.
-    #[test]
-    fn the_full_space_is_streamed_and_the_uncapped_bound_reaches_it() {
+    fn the_full_space_is_streamed_and_the_probe_count_respects_the_cap() {
         let full: Selection = "full".parse().expect("full");
         let first: Vec<u32> = tars(&full).take(3).collect();
         assert_eq!(first, vec![TAR_MIN, TAR_MIN + 1, TAR_MIN + 2]);
-        assert_eq!(uncapped_probe_count(&full), TAR_SPACE);
+        assert_eq!(probe_count(&full, MAX_PROBES), MAX_PROBES);
+        assert_eq!(probe_count(&full, MAX_PROBES + 10), MAX_PROBES + 10);
     }
 
     /// **Issue #266, bounded memory.** A sweep far past [`DETAIL_CAP`] keeps at most the cap in
@@ -4695,11 +4703,10 @@ mod tests {
         assert_eq!(small.to_json()["rows_summarised"], false);
     }
 
-    /// **Issue #266, the ceiling.** A sweep that reaches its bound stops there and says so: not
-    /// exhausted, not complete, and the reason names the ceiling. A tiny bound stands in for
-    /// [`UNCAPPED_MAX_PROBES`], so the test does not send a million envelopes.
+    /// **Issue #266, the cap.** A sweep that reaches its configured bound stops there and
+    /// says so: not exhausted, not complete, and the reason names the cap and the design reason.
     #[test]
-    fn the_uncapped_ceiling_stops_the_sweep_and_says_so() {
+    fn the_configured_cap_stops_the_sweep_and_says_so() {
         let past: Selection = "range:000000-000063".parse().expect("range");
         let mut card = Scripted::new(&[&[0x90, 0x00]]).swicc();
         let audit = audit_bounded(
@@ -4715,8 +4722,9 @@ mod tests {
         assert_eq!(audit.probes.len(), 10);
         assert!(!audit.exhausted);
         assert!(!audit.is_complete());
-        let reason = audit.stopped.as_deref().expect("stopped at the ceiling");
-        assert!(reason.contains("ceiling of 10"), "{reason}");
+        let reason = audit.stopped.as_deref().expect("stopped at the cap");
+        assert!(reason.contains("cap of 10"), "{reason}");
+        assert!(reason.contains("by design"), "{reason}");
         assert_eq!(audit.to_json()["exhausted"], false);
     }
 

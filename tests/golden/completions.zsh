@@ -60,6 +60,7 @@ _arguments "${_arguments_options[@]}" : \
 '--tar-filter=[SIMTester'\''s \`-stre\`\: skip TAR probes whose response matches this regex]:REGEX:_default' \
 '--class=[The class byte the ENVELOPE and its CAT follow-ups are sent at\: etsi (CLA 80, the default) or gsm (CLA A0).]:CLASS:((etsi\:"CLA \`0x80\`, ETSI TS 102 221 clause 10.1.2. The default"
 gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
+'--tar-max-probes=[The cap on TAR probes, 4096 by design (issue #266)]:N:_default' \
 '(--json --tui)--face=[The human report\: a doctor-kit face (rich, plain or compact), or the full legacy report]:FACE:(rich plain compact legacy)' \
 '(--json --tui)--theme=[The face'\''s colours\: mono, clinical or contrast (default\: the tool'\''s own)]:THEME:_default' \
 '(--json --tui)--color=[Colour the face\: auto (a terminal and no NO_COLOR), always or never]:COLOR:(auto always never)' \
@@ -78,7 +79,6 @@ gsm\:"CLA \`0xA0\`, GSM 11.11. \`--class gsm\`"))' \
 '--sms-deliver-report[Ask for SMS-DELIVER-REPORT as the proof-of-receipt mode of the TAR probes, not SMS-SUBMIT]' \
 '--reserved-file-ids[Scan reserved file identifiers 7FF0-7FFF inside an application]' \
 '--sfrv[Scan reserved file identifiers 7FF0-7FFF inside an application]' \
-'--tar-uncapped[Raise the 4096-probe bound on the TAR audit to the full TAR space, 16 777 216 values (issue #266)]' \
 '--yes[Send the TAR probes. Required with --tar focused, full or range (F-1)]' \
 '(--json --tui --face)--headless[A face in plain text without colour, for CI and pipes]' \
 '-h[Print help (see more with '\''--help'\'')]' \
