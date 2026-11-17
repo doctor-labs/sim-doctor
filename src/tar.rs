@@ -934,6 +934,7 @@ pub fn envelope_data_passthrough(
 /// Packet in TP-UD, `None` to clear TP-UDHI. `Some(&[])` reproduces the
 /// SIMTester UDHI-set/no-header quirk. This is the IEI passthrough form
 /// (issue #273).
+#[allow(clippy::too_many_arguments)]
 pub fn envelope_data_passthrough_with_udh(
     tar: u32,
     class: Class,
@@ -1056,6 +1057,7 @@ pub fn envelope_apdu_passthrough(
 
 /// The same APDU as [`envelope_apdu_passthrough`], with an explicit SMS user
 /// data header (IEI/IEDL/IED bytes) passed through as-is (issue #273).
+#[allow(clippy::too_many_arguments)]
 pub fn envelope_apdu_passthrough_with_udh(
     tar: u32,
     class: Class,
