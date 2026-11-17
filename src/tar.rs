@@ -809,22 +809,48 @@ pub fn sms_deliver_tpdu(user_data: &[u8]) -> Option<Vec<u8>> {
 /// octets, and the two positions above follow from that length rather than
 /// from a constant. **TP-PID and TP-DCS are the two octets between the TP-OA
 /// and the TP-SCTS**, so nothing else in the TPDU can be confused for either.
+///
+/// When `udhi` is set, no UDH bytes are inserted: the user data is the packet
+/// as given, reproducing the SIMTester quirk (see [`SMS_DELIVER_FIRST_OCTET`]).
+/// To carry an explicit UDH/IEI sequence, use [`sms_deliver_tpdu_with_udh`].
 pub fn sms_deliver_tpdu_with(user_data: &[u8], pid: u8, dcs: u8, udhi: bool) -> Option<Vec<u8>> {
-    let udl = u8::try_from(user_data.len()).ok()?;
-    let first_octet = if udhi {
-        SMS_DELIVER_FIRST_OCTET
+    if udhi {
+        sms_deliver_tpdu_with_udh(user_data, pid, dcs, Some(&[]))
     } else {
-        SMS_DELIVER_FIRST_OCTET & !TP_UDHI
+        sms_deliver_tpdu_with_udh(user_data, pid, dcs, None)
+    }
+}
+
+/// The same TPDU with TP-PID, TP-DCS and an optional SMS user data header.
+///
+/// When `udh` is `Some(bytes)`, the TP-UDHI bit is set and `bytes` (the
+/// UDHL-prefixed IEI/IEDL/IED sequence, as in 3GPP TS 23.040 clause 9.2.3.24)
+/// are prepended to `user_data` in TP-UD; TP-UDL counts the whole TP-UD.
+/// `Some(&[])` sets TP-UDHI with no UDH bytes, reproducing the SIMTester
+/// quirk (see [`SMS_DELIVER_FIRST_OCTET`]). `None` clears TP-UDHI. This is
+/// the IEI passthrough form: any UDH/IEI combination is carried verbatim
+/// (issue #273).
+pub fn sms_deliver_tpdu_with_udh(
+    user_data: &[u8],
+    pid: u8,
+    dcs: u8,
+    udh: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let (first_octet, ud_prefix): (u8, &[u8]) = match udh {
+        Some(udh) => (SMS_DELIVER_FIRST_OCTET | TP_UDHI, udh),
+        None => (SMS_DELIVER_FIRST_OCTET & !TP_UDHI, &[]),
     };
-    let mut out = Vec::with_capacity(
-        1 + SMS_DELIVER_TPOA.len() + 2 + SMS_DELIVER_SCTS.len() + 1 + user_data.len(),
-    );
+    let ud_len = ud_prefix.len().checked_add(user_data.len())?;
+    let udl = u8::try_from(ud_len).ok()?;
+    let mut out =
+        Vec::with_capacity(1 + SMS_DELIVER_TPOA.len() + 2 + SMS_DELIVER_SCTS.len() + 1 + ud_len);
     out.push(first_octet);
     out.extend_from_slice(&SMS_DELIVER_TPOA);
     out.push(pid);
     out.push(dcs);
     out.extend_from_slice(&SMS_DELIVER_SCTS);
     out.push(udl);
+    out.extend_from_slice(ud_prefix);
     out.extend_from_slice(user_data);
     Some(out)
 }
@@ -896,14 +922,44 @@ pub fn envelope_data_passthrough(
     cph: &[u8],
     passthrough: Passthrough,
 ) -> Option<Vec<u8>> {
-    let (spi1, spi2) = mechanism;
-    let command_packet = command_packet_with_cph(tar, keyset, spi1, spi2, cph);
-    let tpdu = sms_deliver_tpdu_with(
-        &command_packet,
+    let udh = if passthrough.udhi {
+        Some(&[][..])
+    } else {
+        None
+    };
+    envelope_data_passthrough_with_udh(
+        tar,
+        class,
+        keyset,
+        mechanism,
+        cph,
         passthrough.pid,
         passthrough.dcs,
-        passthrough.udhi,
-    )?;
+        udh,
+    )
+}
+
+/// The same envelope data field as [`envelope_data_passthrough`], with an
+/// explicit SMS user data header (IEI/IEDL/IED bytes) passed through as-is.
+///
+/// `udh` is `Some(bytes)` to set TP-UDHI and prepend `bytes` to the Command
+/// Packet in TP-UD, `None` to clear TP-UDHI. `Some(&[])` reproduces the
+/// SIMTester UDHI-set/no-header quirk. This is the IEI passthrough form
+/// (issue #273).
+#[allow(clippy::too_many_arguments)]
+pub fn envelope_data_passthrough_with_udh(
+    tar: u32,
+    class: Class,
+    keyset: u8,
+    mechanism: (u8, u8),
+    cph: &[u8],
+    pid: u8,
+    dcs: u8,
+    udh: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let (spi1, spi2) = mechanism;
+    let command_packet = command_packet_with_cph(tar, keyset, spi1, spi2, cph);
+    let tpdu = sms_deliver_tpdu_with_udh(&command_packet, pid, dcs, udh)?;
     envelope_data_from_tpdu(class, &tpdu)
 }
 
@@ -1008,6 +1064,24 @@ pub fn envelope_apdu_passthrough(
     passthrough: Passthrough,
 ) -> Option<Vec<u8>> {
     let data = envelope_data_passthrough(tar, class, keyset, mechanism, cph, passthrough)?;
+    envelope_apdu_from_data(class, &data)
+}
+
+/// The same APDU as [`envelope_apdu_passthrough`], with an explicit SMS user
+/// data header (IEI/IEDL/IED bytes) passed through as-is (issue #273).
+#[allow(clippy::too_many_arguments)]
+pub fn envelope_apdu_passthrough_with_udh(
+    tar: u32,
+    class: Class,
+    keyset: u8,
+    mechanism: (u8, u8),
+    cph: &[u8],
+    pid: u8,
+    dcs: u8,
+    udh: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let data =
+        envelope_data_passthrough_with_udh(tar, class, keyset, mechanism, cph, pid, dcs, udh)?;
     envelope_apdu_from_data(class, &data)
 }
 
@@ -4916,5 +4990,46 @@ mod tests {
             "{human}"
         );
         assert!(human.contains("CLA A0 (gsm)"), "{human}");
+    }
+
+    /// IEI passthrough: an explicit SMS user data header is carried in TP-UD with TP-UDHI set
+    /// and TP-UDL counting the whole UDH||payload (issue #273). [V] 3GPP TS 23.040 9.2.3.24.
+    #[test]
+    fn sms_deliver_tpdu_with_udh_carries_an_explicit_iei_header() {
+        let udh = [0x03, 0x70, 0x00, 0x05]; // UDHL 03, IEI 70, IEDL 00, IED 05
+        let payload = [0xA0, 0xA4, 0x00, 0x00];
+        let tpdu = sms_deliver_tpdu_with_udh(&payload, 0x7F, 0xF6, Some(&udh)).expect("fits");
+        // first octet has TP-UDHI set, PID/DCS at 6/7, TP-UD starts at 16.
+        assert_ne!(tpdu[0] & TP_UDHI, 0, "UDHI must be set");
+        assert_eq!(tpdu[6], 0x7F);
+        assert_eq!(tpdu[7], 0xF6);
+        assert_eq!(tpdu[15], u8::try_from(udh.len() + payload.len()).unwrap());
+        assert_eq!(&tpdu[16..16 + udh.len()], &udh);
+        assert_eq!(&tpdu[16 + udh.len()..], &payload);
+
+        // `Some(&[])` reproduces the SIMTester quirk: UDHI set, no header bytes.
+        let quirk = sms_deliver_tpdu_with_udh(&payload, 0x7F, 0xF6, Some(&[])).expect("fits");
+        let flag_only = sms_deliver_tpdu_with(&payload, 0x7F, 0xF6, true).expect("fits");
+        assert_eq!(quirk, flag_only);
+        assert_ne!(quirk[0] & TP_UDHI, 0);
+        assert_eq!(&quirk[16..], &payload);
+
+        // The envelope builder carries the same UDH into the D1 chain.
+        let apdu = envelope_apdu_passthrough_with_udh(
+            0x00_00_01,
+            Class::Etsi,
+            0,
+            (SPI1_PLAIN, SPI2_PROBE),
+            &COMMAND_PACKET_HEADER,
+            0x7F,
+            0xF6,
+            Some(&udh),
+        )
+        .expect("fits");
+        assert_eq!(apdu[1], INS_ENVELOPE);
+        // TP-UDHI must be set in the TPDU inside the envelope: device identities (4) + address (10)
+        // precede the TPDU inside the D1 body; the TPDU's first octet is there.
+        let tpdu_start = 5 /*header*/ + 2 /*D1 tag+len*/ + 4 + 10;
+        assert_ne!(apdu[tpdu_start] & TP_UDHI, 0);
     }
 }

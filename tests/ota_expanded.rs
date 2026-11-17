@@ -662,3 +662,28 @@ fn card_supplied_text_cannot_drive_the_terminal() {
     assert_eq!(d["responses"][0]["response_data"], "1B5B33316D");
     assert_eq!(d["responses"][1]["response_data"], "E280AE4142");
 }
+
+#[test]
+fn a_por_with_an_arbitrary_sms_user_data_header_is_passed_through() {
+    // A non-RPI UDH: UDHL 03, IEI 70 (command packet length) with IEDL 00, IED 05. [V] 3GPP TS
+    // 23.040 clause 9.2.3.24 lays out UDHL+IEI/IEDL/IED; full passthrough of any IEI is required
+    // (issue #273). The PoR body is the same header-only packet as below.
+    let body = header_only_por(0x00);
+    let mut bytes = vec![0x03, 0x70, 0x00, 0x05];
+    bytes.extend_from_slice(&body);
+
+    let p = ota_expanded::decode_por(&bytes, RemoteFormat::Compact).unwrap();
+    assert_eq!(p.uoh.as_deref(), Some("03700005"));
+    assert_eq!(p.response_status.code, 0);
+    assert_eq!(p.tar, "B00011");
+
+    // The JSON and human output report the header verbatim, not as RPI.
+    let json = p.json();
+    assert_eq!(json["uoh"], "03700005");
+    let rendered = p.render();
+    assert!(rendered.contains("uoh      03700005"), "{rendered}");
+    assert!(
+        rendered.contains("SMS user data header"),
+        "arbitrary IEI must be described, not mislabelled as RPI: {rendered}"
+    );
+}
