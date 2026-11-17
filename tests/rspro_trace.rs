@@ -171,3 +171,21 @@ fn other_tcp_traffic_is_not_rspro_and_is_an_error_without_gsmtap() {
     let err = parse_bytes(&pcap(&frames)).unwrap_err();
     assert!(err.contains("no GSMTAP SIM APDU"), "{err}");
 }
+
+#[test]
+fn live_streaming_classic_pcap_yields_the_same_rspro_pairs() {
+    use std::io::Cursor;
+    let frames = [
+        tcp(CLIENT, BANK, 50000, 9998, 1000, &to_card(&CMD)),
+        tcp(BANK, CLIENT, 9998, 50000, 5000, &to_modem(&RSP)),
+    ];
+    let bytes = pcap(&frames);
+    let mut pairs = Vec::new();
+    let count = sim_doctor::trace::stream_rspro_pcap(Cursor::new(bytes), |_, pair| {
+        pairs.push(pair);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(pairs, vec![(None, CMD.to_vec(), RSP.to_vec())]);
+}

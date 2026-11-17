@@ -73,6 +73,54 @@ pub(super) fn for_each_frame(
     }
 }
 
+/// Reads a classic pcap stream from `reader`, calling `visit(link_type, frame)`
+/// for each complete packet as it arrives. Used for live interface capture
+/// (issue #213), e.g. `tcpdump -i <iface> -U -w - tcp | sim-doctor trace -`.
+/// Only classic pcap is streamed; pcapng live streams are not supported.
+///
+/// # Errors
+///
+/// A malformed pcap header/record or I/O error. A truncated final record at EOF
+/// is ignored (common when capture stops).
+pub fn for_each_frame_stream(
+    mut reader: impl std::io::Read,
+    mut visit: impl FnMut(u32, &[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut global = [0u8; 24];
+    if let Err(e) = reader.read_exact(&mut global) {
+        return Err(format!("cannot read pcap header: {e}"));
+    }
+    if global[..4] == [0x0A, 0x0D, 0x0D, 0x0A] {
+        return Err(
+            "live/streaming capture supports classic pcap only (tcpdump -w - writes classic pcap); pcapng streams are not supported"
+                .into(),
+        );
+    }
+    let le = match &global[..4] {
+        [0xD4, 0xC3, 0xB2, 0xA1] | [0x4D, 0x3C, 0xB2, 0xA1] => true,
+        [0xA1, 0xB2, 0xC3, 0xD4] | [0xA1, 0xB2, 0x3C, 0x4D] => false,
+        _ => return Err("not a classic pcap stream".into()),
+    };
+    let o = Order(le);
+    let link = o.u32(&global[20..24]).ok_or(TRUNCATED)?;
+    let mut hdr = [0u8; 16];
+    loop {
+        match reader.read_exact(&mut hdr) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(format!("cannot read pcap record header: {e}")),
+        }
+        let incl = o.u32(&hdr[8..12]).ok_or(TRUNCATED)? as usize;
+        let mut data = vec![0u8; incl];
+        match reader.read_exact(&mut data) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(format!("cannot read pcap record data: {e}")),
+        }
+        visit(link, &data)?;
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Order(bool); // true = little endian
 

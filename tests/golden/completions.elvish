@@ -1136,6 +1136,7 @@ set edit:completion:arg-completer[sim-doctor] = {|@words|
         }
         &'sim-doctor;trace'= {
             cand --bind 'UDP address to bind for --listen (default: 127.0.0.1:4729)'
+            cand --interface 'Capture live RSPRO (osmo-remsim) APDUs on a network interface (pySim `rspro-pyshark-live` style). Spawns `tcpdump -i <IFACE> -U -s 0 -w - tcp` and decodes modem-card TPDU pairs as they arrive. Requires tcpdump and capture privileges; live run needs osmo-remsim/RSPRO traffic and radio hardware producing it'
             cand --json 'Emit one JSON envelope of kind "trace" on stdout'
             cand --show-raw-apdu 'Also print each exchange''s raw command and response hex in the table'
             cand --no-suppress-select 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace'

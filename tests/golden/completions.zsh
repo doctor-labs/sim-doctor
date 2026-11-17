@@ -1645,6 +1645,7 @@ esac
 (trace)
 _arguments "${_arguments_options[@]}" : \
 '--bind=[UDP address to bind for --listen (default\: 127.0.0.1\:4729)]:ADDR:_default' \
+'(--listen)--interface=[Capture live RSPRO (osmo-remsim) APDUs on a network interface (pySim \`rspro-pyshark-live\` style). Spawns \`tcpdump -i <IFACE> -U -s 0 -w - tcp\` and decodes modem-card TPDU pairs as they arrive. Requires tcpdump and capture privileges; live run needs osmo-remsim/RSPRO traffic and radio hardware producing it]:IFACE:_default' \
 '--json[Emit one JSON envelope of kind "trace" on stdout]' \
 '--show-raw-apdu[Also print each exchange'\''s raw command and response hex in the table]' \
 '--no-suppress-select[Keep SELECT rows in the table. They are hidden by default, as in pySim-trace]' \

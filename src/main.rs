@@ -3436,6 +3436,18 @@ struct TraceArgs {
     /// UDP address to bind for --listen (default: 127.0.0.1:4729).
     #[arg(long, value_name = "ADDR", default_value = trace::GSMTAP_LISTEN_ADDR)]
     bind: String,
+    /// Capture live RSPRO (osmo-remsim) APDUs on a network interface (pySim
+    /// `rspro-pyshark-live` style). Spawns `tcpdump -i <IFACE> -U -s 0 -w - tcp`
+    /// and decodes modem-card TPDU pairs as they arrive. Requires tcpdump and
+    /// capture privileges; live run needs osmo-remsim/RSPRO traffic and radio
+    /// hardware producing it.
+    #[arg(
+        long,
+        value_name = "IFACE",
+        conflicts_with = "listen",
+        conflicts_with = "file"
+    )]
+    interface: Option<String>,
 }
 /// Everything `sim-doctor why` takes.
 #[derive(Args)]
@@ -6812,6 +6824,36 @@ fn run_trace(args: &TraceArgs) -> contract::ExitCode {
         };
     }
 
+    if let Some(interface) = args.interface.as_deref() {
+        eprintln!(
+            "sim-doctor: capturing live RSPRO (osmo-remsim) traffic on interface {interface} (tcpdump)"
+        );
+        let mut decoder = trace::Decoder::default();
+        let result = trace::capture_rspro_interface(interface, |index, pair| {
+            let decoded = decoder.decode_pair(&pair);
+            if args.json {
+                let line = serde_json::json!({
+                    "index": index,
+                    "exchange": decoded.to_json(index),
+                })
+                .to_string();
+                emit_stdout(&line, "the decoded RSPRO exchange").map_err(|e| e.to_string())
+            } else {
+                let rendered = trace::render(std::slice::from_ref(&decoded), display);
+                if rendered.is_empty() {
+                    Ok(())
+                } else {
+                    emit_stdout(rendered.trim_end(), "the decoded RSPRO exchange")
+                        .map_err(|e| e.to_string())
+                }
+            }
+        });
+        return match result {
+            Ok(_) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+
     let mut input = Vec::new();
     if let Some(path) = args.file.as_deref().filter(|p| *p != "-") {
         // A FIFO, device or directory is refused before it is opened, so nothing can block the read.
@@ -6821,13 +6863,57 @@ fn run_trace(args: &TraceArgs) -> contract::ExitCode {
             ));
         }
     }
-    let read = match args.file.as_deref() {
-        None | Some("-") => io::stdin().take(MAX_WHY_FILE_BYTES).read_to_end(&mut input),
-        Some(path) => std::fs::File::open(path)
-            .and_then(|f| f.take(MAX_WHY_FILE_BYTES).read_to_end(&mut input)),
-    };
-    if let Err(err) = read {
-        return refuse(format!("cannot read the trace: {err}"));
+    let is_stdin = matches!(args.file.as_deref(), None | Some("-"));
+    if is_stdin {
+        use std::io::Read as _;
+        let mut stdin = io::stdin().lock();
+        let mut head = [0u8; 4];
+        match stdin.read_exact(&mut head) {
+            Ok(()) => {
+                // Classic pcap stream from e.g. `tcpdump -U -w -`: decode incrementally.
+                if trace::pcap::is_capture(&head) && head != [0x0A, 0x0D, 0x0D, 0x0A] {
+                    let mut decoder = trace::Decoder::default();
+                    let chained = std::io::Cursor::new(head).chain(stdin.take(MAX_WHY_FILE_BYTES));
+                    let result = trace::stream_rspro_pcap(chained, |index, pair| {
+                        let decoded = decoder.decode_pair(&pair);
+                        if args.json {
+                            let line = serde_json::json!({
+                                "index": index,
+                                "exchange": decoded.to_json(index),
+                            })
+                            .to_string();
+                            emit_stdout(&line, "the decoded RSPRO exchange")
+                                .map_err(|e| e.to_string())
+                        } else {
+                            let rendered = trace::render(std::slice::from_ref(&decoded), display);
+                            if rendered.is_empty() {
+                                Ok(())
+                            } else {
+                                emit_stdout(rendered.trim_end(), "the decoded RSPRO exchange")
+                                    .map_err(|e| e.to_string())
+                            }
+                        }
+                    });
+                    return match result {
+                        Ok(_) => contract::ExitCode::Success,
+                        Err(message) => refuse(message),
+                    };
+                }
+                input.extend_from_slice(&head);
+                if let Err(err) = stdin.take(MAX_WHY_FILE_BYTES - 4).read_to_end(&mut input) {
+                    return refuse(format!("cannot read the trace: {err}"));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {}
+            Err(err) => return refuse(format!("cannot read the trace: {err}")),
+        }
+    } else {
+        let path = args.file.as_deref().unwrap();
+        if let Err(err) = std::fs::File::open(path)
+            .and_then(|f| f.take(MAX_WHY_FILE_BYTES).read_to_end(&mut input))
+        {
+            return refuse(format!("cannot read the trace: {err}"));
+        }
     }
     let rows = match trace::parse_bytes(&input) {
         Ok(pairs) => trace::decode(&pairs),
