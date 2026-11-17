@@ -20,12 +20,16 @@ fn bytes(hex: &str) -> Vec<u8> {
 }
 
 fn run(args: &[&str]) -> (Option<i32>, serde_json::Value, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("ota-expanded")
-        .args(args)
-        .arg("--json")
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("ota-expanded")
+    .args(args)
+    .arg("--json")
+    .output()
+    .unwrap();
     let v = serde_json::from_slice(&out.stdout).unwrap_or(serde_json::Value::Null);
     (
         out.status.code(),
@@ -35,11 +39,15 @@ fn run(args: &[&str]) -> (Option<i32>, serde_json::Value, String) {
 }
 
 fn run_human(args: &[&str]) -> (Option<i32>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("ota-expanded")
-        .args(args)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("ota-expanded")
+    .args(args)
+    .output()
+    .unwrap();
     (
         out.status.code(),
         String::from_utf8_lossy(&out.stdout).into_owned(),

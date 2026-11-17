@@ -3,12 +3,16 @@
 use std::process::Command;
 
 fn run(args: &[&str]) -> (Option<i32>, serde_json::Value) {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("ota-crypto")
-        .args(args)
-        .arg("--json")
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("ota-crypto")
+    .args(args)
+    .arg("--json")
+    .output()
+    .unwrap();
     let v = serde_json::from_slice(&out.stdout).unwrap_or(serde_json::Value::Null);
     (out.status.code(), v["payload"]["data"].clone())
 }

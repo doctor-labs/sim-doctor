@@ -7,12 +7,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 fn card(fixture: &str, args: &[&str]) -> Output {
     let log = format!("{}/tests/corpus/{fixture}", env!("CARGO_MANIFEST_DIR"));
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(args)
-        .env("SIM_DOCTOR_TEST_REPLAY", log)
-        .output()
-        .expect("the binary runs")
+    Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(args)
+    .env("SIM_DOCTOR_TEST_REPLAY", log)
+    .output()
+    .expect("the binary runs")
 }
 
 fn lines(out: &Output) -> Vec<serde_json::Value> {
@@ -69,13 +73,17 @@ fn commands_come_from_stdin_when_not_a_terminal_and_quit_stops() {
         "{}/tests/corpus/cardsh_channels.jsonl",
         env!("CARGO_MANIFEST_DIR")
     );
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["card", "--json"])
-        .env("SIM_DOCTOR_TEST_REPLAY", log)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args(["card", "--json"])
+    .env("SIM_DOCTOR_TEST_REPLAY", log)
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .spawn()
+    .unwrap();
     {
         use std::io::Write;
         child
@@ -259,16 +267,20 @@ fn files_and_decode_work_without_a_card() {
     // of the same grammar via an empty replay log.
     let dir = std::env::temp_dir().join("cardsh-offline.jsonl");
     std::fs::write(&dir, "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "-c",
-            "decode EF.SPN 01414253FFFF; files IMSI",
-        ])
-        .env("SIM_DOCTOR_TEST_REPLAY", &dir)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args([
+        "card",
+        "--json",
+        "-c",
+        "decode EF.SPN 01414253FFFF; files IMSI",
+    ])
+    .env("SIM_DOCTOR_TEST_REPLAY", &dir)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -282,13 +294,17 @@ fn files_and_decode_work_without_a_card() {
 
 fn card_chv(fixture: &str, secrets: &str, args: &[&str]) -> Output {
     let log = format!("{}/tests/corpus/{fixture}", env!("CARGO_MANIFEST_DIR"));
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(args)
-        .env("SIM_DOCTOR_TEST_REPLAY", log)
-        .env("SIMDOC_TEST_CHV", secrets)
-        .output()
-        .expect("the binary runs")
+    Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(args)
+    .env("SIM_DOCTOR_TEST_REPLAY", log)
+    .env("SIMDOC_TEST_CHV", secrets)
+    .output()
+    .expect("the binary runs")
 }
 
 #[test]
@@ -329,19 +345,23 @@ fn verify_chv_takes_its_value_from_the_environment_and_never_prints_it() {
     // Without --yes: a dry run, and the replay log is never touched (an empty one is enough).
     let empty = std::env::temp_dir().join("cardsh-chv-empty.jsonl");
     std::fs::write(&empty, "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "--chv-env",
-            "SIMDOC_TEST_CHV",
-            "-c",
-            "verify_chv",
-        ])
-        .env("SIM_DOCTOR_TEST_REPLAY", &empty)
-        .env("SIMDOC_TEST_CHV", secrets)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args([
+        "card",
+        "--json",
+        "--chv-env",
+        "SIMDOC_TEST_CHV",
+        "-c",
+        "verify_chv",
+    ])
+    .env("SIM_DOCTOR_TEST_REPLAY", &empty)
+    .env("SIMDOC_TEST_CHV", secrets)
+    .output()
+    .unwrap();
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(lines(&out)[0]["data"]["sent"], false);
 }
@@ -352,12 +372,16 @@ fn a_bad_pin_source_is_exit_two_before_any_reader_is_opened() {
         vec!["--chv-file", "/nonexistent/chv.txt"],
         vec!["--chv-env", "SIMDOC_NO_SUCH_VAR"],
     ] {
-        let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .arg("card")
-            .args(&args)
-            .args(["-c", "status"])
-            .output()
-            .unwrap();
+        let out = Command::new(
+            std::env::var("CARGO_BIN_EXE_sim-doctor")
+                .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+                .unwrap(),
+        )
+        .arg("card")
+        .args(&args)
+        .args(["-c", "status"])
+        .output()
+        .unwrap();
         assert_eq!(out.status.code(), Some(2), "{args:?}");
     }
     let out = card_chv(
@@ -433,16 +457,20 @@ fn run_gsm_algorithm_reports_sres_and_kc_and_whether_the_card_repeats_itself() {
     // Without --yes: a dry run (an empty log would fail any exchange).
     let empty = std::env::temp_dir().join("cardsh-gsm-empty.jsonl");
     std::fs::write(&empty, "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "-c",
-            &format!("run_gsm_algorithm --rand {rand}"),
-        ])
-        .env("SIM_DOCTOR_TEST_REPLAY", &empty)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args([
+        "card",
+        "--json",
+        "-c",
+        &format!("run_gsm_algorithm --rand {rand}"),
+    ])
+    .env("SIM_DOCTOR_TEST_REPLAY", &empty)
+    .output()
+    .unwrap();
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(lines(&out)[0]["data"]["sent"], false);
 }
@@ -595,16 +623,20 @@ fn sst_uses_two_bits_per_service_and_ist_names_its_services() {
     std::fs::write(&dir, "").unwrap();
     // SST byte 0x0F: services 1 and 2 allocated+activated; 0x01: service 5 allocated only; 0x00: 9-12 off.
     // IST byte 0x03: services 1 and 2.
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "-c",
-            "decode EF.SST 0F0100; decode EF.IST 03",
-        ])
-        .env("SIM_DOCTOR_TEST_REPLAY", &dir)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args([
+        "card",
+        "--json",
+        "-c",
+        "decode EF.SST 0F0100; decode EF.IST 03",
+    ])
+    .env("SIM_DOCTOR_TEST_REPLAY", &dir)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -975,12 +1007,16 @@ fn card_key(csv: &str, args: &[&str]) -> std::process::Output {
     std::fs::write(&dir, csv).unwrap();
     let replay = std::env::temp_dir().join(format!("cardsh-kf-{n}.jsonl"));
     std::fs::write(&replay, "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["card", "--key-file", dir.to_str().unwrap()])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .args(args)
-        .output()
-        .expect("the binary runs");
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args(["card", "--key-file", dir.to_str().unwrap()])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .args(args)
+    .output()
+    .expect("the binary runs");
     std::fs::remove_file(&dir).ok();
     std::fs::remove_file(&replay).ok();
     out
@@ -1048,16 +1084,20 @@ fn query_card_key_without_a_key_file_errors_before_any_reader_is_opened() {
     let n = CARD_KEY_SEQ.fetch_add(1, Ordering::Relaxed);
     let replay = std::env::temp_dir().join(format!("cardsh-kf-{n}.jsonl"));
     std::fs::write(&replay, "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args([
-            "card",
-            "--json",
-            "-c",
-            "query_card_key --key ICCID --value 89010123456789012345 --fields ADM1",
-        ])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args([
+        "card",
+        "--json",
+        "-c",
+        "query_card_key --key ICCID --value 89010123456789012345 --fields ADM1",
+    ])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     std::fs::remove_file(&replay).ok();
     assert_eq!(out.status.code(), Some(1));
     let r = lines(&out);
@@ -1350,19 +1390,23 @@ fn verify_adm_is_a_dry_run_by_default_and_refuses_a_hex_form_mismatch_before_sen
     std::fs::write(&empty, "").unwrap();
     let secrets = "adm1=77777777; adm2=hex:3737373737373737";
     let run = |script: &str| {
-        Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .args([
-                "card",
-                "--json",
-                "--chv-env",
-                "SIMDOC_TEST_CHV",
-                "-c",
-                script,
-            ])
-            .env("SIM_DOCTOR_TEST_REPLAY", &empty)
-            .env("SIMDOC_TEST_CHV", secrets)
-            .output()
-            .unwrap()
+        Command::new(
+            std::env::var("CARGO_BIN_EXE_sim-doctor")
+                .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+                .unwrap(),
+        )
+        .args([
+            "card",
+            "--json",
+            "--chv-env",
+            "SIMDOC_TEST_CHV",
+            "-c",
+            script,
+        ])
+        .env("SIM_DOCTOR_TEST_REPLAY", &empty)
+        .env("SIMDOC_TEST_CHV", secrets)
+        .output()
+        .unwrap()
     };
 
     // The default ADM1 is a dry run: the masked APDU names key reference 0A, the value is not shown.
@@ -1402,14 +1446,18 @@ fn get_identity_always_sends_without_yes_gate() {
 fn trace_stdin(args: &[&str]) -> Output {
     use std::io::Write;
     use std::process::Stdio;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("trace")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the binary runs");
+    let mut child = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("trace")
+    .args(args)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("the binary runs");
     child
         .stdin
         .take()
@@ -1658,10 +1706,14 @@ fn exclusive_flag_is_accepted_and_documented() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let help = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .args(["card", "--help"])
-        .output()
-        .expect("the binary runs");
+    let help = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .args(["card", "--help"])
+    .output()
+    .expect("the binary runs");
     let text = String::from_utf8_lossy(&help.stdout);
     assert!(text.contains("-X, --exclusive"), "{text}");
 }
@@ -1684,12 +1736,16 @@ fn empty_replay() -> String {
 #[test]
 fn envelope_builds_the_right_apdu() {
     let replay = empty_replay();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "envelope D3 02 AA BB"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "envelope D3 02 AA BB"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1710,12 +1766,16 @@ fn envelope_builds_the_right_apdu() {
 #[test]
 fn envelope_sms_wraps_in_tag_d1() {
     let replay = empty_replay();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "envelope_sms 82 02 82 81"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "envelope_sms 82 02 82 81"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1732,12 +1792,16 @@ fn envelope_sms_wraps_in_tag_d1() {
 #[test]
 fn bip_data_available_builds_the_d6_envelope() {
     let replay = empty_replay();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "bip_data_available 1 42"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "bip_data_available 1 42"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1759,12 +1823,16 @@ fn bip_data_available_requires_yes_to_send() {
     let replay = empty_replay();
     // With --yes, the command is sent to the replay card. The replay has no
     // recorded response, so the command fails — but the APDU was built and sent.
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "bip_data_available 1 42 --yes"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "bip_data_available 1 42 --yes"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     // The replay has no record for this command, so the shell reports an error.
     assert_eq!(
         out.status.code(),
@@ -1785,12 +1853,16 @@ fn bip_data_available_requires_yes_to_send() {
 #[test]
 fn bip_local_info_builds_terminal_response() {
     let replay = empty_replay();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "bip_local_info 2 62F21000010001"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "bip_local_info 2 62F21000010001"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1816,12 +1888,16 @@ fn bip_local_info_builds_terminal_response() {
 #[test]
 fn bip_local_info_without_location_is_minimal() {
     let replay = empty_replay();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "bip_local_info 1"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "bip_local_info 1"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1843,12 +1919,16 @@ fn bip_local_info_without_location_is_minimal() {
 #[test]
 fn bip_data_available_rejects_channel_out_of_range() {
     let replay = empty_replay();
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(["--json", "-c", "bip_data_available 8 42"])
-        .env("SIM_DOCTOR_TEST_REPLAY", &replay)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(["--json", "-c", "bip_data_available 8 42"])
+    .env("SIM_DOCTOR_TEST_REPLAY", &replay)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(1),
@@ -2196,19 +2276,23 @@ fn card_keys(
     keys: &std::path::Path,
     args: &[&str],
 ) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("card")
-        .args(args)
-        .arg("--card-key-csv")
-        .arg(csv)
-        .arg("--card-key-key")
-        .arg(keys)
-        .env(
-            "SIM_DOCTOR_TEST_REPLAY",
-            format!("{}/tests/corpus/{fixture}", env!("CARGO_MANIFEST_DIR")),
-        )
-        .output()
-        .expect("the binary runs")
+    Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("card")
+    .args(args)
+    .arg("--card-key-csv")
+    .arg(csv)
+    .arg("--card-key-key")
+    .arg(keys)
+    .env(
+        "SIM_DOCTOR_TEST_REPLAY",
+        format!("{}/tests/corpus/{fixture}", env!("CARGO_MANIFEST_DIR")),
+    )
+    .output()
+    .expect("the binary runs")
 }
 
 #[test]
@@ -2224,10 +2308,14 @@ fn exclusive_flag_is_documented_on_every_command_that_opens_a_reader() {
         vec!["shell", "--help"],
         vec!["explore", "--help"],
     ] {
-        let help = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-            .args(&args)
-            .output()
-            .expect("the binary runs");
+        let help = Command::new(
+            std::env::var("CARGO_BIN_EXE_sim-doctor")
+                .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+                .unwrap(),
+        )
+        .args(&args)
+        .output()
+        .expect("the binary runs");
         let text = String::from_utf8_lossy(&help.stdout);
         assert!(text.contains("-X, --exclusive"), "{args:?}: {text}");
     }

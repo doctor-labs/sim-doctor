@@ -3,7 +3,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
 }
 
 #[test]

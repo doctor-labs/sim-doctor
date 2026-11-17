@@ -22,8 +22,10 @@ const CANARY_KEY2: &str = "FEDCBA9876543210FEDCBA9876543210";
 
 const ISD: &str = "A000000151000000";
 
-fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_sim-doctor")
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_sim-doctor")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+        .unwrap()
 }
 
 // ---------------------------------------------------------------------------

@@ -394,7 +394,11 @@ struct Out {
 /// Runs `sim-doctor args` with a clean environment (no agent variables, no
 /// record log), in `cwd` when given.
 fn bin(args: &[&str], cwd: Option<&Path>, stdin: Option<&str>) -> Out {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_sim-doctor"));
+    let mut cmd = Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    );
     cmd.args(args)
         .env_remove("SIM_DOCTOR_RECORD")
         .env_remove("CLAUDECODE")

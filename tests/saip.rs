@@ -40,13 +40,17 @@ fn write_fixture(name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 fn parse(path: &PathBuf, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
-        .arg("saip")
-        .arg("parse")
-        .arg(path)
-        .args(extra)
-        .output()
-        .unwrap()
+    Command::new(
+        std::env::var("CARGO_BIN_EXE_sim-doctor")
+            .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+            .unwrap(),
+    )
+    .arg("saip")
+    .arg("parse")
+    .arg(path)
+    .args(extra)
+    .output()
+    .unwrap()
 }
 
 #[test]

@@ -9,7 +9,7 @@
 //! command line.
 //!
 //! So each test here spawns the built binary. `binary()` is
-//! `env!("CARGO_BIN_EXE_sim-doctor")`, resolved by cargo at compile time, not
+//! `std::env::var("CARGO_BIN_EXE_sim-doctor").or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor")).unwrap()`, resolved by cargo at compile time, not
 //! `cargo run` and not a path guessed at at runtime, and the assertions are
 //! on the `ExitStatus` the kernel reported rather than on a value the crate
 //! produced for itself.
@@ -37,8 +37,10 @@ use std::time::Instant;
 use sim_doctor::contract;
 
 /// The binary under test, as built by cargo for this integration test.
-fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_sim-doctor")
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_sim-doctor")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+        .unwrap()
 }
 
 /// A reader name that cannot exist, so a `scan` takes the no-reader/unknown-reader
@@ -3166,10 +3168,12 @@ fn gp_install_only_and_update_send_one_apdu_and_refuse_the_rest() {
 /// would be a class nothing went out at.
 #[test]
 fn the_class_flag_is_refused_where_it_does_not_apply() {
-    let bin = env!("CARGO_BIN_EXE_sim-doctor");
+    let bin = std::env::var("CARGO_BIN_EXE_sim-doctor")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+        .unwrap();
 
     // A CLA that is neither of the two the tool can name.
-    let out = std::process::Command::new(bin)
+    let out = std::process::Command::new(&bin)
         .args(["scan", "--class", "3g", "--tar", "off"])
         .output()
         .expect("the binary runs");
@@ -3181,7 +3185,7 @@ fn the_class_flag_is_refused_where_it_does_not_apply() {
     assert!(err.contains("etsi") && err.contains("gsm"), "{err}");
 
     // A command line that is well formed but asks for nothing to be sent.
-    let out = std::process::Command::new(bin)
+    let out = std::process::Command::new(&bin)
         .args(["scan", "--tar", "off", "--class", "gsm"])
         .output()
         .expect("the binary runs");
@@ -3196,7 +3200,7 @@ fn the_class_flag_is_refused_where_it_does_not_apply() {
     );
 
     // A command that does not take the flag at all.
-    let out = std::process::Command::new(bin)
+    let out = std::process::Command::new(&bin)
         .args(["why", "gsma/msl-zero-allowed", "--class", "gsm"])
         .output()
         .expect("the binary runs");

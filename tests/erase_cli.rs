@@ -13,8 +13,10 @@ use std::process::Command;
 use sim_doctor::erase;
 
 /// The binary under test, as built by cargo for this integration test.
-fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_sim-doctor")
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_sim-doctor")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_sim_doctor"))
+        .unwrap()
 }
 
 fn run(args: &[&str]) -> (String, String, Option<i32>) {
