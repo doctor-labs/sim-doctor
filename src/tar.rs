@@ -842,9 +842,8 @@ pub fn sms_deliver_tpdu_with_udh(
     };
     let ud_len = ud_prefix.len().checked_add(user_data.len())?;
     let udl = u8::try_from(ud_len).ok()?;
-    let mut out = Vec::with_capacity(
-        1 + SMS_DELIVER_TPOA.len() + 2 + SMS_DELIVER_SCTS.len() + 1 + ud_len,
-    );
+    let mut out =
+        Vec::with_capacity(1 + SMS_DELIVER_TPOA.len() + 2 + SMS_DELIVER_SCTS.len() + 1 + ud_len);
     out.push(first_octet);
     out.extend_from_slice(&SMS_DELIVER_TPOA);
     out.push(pid);
@@ -923,8 +922,21 @@ pub fn envelope_data_passthrough(
     cph: &[u8],
     passthrough: Passthrough,
 ) -> Option<Vec<u8>> {
-    let udh = if passthrough.udhi { Some(&[][..]) } else { None };
-    envelope_data_passthrough_with_udh(tar, class, keyset, mechanism, cph, passthrough.pid, passthrough.dcs, udh)
+    let udh = if passthrough.udhi {
+        Some(&[][..])
+    } else {
+        None
+    };
+    envelope_data_passthrough_with_udh(
+        tar,
+        class,
+        keyset,
+        mechanism,
+        cph,
+        passthrough.pid,
+        passthrough.dcs,
+        udh,
+    )
 }
 
 /// The same envelope data field as [`envelope_data_passthrough`], with an
@@ -1068,7 +1080,8 @@ pub fn envelope_apdu_passthrough_with_udh(
     dcs: u8,
     udh: Option<&[u8]>,
 ) -> Option<Vec<u8>> {
-    let data = envelope_data_passthrough_with_udh(tar, class, keyset, mechanism, cph, pid, dcs, udh)?;
+    let data =
+        envelope_data_passthrough_with_udh(tar, class, keyset, mechanism, cph, pid, dcs, udh)?;
     envelope_apdu_from_data(class, &data)
 }
 
