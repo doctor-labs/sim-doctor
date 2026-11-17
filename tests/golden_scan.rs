@@ -720,17 +720,22 @@ fn a_scan_that_cannot_write_its_report_exits_2_and_says_so() {
         let stdout = unsafe { Stdio::from_raw_fd(fds[1]) };
         let mut args = vec!["scan", "--tar", "focused", "--yes"];
         args.extend(extra);
-        let out =
-            Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
-                concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")
-            }))
-            .args(&args)
-            .env("SIM_DOCTOR_TEST_REPLAY", &msl0)
-            .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(Stdio::piped())
-            .output()
-            .unwrap();
+        let out = Command::new(
+            std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+                std::ffi::OsString::from(format!(
+                    "{}/target/debug/sim-doctor{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    std::env::consts::EXE_SUFFIX
+                ))
+            }),
+        )
+        .args(&args)
+        .env("SIM_DOCTOR_TEST_REPLAY", &msl0)
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
         writeln!(
             text,
             "# {label}: exit {}\n--- stderr\n{}",

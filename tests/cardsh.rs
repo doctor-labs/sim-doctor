@@ -392,15 +392,20 @@ fn a_bad_pin_source_is_exit_two_before_any_reader_is_opened() {
         vec!["--chv-file", "/nonexistent/chv.txt"],
         vec!["--chv-env", "SIMDOC_NO_SUCH_VAR"],
     ] {
-        let out =
-            Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
-                concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")
-            }))
-            .arg("card")
-            .args(&args)
-            .args(["-c", "status"])
-            .output()
-            .unwrap();
+        let out = Command::new(
+            std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+                std::ffi::OsString::from(format!(
+                    "{}/target/debug/sim-doctor{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    std::env::consts::EXE_SUFFIX
+                ))
+            }),
+        )
+        .arg("card")
+        .args(&args)
+        .args(["-c", "status"])
+        .output()
+        .unwrap();
         assert_eq!(out.status.code(), Some(2), "{args:?}");
     }
     let out = card_chv(
@@ -2387,13 +2392,18 @@ fn exclusive_flag_is_documented_on_every_command_that_opens_a_reader() {
         vec!["shell", "--help"],
         vec!["explore", "--help"],
     ] {
-        let help =
-            Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
-                concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")
-            }))
-            .args(&args)
-            .output()
-            .expect("the binary runs");
+        let help = Command::new(std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(
+            || {
+                std::ffi::OsString::from(format!(
+                    "{}/target/debug/sim-doctor{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    std::env::consts::EXE_SUFFIX
+                ))
+            },
+        ))
+        .args(&args)
+        .output()
+        .expect("the binary runs");
         let text = String::from_utf8_lossy(&help.stdout);
         assert!(text.contains("-X, --exclusive"), "{args:?}: {text}");
     }
