@@ -9,7 +9,9 @@ use serde_json::{json, Map, Value};
 /// What `maybe_submit` reports, so callers can record it and tests can assert it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Submission {
+    /// Whether the endpoint was contacted and accepted the payload.
     pub contacted: bool,
+    /// The endpoint that was (or would have been) contacted, if any.
     pub endpoint: Option<String>,
     /// The anonymized payload that was (or would be) sent.
     pub payload: Value,
@@ -39,7 +41,10 @@ pub fn post_http(endpoint: &str, body: &str) -> Result<String, String> {
         .send(body)
         .map_err(|e| e.to_string())?;
     let status = resp.status();
-    let text = resp.body_mut().read_to_string().map_err(|e| e.to_string())?;
+    let text = resp
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
     if !(200..300).contains(&status.as_u16()) {
         return Err(format!("HTTP {status}: {text}"));
     }
@@ -188,11 +193,7 @@ fn redact_value_deep(v: &mut Value) {
 /// Compute the anonymized payload and, only if `endpoint` is Some, print the
 /// destination and exact payload then contact it. With no endpoint, no network
 /// call is made and the note says so.
-pub fn maybe_submit_with(
-    poster: Poster,
-    endpoint: Option<&str>,
-    envelope: &Value,
-) -> Submission {
+pub fn maybe_submit_with(poster: Poster, endpoint: Option<&str>, envelope: &Value) -> Submission {
     let payload = anonymize(envelope);
     match endpoint {
         None => Submission {
@@ -234,6 +235,7 @@ pub fn maybe_submit(endpoint: Option<&str>, envelope: &Value) -> Submission {
     maybe_submit_with(post_http, endpoint, envelope)
 }
 
+/// The `data.submission` object recorded in a scan envelope.
 pub fn submission_json(s: &Submission) -> Value {
     json!({
         "contacted": s.contacted,
@@ -275,7 +277,10 @@ mod tests {
         assert_eq!(CALLS.load(Ordering::SeqCst), 0);
         assert!(s.note.contains("nothing left the machine"));
         assert_eq!(s.payload["data"]["atr"], "REDACTED");
-        assert_eq!(s.payload["data"]["ef_contents"][0]["fields"]["imsi"], "REDACTED");
+        assert_eq!(
+            s.payload["data"]["ef_contents"][0]["fields"]["imsi"],
+            "REDACTED"
+        );
         assert_eq!(s.payload["data"]["ef_contents"][0]["evidence"], "REDACTED");
     }
 
@@ -290,6 +295,9 @@ mod tests {
         assert!(s.contacted);
         assert_eq!(CALLS.load(Ordering::SeqCst), 1);
         assert_eq!(s.payload["data"]["atr"], "REDACTED");
-        assert_eq!(s.payload["data"]["ef_contents"][0]["fields"]["iccid"], "REDACTED");
+        assert_eq!(
+            s.payload["data"]["ef_contents"][0]["fields"]["iccid"],
+            "REDACTED"
+        );
     }
 }
