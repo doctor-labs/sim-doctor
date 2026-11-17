@@ -86,6 +86,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--face', '--face', [CompletionResultType]::ParameterName, 'The human report: a doctor-kit face (rich, plain or compact), or the full legacy report')
             [CompletionResult]::new('--theme', '--theme', [CompletionResultType]::ParameterName, 'The face''s colours: mono, clinical or contrast (default: the tool''s own)')
             [CompletionResult]::new('--color', '--color', [CompletionResultType]::ParameterName, 'Colour the face: auto (a terminal and no NO_COLOR), always or never')
+            [CompletionResult]::new('--submit', '--submit', [CompletionResultType]::ParameterName, 'Upload the anonymized scan envelope to this HTTPS endpoint (opt-in, off by default). Identifiers and file contents are redacted before sending')
+            [CompletionResult]::new('--submit-ca', '--submit-ca', [CompletionResultType]::ParameterName, 'PEM trust anchor for --submit (certificate pinning / explicit CA)')
             [CompletionResult]::new('-X', '-X ', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--exclusive', '--exclusive', [CompletionResultType]::ParameterName, 'Open the reader in exclusive mode (PC/SC SCARD_SHARE_EXCLUSIVE): no other process can use the card while this runs. Off by default, which shares it')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope on stdout, and nothing else')
@@ -1279,10 +1281,12 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             break
         }
         'sim-doctor;trace' {
+            [CompletionResult]::new('--bind', '--bind', [CompletionResultType]::ParameterName, 'UDP address to bind for --listen (default: 127.0.0.1:4729)')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "trace" on stdout')
             [CompletionResult]::new('--show-raw-apdu', '--show-raw-apdu', [CompletionResultType]::ParameterName, 'Also print each exchange''s raw command and response hex in the table')
             [CompletionResult]::new('--no-suppress-select', '--no-suppress-select', [CompletionResultType]::ParameterName, 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace')
             [CompletionResult]::new('--no-suppress-status', '--no-suppress-status', [CompletionResultType]::ParameterName, 'Keep UICC STATUS rows in the table. They are hidden by default, as in pySim-trace')
+            [CompletionResult]::new('--listen', '--listen', [CompletionResultType]::ParameterName, 'Listen for live GSMTAP SIM APDUs over UDP instead of reading a file')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
@@ -1878,6 +1882,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--script', '--script', [CompletionResultType]::ParameterName, 'Run the commands in this file, one per line (`#` starts a comment), and exit')
             [CompletionResult]::new('--read-csv', '--read-csv', [CompletionResultType]::ParameterName, 'Run the commands in the `command` column of this CSV file, one per row, and exit. This is a command table, not pySim''s provisioning CSV (a file with iccid and imsi columns is checked as that layout instead, with no card write). Each row is one command exactly as typed; without `--yes` a row that changes the card is a dry run. WARNING: terminate_df, terminate_ef, terminate_card_usage and deactivate_file can permanently disable a file or the card, and delete_data and delete_all permanently destroy data')
             [CompletionResult]::new('--write-csv', '--write-csv', [CompletionResultType]::ParameterName, 'Append a redacted result log to this CSV file: one row per command run (`command,ok,text`), with the arguments replaced by `<args redacted>`. It is not pySim''s provisioning CSV and cannot be read back as one. A new file starts with the header row; blank and comment lines are not logged')
+            [CompletionResult]::new('--write-hlr', '--write-hlr', [CompletionResultType]::ParameterName, 'Write an HLR provisioning SQL script (osmo-hlr schema, for the sqlite3 shell) from the rows of a provisioning CSV given with --read-csv. Each row must have imsi, msisdn, ki and opc. The file is created mode 0600 and is never overwritten. No card is touched')
             [CompletionResult]::new('--chv-file', '--chv-file', [CompletionResultType]::ParameterName, 'File holding PINs, PUKs and ADM keys for `verify_chv` / `unblock_chv` (`pin1=1234` per line; keep it chmod 600). Never a value on the command line: it would land in shell history')
             [CompletionResult]::new('--chv-env', '--chv-env', [CompletionResultType]::ParameterName, 'Environment variable holding the same text (entries separated by `;` or newlines)')
             [CompletionResult]::new('--key-file', '--key-file', [CompletionResultType]::ParameterName, 'pySim CardKeyProvider CSV file for `query_card_key` (ICCID,ADM1,OPC,...; one card per row). Read and checked before any reader is opened; secrets are never printed unless named in --fields. Keep it chmod 600')
