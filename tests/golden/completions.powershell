@@ -1283,6 +1283,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;trace' {
             [CompletionResult]::new('--bind', '--bind', [CompletionResultType]::ParameterName, 'UDP address to bind for --listen (default: 127.0.0.1:4729)')
+            [CompletionResult]::new('--interface', '--interface', [CompletionResultType]::ParameterName, 'Capture live RSPRO (osmo-remsim) APDUs on a network interface (pySim `rspro-pyshark-live` style). Spawns `tcpdump -i <IFACE> -U -s 0 -w - tcp` and decodes modem-card TPDU pairs as they arrive. Requires tcpdump and capture privileges; live run needs osmo-remsim/RSPRO traffic and radio hardware producing it')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one JSON envelope of kind "trace" on stdout')
             [CompletionResult]::new('--show-raw-apdu', '--show-raw-apdu', [CompletionResultType]::ParameterName, 'Also print each exchange''s raw command and response hex in the table')
             [CompletionResult]::new('--no-suppress-select', '--no-suppress-select', [CompletionResultType]::ParameterName, 'Keep SELECT rows in the table. They are hidden by default, as in pySim-trace')

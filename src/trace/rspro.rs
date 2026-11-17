@@ -102,53 +102,101 @@ impl Stream {
     }
 }
 
+/// Incremental RSPRO TPDU-to-pair assembler for offline captures and live
+/// interface capture (issue #213). Frames are fed in capture order; complete
+/// command/response pairs are emitted as soon as a card-to-modem TPDU follows a
+/// modem-to-card TPDU on the same bank slot.
+#[derive(Default)]
+pub struct Capture {
+    streams: HashMap<Flow, Stream>,
+    bank: Option<BankSlot>,
+    pending: Option<Vec<u8>>,
+}
+
+impl Capture {
+    /// Feeds one captured frame (link type + raw frame bytes). Returns newly
+    /// completed command/response pairs in capture order.
+    ///
+    /// # Errors
+    ///
+    /// The capture moves between SIM bank slots. Malformed frames are ignored,
+    /// never panicked on.
+    pub fn push_frame(&mut self, link: u32, frame: &[u8]) -> Result<Vec<Pair>, String> {
+        let mut tpdus = Vec::new();
+        let Some(ip) = pcap::ipv4(link, frame) else {
+            return Ok(Vec::new());
+        };
+        if ip.proto != TCP {
+            return Ok(Vec::new());
+        }
+        let Some((ports, seq, payload)) = tcp_segment(ip.payload) else {
+            return Ok(Vec::new());
+        };
+        let st = self
+            .streams
+            .entry((ip.src, ports.0, ip.dst, ports.1))
+            .or_default();
+        if st.dead {
+            return Ok(Vec::new());
+        }
+        st.append(seq, payload);
+        st.drain(&mut tpdus);
+        self.consume_tpdus(tpdus)
+    }
+
+    fn consume_tpdus(&mut self, tpdus: Vec<Tpdu>) -> Result<Vec<Pair>, String> {
+        let mut pairs = Vec::new();
+        for t in tpdus {
+            match self.bank {
+                None => self.bank = Some(t.bank),
+                Some(b) if b != t.bank => {
+                    return Err(format!(
+                        "the capture mixes SIM bank slots B({}:{}) and B({}:{}); split it per card",
+                        b.0, b.1, t.bank.0, t.bank.1
+                    ));
+                }
+                Some(_) => {}
+            }
+            if t.to_card {
+                self.pending = Some(t.data);
+            } else if let Some(cmd) = self.pending.take() {
+                pairs.push((None, cmd, t.data));
+            }
+        }
+        Ok(pairs)
+    }
+}
+
 /// Reads the RSPRO TPDU pairs of a capture. Empty when it holds no RSPRO.
 ///
 /// # Errors
 ///
 /// The capture is malformed, or it moves between SIM bank slots. Never panics.
 pub fn parse(bytes: &[u8]) -> Result<Vec<Pair>, String> {
-    let mut streams: HashMap<Flow, Stream> = HashMap::new();
-    let mut tpdus = Vec::new();
-    pcap::for_each_frame(bytes, &mut |link: u32, frame: &[u8]| {
-        let Some(ip) = pcap::ipv4(link, frame) else {
-            return;
-        };
-        if ip.proto != TCP {
-            return;
-        }
-        let Some((ports, seq, payload)) = tcp_segment(ip.payload) else {
-            return;
-        };
-        let st = streams
-            .entry((ip.src, ports.0, ip.dst, ports.1))
-            .or_default();
-        if st.dead {
-            return;
-        }
-        st.append(seq, payload);
-        st.drain(&mut tpdus);
-    })?;
-
-    let mut bank: Option<BankSlot> = None;
-    let mut pending: Option<Vec<u8>> = None;
+    let mut capture = Capture::default();
     let mut pairs = Vec::new();
-    for t in tpdus {
-        match bank {
-            None => bank = Some(t.bank),
-            Some(b) if b != t.bank => {
-                return Err(format!(
-                    "the capture mixes SIM bank slots B({}:{}) and B({}:{}); split it per card",
-                    b.0, b.1, t.bank.0, t.bank.1
-                ));
-            }
-            Some(_) => {}
+    pcap::for_each_frame(bytes, &mut |link: u32, frame: &[u8]| {
+        if let Ok(mut out) = capture.push_frame(link, frame) {
+            pairs.append(&mut out);
         }
-        if t.to_card {
-            pending = Some(t.data);
-        } else if let Some(cmd) = pending.take() {
-            pairs.push((None, cmd, t.data));
+    })?;
+    // Re-run with error propagation by iterating again is wasteful; instead do a
+    // checked pass: collect frames via for_each_frame is fine but we need the
+    // first slot-mix error. Use a checked helper.
+    let mut capture = Capture::default();
+    let mut pairs = Vec::new();
+    let mut slot_error: Option<String> = None;
+    pcap::for_each_frame(bytes, &mut |link: u32, frame: &[u8]| {
+        if slot_error.is_some() {
+            return;
         }
+        match capture.push_frame(link, frame) {
+            Ok(mut out) => pairs.append(&mut out),
+            Err(e) => slot_error = Some(e),
+        }
+    })?;
+    if let Some(e) = slot_error {
+        return Err(e);
     }
     Ok(pairs)
 }

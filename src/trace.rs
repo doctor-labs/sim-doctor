@@ -18,7 +18,7 @@ pub const NAME: &str = "trace";
 use serde_json::{json, Value};
 
 pub mod pcap;
-mod rspro;
+pub mod rspro;
 
 use crate::apdu::{Command, StatusWord};
 
@@ -205,6 +205,67 @@ impl Decoder {
         let pair = pcap::pair_from_gsmtap_datagram(payload)?;
         Some(self.decode_pair(&pair))
     }
+}
+
+/// Reads a live classic-pcap RSPRO (osmo-remsim) capture from `reader` and
+/// passes each decoded modem-card TPDU pair to `on_decoded`. Intended for live
+/// interface capture (issue #213), e.g. piping `tcpdump -i <iface> -U -w - tcp`.
+/// GSMTAP live capture uses the UDP listener APIs instead.
+///
+/// # Errors
+///
+/// A malformed pcap stream, an I/O error, or a capture that moves between SIM
+/// bank slots.
+pub fn stream_rspro_pcap(
+    reader: impl std::io::Read,
+    mut on_pair: impl FnMut(usize, Pair) -> Result<(), String>,
+) -> Result<usize, String> {
+    let mut capture = rspro::Capture::default();
+    let mut count = 0usize;
+    pcap::for_each_frame_stream(reader, |link, frame| {
+        for pair in capture.push_frame(link, frame)? {
+            count += 1;
+            on_pair(count, pair)?;
+        }
+        Ok(())
+    })?;
+    Ok(count)
+}
+
+/// Spawns `tcpdump -i <interface> -U -s 0 -w - tcp` and streams a live RSPRO
+/// (osmo-remsim) capture from it, decoding modem-card TPDU pairs as they arrive.
+/// This is the live capture path for issue #213 (pySim `rspro-pyshark-live`,
+/// `pySim-trace.py:183-187` reference: live RSPRO processed via pyshark on an
+/// interface). It requires `tcpdump` on PATH and capture privileges on the host.
+///
+/// # Errors
+///
+/// `tcpdump` cannot be started, the pcap stream is malformed, or the capture
+/// moves between SIM bank slots.
+pub fn capture_rspro_interface(
+    interface: &str,
+    on_pair: impl FnMut(usize, Pair) -> Result<(), String>,
+) -> Result<usize, String> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("tcpdump")
+        .args(["-i", interface, "-U", "-s", "0", "-w", "-", "tcp"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| {
+            format!(
+                "cannot start tcpdump for live RSPRO capture on interface {interface:?}: {e}. Install tcpdump and ensure capture privileges (root/CAP_NET_RAW)."
+            )
+        })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "tcpdump stdout was not captured".to_owned())?;
+    let result = stream_rspro_pcap(stdout, on_pair);
+    let _ = child.kill();
+    let _ = child.wait();
+    result
 }
 
 /// Binds a UDP socket for a live GSMTAP SIM APDU stream and returns it together
