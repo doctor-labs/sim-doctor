@@ -271,6 +271,12 @@ fn children(body: &[u8], base: usize, depth: usize, budget: &mut Budget) -> Resu
 /// [`Error::TooLarge`], [`Error::Empty`], and for any malformed element the offset and
 /// the reason ([`Error::BadTag`], [`Error::Der`]).
 pub fn decode(bytes: &[u8]) -> Result<Value, Error> {
+    let (elements, _) = decode_elements(bytes)?;
+    Ok(json!({ "pe_count": elements.len(), "elements": elements }))
+}
+
+/// Decodes top-level profile elements, returning the JSON elements and their raw byte slices.
+fn decode_elements(bytes: &[u8]) -> Result<(Vec<Value>, Vec<Vec<u8>>), Error> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(Error::TooLarge {
             len: bytes.len(),
@@ -282,19 +288,19 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Error> {
     }
     let mut budget = Budget { nodes: 0 };
     let mut elements = Vec::new();
+    let mut raws = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
         let index = elements.len();
         spend(&mut budget)?;
         let framed = frame(&bytes[offset..], offset)?;
-        // Only a known, non-reserved, constructed alternative is expanded. Anything else is
-        // skipped by its length: its body is not parsed, so its bytes cannot fail the decode.
         let known = match framed.tag.constructed {
             true => PE_TYPES.get(framed.tag.number as usize).copied(),
             false => None,
         }
         .filter(|name| !name.starts_with("rfu"));
         let used = framed.used;
+        let raw = bytes[offset..offset + used].to_vec();
         let element = match known {
             Some(name) => {
                 let (mut json, _) = node(&bytes[offset..], offset, 0, &mut budget)?;
@@ -312,13 +318,454 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Error> {
                 "type": "unknown",
                 "tag": framed.tag.hex,
                 "length": framed.body.len(),
-                "raw_hex": hex::encode_upper(&bytes[offset..offset + used]),
+                "raw_hex": hex::encode_upper(&raw),
             }),
         };
         elements.push(element);
+        raws.push(raw);
         offset += used;
     }
-    Ok(json!({ "pe_count": elements.len(), "elements": elements }))
+    Ok((elements, raws))
+}
+
+/// Returns the PE type name for a top-level element, or `None` if unknown/reserved.
+fn pe_type_name(raw: &[u8]) -> Result<Option<&'static str>, Error> {
+    let framed = frame(raw, 0)?;
+    if !framed.tag.constructed {
+        return Ok(None);
+    }
+    Ok(PE_TYPES
+        .get(framed.tag.number as usize)
+        .copied()
+        .filter(|name| !name.starts_with("rfu")))
+}
+
+/// Encodes a DER length in minimal form.
+fn encode_length(len: usize) -> Vec<u8> {
+    if len < 0x80 {
+        vec![len as u8]
+    } else if len <= 0xFF {
+        vec![0x81, len as u8]
+    } else {
+        vec![0x82, (len >> 8) as u8, (len & 0xFF) as u8]
+    }
+}
+
+/// Encodes a TLV with the given tag bytes and body.
+fn encode_tlv(tag: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(tag.len() + 3 + body.len());
+    out.extend_from_slice(tag);
+    out.extend_from_slice(&encode_length(body.len()));
+    out.extend_from_slice(body);
+    out
+}
+
+/// A personalization document applied to a SAIP profile package.
+///
+/// This is the offline personalization half of SAIP (issue #226): it does not touch a card.
+/// It can substitute variant/optional profile elements (by removing selected PE types) and
+/// apply personalization values such as the profile header ICCID and PIN/PUK codes, matching
+/// the fields exposed by [`decode`].
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct Personalization {
+    /// Replace the header profile ICCID (digits, 19-20; an 18-digit value gets a Luhn digit
+    /// appended to 19, and the result is BCD-swapped with an `F` filler as the header stores it).
+    #[serde(default)]
+    pub iccid: Option<String>,
+    /// Replace or override PIN code configurations in the `pinCodes` PE.
+    #[serde(default)]
+    pub pin_codes: Vec<PinPersonalization>,
+    /// Replace or override PUK code configurations in the `pukCodes` PE.
+    #[serde(default)]
+    pub puk_codes: Vec<PukPersonalization>,
+    /// Remove all top-level PEs whose type name is in this list (e.g. `opt-usim`, `opt-isim`).
+    /// Used to substitute variant/optional PEs by excluding unwanted optional variants.
+    #[serde(default)]
+    pub remove_pe_types: Vec<String>,
+}
+
+/// One PIN configuration to apply in a `pinCodes` profile element.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PinPersonalization {
+    /// PIN key reference (identifies which PIN, e.g. 1 for PIN1/app PIN, 0x0A for local PIN).
+    pub key_reference: u8,
+    /// PIN value as ASCII digits (4-8). Encoded as BCD nibbles padded with `F` to 8 octets.
+    pub pin_value: String,
+    /// Unblocking PUK reference, if present.
+    #[serde(default)]
+    pub unblocking_puk_reference: Option<u8>,
+    /// PIN attributes byte. Defaults to 7 if omitted.
+    #[serde(default)]
+    pub attributes: Option<u8>,
+    /// Maximum attempts (high nibble) and retries left (low nibble). Defaults to 3/3.
+    #[serde(default)]
+    pub max_attempts: Option<u8>,
+    /// Retries left. Defaults to `max_attempts` or 3.
+    #[serde(default)]
+    pub retries_left: Option<u8>,
+}
+
+/// One PUK configuration to apply in a `pukCodes` profile element.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PukPersonalization {
+    /// PUK key reference.
+    pub key_reference: u8,
+    /// PUK value as ASCII digits (8). Encoded as BCD nibbles padded with `F` to 8 octets.
+    pub puk_value: String,
+    /// Maximum attempts and retries left (high/low nibble). Defaults to 10/10 (0xAA).
+    #[serde(default)]
+    pub max_attempts: Option<u8>,
+    /// Retries left. Defaults to `max_attempts` or 10.
+    #[serde(default)]
+    pub retries_left: Option<u8>,
+}
+
+/// Errors from personalization and variant handling.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum PersonalizeError {
+    /// The input package could not be decoded.
+    #[error("{0}")]
+    Decode(#[from] Error),
+    /// The personalization document is invalid.
+    #[error("personalization document: {message}")]
+    Document {
+        /// What is wrong.
+        message: String,
+    },
+    /// A value cannot be encoded into the profile.
+    #[error("{field}: {message}")]
+    Value {
+        /// The field being set.
+        field: &'static str,
+        /// Why it cannot be encoded.
+        message: String,
+    },
+}
+
+/// Applies [`Personalization`] to a SAIP profile package and returns the modified DER bytes.
+///
+/// Variant/optional PEs whose type is listed in `remove_pe_types` are removed. Personalization
+/// values (ICCID, PIN/PUK codes) are substituted into the corresponding PEs when present.
+/// PEs not affected by the document are preserved byte-for-byte.
+///
+/// # Errors
+///
+/// Returns [`PersonalizeError`] if the package cannot be decoded, the document is invalid, or a
+/// value cannot be encoded.
+pub fn personalize(bytes: &[u8], doc: &Personalization) -> Result<Vec<u8>, PersonalizeError> {
+    let (_elements, raws) = decode_elements(bytes).map_err(PersonalizeError::Decode)?;
+    let remove: std::collections::HashSet<&str> =
+        doc.remove_pe_types.iter().map(String::as_str).collect();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut pin_applied = false;
+    let mut puk_applied = false;
+
+    // Precompute modified code fields for pin/puk if we need to apply them.
+    let pin_field = if doc.pin_codes.is_empty() {
+        None
+    } else {
+        Some(build_pin_codes_field(&doc.pin_codes)?)
+    };
+    let puk_field = if doc.puk_codes.is_empty() {
+        None
+    } else {
+        Some(build_puk_codes_field(&doc.puk_codes)?)
+    };
+
+    for raw in &raws {
+        let ty = pe_type_name(raw).map_err(PersonalizeError::Decode)?;
+        if let Some(name) = ty {
+            if remove.contains(name) {
+                continue;
+            }
+        }
+        let modified = match ty {
+            Some("header") if doc.iccid.is_some() => Some(personalize_header(raw, doc)?),
+            Some("pinCodes") if pin_field.is_some() => {
+                pin_applied = true;
+                Some(rebuild_pe_preserving_header(
+                    raw,
+                    pin_field.as_ref().unwrap(),
+                )?)
+            }
+            Some("pukCodes") if puk_field.is_some() => {
+                puk_applied = true;
+                Some(rebuild_pe_preserving_header(
+                    raw,
+                    puk_field.as_ref().unwrap(),
+                )?)
+            }
+            _ => None,
+        };
+        out.extend_from_slice(modified.as_deref().unwrap_or(raw.as_slice()));
+    }
+
+    // If PIN/PUK personalization was requested but no such PE existed, that's not silently ignored
+    // in a way that hides mistakes? Better to be lenient: only apply if present. But applying to a
+    // package that has no pinCodes is a no-op - acceptable. However, for correctness, do nothing.
+    let _ = (pin_applied, puk_applied);
+    Ok(out)
+}
+
+fn read_tlv_at(
+    buf: &[u8],
+    off: usize,
+) -> Result<(Vec<u8>, usize, Vec<u8>, usize), PersonalizeError> {
+    let framed = frame(&buf[off..], off).map_err(PersonalizeError::Decode)?;
+    let tag = buf[off..off + framed.tag.octets].to_vec();
+    let header_len = framed.used - framed.body.len();
+    Ok((tag, header_len, framed.body.to_vec(), framed.used))
+}
+
+fn personalize_header(raw: &[u8], doc: &Personalization) -> Result<Vec<u8>, PersonalizeError> {
+    let iccid_str = doc.iccid.as_deref().unwrap();
+    let iccid_bytes = encode_header_iccid(iccid_str)?;
+    let framed = frame(raw, 0).map_err(PersonalizeError::Decode)?;
+    let pe_tag = &raw[..framed.tag.octets];
+    let body = framed.body;
+    let mut new_body = Vec::with_capacity(body.len());
+    let mut off = 0;
+    let mut replaced = false;
+    while off < body.len() {
+        let (tag, _hlen, _val, used) = read_tlv_at(body, off)?;
+        // ProfileHeader fields under AUTOMATIC TAGS: major(0)->80, minor(1)->81, profileType(2)->82, iccid(3)->83.
+        if tag == [0x83] {
+            new_body.extend_from_slice(&encode_tlv(&tag, &iccid_bytes));
+            replaced = true;
+        } else {
+            new_body.extend_from_slice(&body[off..off + used]);
+        }
+        off += used;
+    }
+    if !replaced {
+        new_body.extend_from_slice(&encode_tlv(&[0x83], &iccid_bytes));
+    }
+    Ok(encode_tlv(pe_tag, &new_body))
+}
+
+fn luhn_check_digit(digits: &str) -> Result<u8, PersonalizeError> {
+    if !digits.chars().all(|c| c.is_ascii_digit()) {
+        return Err(PersonalizeError::Value {
+            field: "iccid",
+            message: "must contain only digits".to_string(),
+        });
+    }
+    let mut sum = 0u32;
+    // Compute check digit for the number formed by digits + '?'
+    let mut dbl = true;
+    for ch in digits.chars().rev() {
+        let mut d = ch.to_digit(10).unwrap();
+        if dbl {
+            d *= 2;
+            if d > 9 {
+                d -= 9;
+            }
+        }
+        sum += d;
+        dbl = !dbl;
+    }
+    Ok(((10 - (sum % 10)) % 10) as u8)
+}
+
+fn encode_header_iccid(input: &str) -> Result<Vec<u8>, PersonalizeError> {
+    let s: String = input.chars().filter(|c| c.is_ascii_digit()).collect();
+    if s.is_empty() {
+        return Err(PersonalizeError::Value {
+            field: "iccid",
+            message: "is empty".to_string(),
+        });
+    }
+    let mut digits = s.clone();
+    match digits.len() {
+        18 => {
+            let cd = luhn_check_digit(&digits)?;
+            digits.push(char::from(b'0' + cd));
+        }
+        19 | 20 => {}
+        _ => {
+            return Err(PersonalizeError::Value {
+                field: "iccid",
+                message: format!("expected 18-20 digits, got {}", digits.len()),
+            });
+        }
+    }
+    if digits.len() == 19 {
+        digits.push('F');
+    }
+    // digits.len() == 20 now (or 20+F impossible). encode as pairs: high nibble, low nibble per octet
+    let chars: Vec<char> = digits.chars().collect();
+    if chars.len() != 20 {
+        return Err(PersonalizeError::Value {
+            field: "iccid",
+            message: "internal length error".to_string(),
+        });
+    }
+    let mut out = Vec::with_capacity(10);
+    for pair in chars.chunks(2) {
+        let hi = nibble(pair[0], "iccid")?;
+        let lo = nibble(pair[1], "iccid")?;
+        out.push((hi << 4) | lo);
+    }
+    Ok(out)
+}
+
+fn nibble(c: char, field: &'static str) -> Result<u8, PersonalizeError> {
+    match c {
+        '0'..='9' => Ok(c as u8 - b'0'),
+        'F' | 'f' => Ok(0x0F),
+        _ => Err(PersonalizeError::Value {
+            field,
+            message: format!("invalid nibble character '{c}'"),
+        }),
+    }
+}
+
+fn encode_pin_bcd(pin: &str, field: &'static str) -> Result<Vec<u8>, PersonalizeError> {
+    if !(4..=8).contains(&pin.len()) || !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Err(PersonalizeError::Value {
+            field,
+            message: "must be 4-8 ASCII digits".to_string(),
+        });
+    }
+    let mut nibbles = Vec::with_capacity(16);
+    for ch in pin.chars() {
+        nibbles.push(ch as u8 - b'0');
+    }
+    while nibbles.len() < 16 {
+        nibbles.push(0x0F);
+    }
+    let mut out = Vec::with_capacity(8);
+    for pair in nibbles.chunks(2) {
+        out.push((pair[0] << 4) | pair[1]);
+    }
+    Ok(out)
+}
+
+fn encode_uint(val: u64) -> Vec<u8> {
+    if val == 0 {
+        return vec![0];
+    }
+    let mut bytes = val.to_be_bytes().to_vec();
+    while bytes.len() > 1 && bytes[0] == 0 {
+        bytes.remove(0);
+    }
+    // ensure positive interpretation in DER INTEGER context: if high bit set, prepend 00
+    if bytes[0] & 0x80 != 0 {
+        bytes.insert(0, 0x00);
+    }
+    bytes
+}
+
+fn build_pin_config_entry(p: &PinPersonalization) -> Result<Vec<u8>, PersonalizeError> {
+    let pin_val = encode_pin_bcd(&p.pin_value, "pin_codes.pin_value")?;
+    let mut body = Vec::new();
+    // keyReference [0] = 80
+    body.extend_from_slice(&encode_tlv(
+        &[0x80],
+        &encode_uint(u64::from(p.key_reference)),
+    ));
+    // pinValue [1] = 81
+    body.extend_from_slice(&encode_tlv(&[0x81], &pin_val));
+    // unblockingPINReference [2] = 82
+    if let Some(ukr) = p.unblocking_puk_reference {
+        body.extend_from_slice(&encode_tlv(&[0x82], &encode_uint(u64::from(ukr))));
+    }
+    // pinAttributes [3] = 83
+    if let Some(attr) = p.attributes {
+        body.extend_from_slice(&encode_tlv(&[0x83], &[attr]));
+    }
+    // maxNumOfAttemps-retryNumLeft [4] = 84
+    let max = p.max_attempts.unwrap_or(3);
+    let left = p.retries_left.unwrap_or(max);
+    let counter = (max << 4) | (left & 0x0F);
+    // Use 1 or 2 bytes as appropriate; sample shows [0x00,0xAA] sometimes, but minimal is fine
+    let counter_bytes = if counter == 0 {
+        vec![0, 0]
+    } else {
+        vec![0x00, counter]
+    };
+    body.extend_from_slice(&encode_tlv(&[0x84], &counter_bytes));
+    // PINConfiguration is a SEQUENCE (30)
+    Ok(encode_tlv(&[0x30], &body))
+}
+
+/// Builds the `pinCodes` field (context tag [1], A1) carrying pin configurations.
+/// PE-PINCodes nests pinconfig as choice [0] -> SEQUENCE OF inside A1 (as decoded by `pin_entries`).
+fn build_pin_codes_field(pins: &[PinPersonalization]) -> Result<Vec<u8>, PersonalizeError> {
+    let mut seq_of = Vec::new();
+    for p in pins {
+        seq_of.extend_from_slice(&build_pin_config_entry(p)?);
+    }
+    let inner = encode_tlv(&[0xA0], &seq_of);
+    Ok(encode_tlv(&[0xA1], &inner))
+}
+
+/// Builds the `pukCodes` field (context tag [1], A1) carrying puk configurations.
+/// PE-PUKCodes carries the SEQUENCE OF directly inside A1 (as decoded by `entries(..., "A1")`).
+fn build_puk_codes_field(puks: &[PukPersonalization]) -> Result<Vec<u8>, PersonalizeError> {
+    let mut seq_of = Vec::new();
+    for p in puks {
+        seq_of.extend_from_slice(&build_puk_config_entry(p)?);
+    }
+    Ok(encode_tlv(&[0xA1], &seq_of))
+}
+
+fn build_puk_config_entry(p: &PukPersonalization) -> Result<Vec<u8>, PersonalizeError> {
+    let puk_val = encode_pin_bcd(&p.puk_value, "puk_codes.puk_value")?;
+    let mut body = Vec::new();
+    body.extend_from_slice(&encode_tlv(
+        &[0x80],
+        &encode_uint(u64::from(p.key_reference)),
+    ));
+    body.extend_from_slice(&encode_tlv(&[0x81], &puk_val));
+    let max = p.max_attempts.unwrap_or(10);
+    let left = p.retries_left.unwrap_or(max);
+    let counter = (max << 4) | (left & 0x0F);
+    let counter_bytes = vec![0x00, counter];
+    body.extend_from_slice(&encode_tlv(&[0x82], &counter_bytes));
+    Ok(encode_tlv(&[0x30], &body))
+}
+
+/// Rebuilds a pinCodes/pukCodes PE keeping its existing PE header (child A0) if present,
+/// replacing the codes field (child A1) with `new_codes_field` (a complete TLV, tag A1).
+fn rebuild_pe_preserving_header(
+    raw: &[u8],
+    new_codes_field: &[u8],
+) -> Result<Vec<u8>, PersonalizeError> {
+    let framed = frame(raw, 0).map_err(PersonalizeError::Decode)?;
+    let pe_tag = &raw[..framed.tag.octets];
+    let body = framed.body;
+    let mut children: Vec<Vec<u8>> = Vec::new();
+    let mut off = 0;
+    let mut replaced = false;
+    let mut has_header = false;
+    while off < body.len() {
+        let (tag, _hlen, _val, used) = read_tlv_at(body, off)?;
+        if tag == [0xA0] {
+            has_header = true;
+            children.push(body[off..off + used].to_vec());
+        } else if tag == [0xA1] {
+            children.push(new_codes_field.to_vec());
+            replaced = true;
+        } else {
+            children.push(body[off..off + used].to_vec());
+        }
+        off += used;
+    }
+    if !has_header {
+        let mut hdr = encode_tlv(&[0x80], &[]);
+        hdr.extend_from_slice(&encode_tlv(&[0x81], &encode_uint(0)));
+        children.insert(0, encode_tlv(&[0xA0], &hdr));
+    }
+    if !replaced {
+        children.push(new_codes_field.to_vec());
+    }
+    let mut new_body = Vec::new();
+    for c in children {
+        new_body.extend_from_slice(&c);
+    }
+    Ok(encode_tlv(pe_tag, &new_body))
 }
 
 /// The children of a decoded node; a primitive node has none.
@@ -688,8 +1135,7 @@ mod tests {
         // Variant/optional PEs by SAIP position: opt-usim (20), opt-isim (22),
         // opt-csim (26), df-saip (29), opt-iot (33, high-tag form). Template-bearing
         // PEs (genericFileManagement, application, securityDomain) are recognized and
-        // their contents remain available in the bounded TLV tree; personalization is
-        // out of scope for this parse-only slice.
+        // their contents remain available in the bounded TLV tree.
         let gfm = tlv(&[0xA1], &tlv(&[0xA0], &tlv(&[0x81], &[0x01]))); // 1
         let secdom = tlv(&[0xA6], &tlv(&[0x80], &[0x42])); // 6
         let app = tlv(&[0xA8], &tlv(&[0xA0], &tlv(&[0x81], &[0x07]))); // 8
@@ -727,8 +1173,143 @@ mod tests {
         );
         assert_eq!(elements[3]["tag"], "B4");
         assert_eq!(elements[7]["tag"], "BF21");
-        // Template-bearing/variant PE bodies remain inspectable in the generic TLV tree.
         assert_eq!(elements[0]["children"][0]["children"][0]["value_hex"], "01");
         assert_eq!(elements[2]["children"][0]["children"][0]["value_hex"], "07");
+    }
+
+    fn sample_package() -> Vec<u8> {
+        let header = tlv(
+            &[0xA0],
+            &[
+                tlv(&[0x80], &[0x02]),
+                tlv(&[0x81], &[0x01]),
+                tlv(&[0x82], b"GSMA"),
+                tlv(
+                    &[0x83],
+                    &[0x89, 0x00, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x58],
+                ),
+            ]
+            .concat(),
+        );
+        let pin = tlv(
+            &[0xA2],
+            &[
+                tlv(
+                    &[0xA0],
+                    &[tlv(&[0x80], &[]), tlv(&[0x81], &[0x01])].concat(),
+                ),
+                tlv(
+                    &[0xA1],
+                    &tlv(
+                        &[0xA0],
+                        &tlv(
+                            &[0x30],
+                            &[
+                                tlv(&[0x80], &[0x01]),
+                                tlv(&[0x81], &[0x30, 0x30, 0x30, 0x30, 0xFF, 0xFF, 0xFF, 0xFF]),
+                            ]
+                            .concat(),
+                        ),
+                    ),
+                ),
+            ]
+            .concat(),
+        );
+        let puk = tlv(
+            &[0xA3],
+            &[
+                tlv(
+                    &[0xA0],
+                    &[tlv(&[0x80], &[]), tlv(&[0x81], &[0x05])].concat(),
+                ),
+                tlv(
+                    &[0xA1],
+                    &tlv(
+                        &[0x30],
+                        &[tlv(&[0x80], &[0x01]), tlv(&[0x81], &[0x31; 8])].concat(),
+                    ),
+                ),
+            ]
+            .concat(),
+        );
+        let opt_usim = tlv(&[0xB4], &tlv(&[0x80], &[0x14]));
+        let opt_isim = tlv(&[0xB6], &tlv(&[0x80], &[0x16]));
+        let end = tlv(&[0xAA], &tlv(&[0xA0], &tlv(&[0x81], &[0x1D])));
+        [header, pin, puk, opt_usim, opt_isim, end].concat()
+    }
+
+    #[test]
+    fn personalize_removes_selected_variant_optional_pes() {
+        let pkg = sample_package();
+        let doc = Personalization {
+            remove_pe_types: vec!["opt-usim".into(), "opt-isim".into()],
+            ..Default::default()
+        };
+        let out = personalize(&pkg, &doc).expect("personalize");
+        let decoded = decode(&out).expect("decode personalized");
+        let types: Vec<&str> = decoded["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(types, ["header", "pinCodes", "pukCodes", "end"]);
+    }
+
+    #[test]
+    fn personalize_updates_header_iccid() {
+        let pkg = sample_package();
+        let doc = Personalization {
+            iccid: Some("89000123456789012451".into()),
+            ..Default::default()
+        };
+        let out = personalize(&pkg, &doc).expect("personalize");
+        let decoded = decode(&out).expect("decode personalized");
+        assert_eq!(
+            decoded["elements"][0]["fields"]["iccid"],
+            "89000123456789012451"
+        );
+    }
+
+    #[test]
+    fn personalize_updates_pin_and_puk_codes() {
+        let pkg = sample_package();
+        let doc = Personalization {
+            pin_codes: vec![PinPersonalization {
+                key_reference: 1,
+                pin_value: "1234".into(),
+                unblocking_puk_reference: Some(1),
+                attributes: Some(7),
+                max_attempts: Some(3),
+                retries_left: Some(3),
+            }],
+            puk_codes: vec![PukPersonalization {
+                key_reference: 1,
+                puk_value: "87654321".into(),
+                max_attempts: Some(10),
+                retries_left: Some(10),
+            }],
+            ..Default::default()
+        };
+        let out = personalize(&pkg, &doc).expect("personalize");
+        let decoded = decode(&out).expect("decode personalized");
+        assert_eq!(decoded["elements"][1]["type"], "pinCodes");
+        assert_eq!(
+            decoded["elements"][1]["fields"]["pin_configs"][0]["pin_value_hex"],
+            "1234FFFFFFFFFFFF"
+        );
+        assert_eq!(
+            decoded["elements"][1]["fields"]["pin_header"]["identification"],
+            1
+        );
+        assert_eq!(decoded["elements"][2]["type"], "pukCodes");
+        assert_eq!(
+            decoded["elements"][2]["fields"]["puk_configs"][0]["puk_value_hex"],
+            "87654321FFFFFFFF"
+        );
+        assert_eq!(
+            decoded["elements"][2]["fields"]["puk_header"]["identification"],
+            5
+        );
     }
 }

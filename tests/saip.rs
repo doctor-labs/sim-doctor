@@ -105,3 +105,129 @@ fn a_missing_file_is_exit_two_not_a_panic() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("cannot read"));
 }
+
+/// header with ICCID, pinCodes, pukCodes, two optional PEs and end.
+fn personalizable_package() -> Vec<u8> {
+    let header = tlv(
+        &[0xA0],
+        &[
+            tlv(&[0x80], &[0x02]),
+            tlv(&[0x81], &[0x01]),
+            tlv(&[0x82], b"GSMA"),
+            tlv(
+                &[0x83],
+                &[0x89, 0x00, 0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x58],
+            ),
+        ]
+        .concat(),
+    );
+    let pin = tlv(
+        &[0xA2],
+        &[
+            tlv(
+                &[0xA0],
+                &[tlv(&[0x80], &[]), tlv(&[0x81], &[0x01])].concat(),
+            ),
+            tlv(
+                &[0xA1],
+                &tlv(
+                    &[0xA0],
+                    &tlv(
+                        &[0x30],
+                        &[
+                            tlv(&[0x80], &[0x01]),
+                            tlv(&[0x81], &[0x30, 0x30, 0x30, 0x30, 0xFF, 0xFF, 0xFF, 0xFF]),
+                        ]
+                        .concat(),
+                    ),
+                ),
+            ),
+        ]
+        .concat(),
+    );
+    let puk = tlv(
+        &[0xA3],
+        &[
+            tlv(
+                &[0xA0],
+                &[tlv(&[0x80], &[]), tlv(&[0x81], &[0x05])].concat(),
+            ),
+            tlv(
+                &[0xA1],
+                &tlv(
+                    &[0x30],
+                    &[tlv(&[0x80], &[0x01]), tlv(&[0x81], &[0x31; 8])].concat(),
+                ),
+            ),
+        ]
+        .concat(),
+    );
+    let opt_usim = tlv(&[0xB4], &tlv(&[0x80], &[0x14]));
+    let opt_isim = tlv(&[0xB6], &tlv(&[0x80], &[0x16]));
+    let end = tlv(&[0xAA], &tlv(&[0xA0], &tlv(&[0x81], &[0x1D])));
+    [header, pin, puk, opt_usim, opt_isim, end].concat()
+}
+
+#[test]
+fn personalize_applies_document_and_removes_variant_pes() {
+    let input = write_fixture("saip-personalize-in.der", &personalizable_package());
+    let doc_path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("saip-personalize-doc.json");
+    std::fs::write(
+        &doc_path,
+        serde_json::json!({
+            "iccid": "89000123456789012451",
+            "pin_codes": [{
+                "key_reference": 1,
+                "pin_value": "1234",
+                "unblocking_puk_reference": 1
+            }],
+            "puk_codes": [{
+                "key_reference": 1,
+                "puk_value": "87654321"
+            }],
+            "remove_pe_types": ["opt-usim", "opt-isim"]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let out_path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("saip-personalize-out.der");
+    let _ = std::fs::remove_file(&out_path);
+    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+        .arg("saip")
+        .arg("personalize")
+        .arg(&input)
+        .arg("--doc")
+        .arg(&doc_path)
+        .arg("--out")
+        .arg(&out_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(envelope["type"], "saip");
+    assert_eq!(envelope["payload"]["data"]["pe_count"], 4);
+    let parsed = parse(&out_path, &["--json"]);
+    assert_eq!(parsed.status.code(), Some(0));
+    let decoded: serde_json::Value = serde_json::from_slice(&parsed.stdout).unwrap();
+    let elements = decoded["payload"]["data"]["elements"].as_array().unwrap();
+    let types: Vec<&str> = elements
+        .iter()
+        .map(|e| e["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(types, ["header", "pinCodes", "pukCodes", "end"]);
+    assert_eq!(elements[0]["fields"]["iccid"], "89000123456789012451");
+    assert_eq!(
+        elements[1]["fields"]["pin_configs"][0]["pin_value_hex"],
+        "1234FFFFFFFFFFFF"
+    );
+    assert_eq!(
+        elements[2]["fields"]["puk_configs"][0]["puk_value_hex"],
+        "87654321FFFFFFFF"
+    );
+}

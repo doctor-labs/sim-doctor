@@ -2420,8 +2420,8 @@ const SCAN_LONG_ABOUT: &str = concat!(
     "WHAT A CLEAN RESULT DOES AND DOES NOT MEAN\n",
     "  * Truncation is always reported. A walk that hit one of its bounds did\n",
     "    not see the whole card: the human report opens with a TRUNCATED banner,\n",
-    "    and --json carries "complete", "truncated", "truncated_by" and the\n",
-    "    full "limits_hit" list. A file list without those is a file list an\n",
+    "    and --json carries \"complete\", \"truncated\", \"truncated_by\" and the\n",
+    "    full \"limits_hit\" list. A file list without those is a file list an\n",
     "    agent could read as the card's complete contents.\n",
     "  * The default dialect is an assumption, not a fact. Reading a card's\n",
     "    capabilities template with the wrong tag table produces a file size the\n",
@@ -3573,6 +3573,12 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Saip(args) => match args.action {
             SaipAction::Parse { file, json } => run_saip_parse(&file, json),
+            SaipAction::Personalize {
+                file,
+                doc,
+                out,
+                json,
+            } => run_saip_personalize(&file, &doc, &out, json),
         },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
@@ -7348,6 +7354,25 @@ enum SaipAction {
         #[arg(long)]
         json: bool,
     },
+    /// Apply a personalization document to a SAIP profile package offline.
+    ///
+    /// Substitutes variant/optional profile elements (by removing selected PE types) and
+    /// applies personalization values (ICCID, PIN/PUK codes) from a JSON document. Writes a
+    /// modified DER package. Matches the personalization/variant handling of pySim
+    /// (`esim/saip/personalization.py`).
+    Personalize {
+        /// Input profile package (DER). Read-only; capped at 8 MiB.
+        file: std::path::PathBuf,
+        /// JSON personalization document.
+        #[arg(long)]
+        doc: std::path::PathBuf,
+        /// Output path for the personalized profile package (DER).
+        #[arg(long, short = 'o')]
+        out: std::path::PathBuf,
+        /// Emit one JSON envelope of kind "saip" on stdout.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Runs `sim-doctor saip parse`: reads the file under a size cap and decodes it with
@@ -7412,6 +7437,102 @@ fn run_saip_parse(path: &std::path::Path, json: bool) -> contract::ExitCode {
     }
     out.push_str(&format!("{} profile elements\n", decoded["pe_count"]));
     match emit_stdout(out.trim_end(), "the saip result") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
+    }
+}
+
+/// Runs `sim-doctor saip personalize`: reads the package and a JSON document, applies
+/// variant/optional PE substitution and personalization values, and writes the modified DER.
+///
+/// Exit codes: 0 when written; 2 when the input cannot be read/decoded, the document is
+/// invalid, or the output cannot be written. Nothing is sent to a card.
+fn run_saip_personalize(
+    path: &std::path::Path,
+    doc_path: &std::path::Path,
+    out_path: &std::path::Path,
+    json: bool,
+) -> contract::ExitCode {
+    use std::io::Read;
+    const KIND: &str = "saip";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the saip error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(err) => return refuse(format!("cannot read {}: {err}", path.display())),
+    };
+    let mut bytes = Vec::new();
+    let cap = saip::MAX_FILE_BYTES as u64 + 1;
+    if let Err(err) = file.take(cap).read_to_end(&mut bytes) {
+        return refuse(format!("cannot read {}: {err}", path.display()));
+    }
+    let doc_text = match std::fs::read_to_string(doc_path) {
+        Ok(t) => t,
+        Err(err) => {
+            return refuse(format!(
+                "cannot read personalization document {}: {err}",
+                doc_path.display()
+            ))
+        }
+    };
+    let doc: saip::Personalization = match serde_json::from_str(&doc_text) {
+        Ok(d) => d,
+        Err(err) => {
+            return refuse(format!(
+                "cannot parse personalization document {}: {err}",
+                doc_path.display()
+            ))
+        }
+    };
+    let out_bytes = match saip::personalize(&bytes, &doc) {
+        Ok(b) => b,
+        Err(err) => return refuse(err.to_string()),
+    };
+    let pe_count = match saip::decode(&out_bytes) {
+        Ok(v) => v["pe_count"].as_u64().unwrap_or(0),
+        Err(err) => return refuse(format!("personalized package is not valid: {err}")),
+    };
+    if let Err(err) = std::fs::write(out_path, &out_bytes) {
+        return refuse(format!("cannot write {}: {err}", out_path.display()));
+    }
+    if json {
+        let data = serde_json::json!({
+            "output": out_path.display().to_string(),
+            "pe_count": pe_count,
+            "bytes": out_bytes.len(),
+        });
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            data,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the saip result") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let msg = format!(
+        "wrote {} ({} bytes, {} profile elements)",
+        out_path.display(),
+        out_bytes.len(),
+        pe_count
+    );
+    match emit_stdout(&msg, "the saip result") {
         Ok(()) => contract::ExitCode::Success,
         Err(message) => refuse(message),
     }
@@ -7880,7 +8001,7 @@ fn fuzz_opt_in(safety: &FuzzSafety, reader: Option<&str>) -> Result<(), String> 
     if !is_software && !safety.allow_real_hardware {
         return Err(format!(
             "fuzz refuses to run against {:?}: it does not look like the software card \
-             (swicc-pcsc names its reader with "swICC", see docs/swsim-fixture.md); pass \
+             (swicc-pcsc names its reader with \"swICC\", see docs/swsim-fixture.md); pass \
              --allow-real-hardware to run against it anyway",
             reader.unwrap_or("(no --reader given)")
         ));
