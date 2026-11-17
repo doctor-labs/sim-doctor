@@ -13,7 +13,7 @@ use std::process::Command;
 use sim_doctor::erase;
 
 /// The binary under test, as built by cargo for this integration test.
-fn binary() -> &'static str {
+fn binary() -> std::ffi::OsString {
     std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
         std::ffi::OsString::from(format!(
             "{}/target/debug/sim-doctor{}",

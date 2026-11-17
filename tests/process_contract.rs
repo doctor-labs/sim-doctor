@@ -37,7 +37,7 @@ use std::time::Instant;
 use sim_doctor::contract;
 
 /// The binary under test, as built by cargo for this integration test.
-fn binary() -> &'static str {
+fn binary() -> std::ffi::OsString {
     std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
         std::ffi::OsString::from(format!(
             "{}/target/debug/sim-doctor{}",
@@ -3181,7 +3181,7 @@ fn the_class_flag_is_refused_where_it_does_not_apply() {
     });
 
     // A CLA that is neither of the two the tool can name.
-    let out = std::process::Command::new(bin)
+    let out = std::process::Command::new(&bin)
         .args(["scan", "--class", "3g", "--tar", "off"])
         .output()
         .expect("the binary runs");
@@ -3193,7 +3193,7 @@ fn the_class_flag_is_refused_where_it_does_not_apply() {
     assert!(err.contains("etsi") && err.contains("gsm"), "{err}");
 
     // A command line that is well formed but asks for nothing to be sent.
-    let out = std::process::Command::new(bin)
+    let out = std::process::Command::new(&bin)
         .args(["scan", "--tar", "off", "--class", "gsm"])
         .output()
         .expect("the binary runs");
@@ -3208,7 +3208,7 @@ fn the_class_flag_is_refused_where_it_does_not_apply() {
     );
 
     // A command that does not take the flag at all.
-    let out = std::process::Command::new(bin)
+    let out = std::process::Command::new(&bin)
         .args(["why", "gsma/msl-zero-allowed", "--class", "gsm"])
         .output()
         .expect("the binary runs");

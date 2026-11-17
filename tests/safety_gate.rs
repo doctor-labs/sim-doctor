@@ -22,7 +22,7 @@ const CANARY_KEY2: &str = "FEDCBA9876543210FEDCBA9876543210";
 
 const ISD: &str = "A000000151000000";
 
-fn binary() -> &'static str {
+fn binary() -> std::ffi::OsString {
     std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
         std::ffi::OsString::from(format!(
             "{}/target/debug/sim-doctor{}",
