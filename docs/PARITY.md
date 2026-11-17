@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-16  
 **Branch:** `agent/154-benchmark`  
-**Workspace:** `/Users/vaibhavtomar/Desktop/doctor-labs/wt-s154` (worktree of `fd-sim`, `origin/main` @ `41280b9`)
+**Workspace:** `/Users/vaibhavtomar/Desktop/doctor-labs/wt-s154` (worktree of `fd-sim`, `origin/main` @ `752b8c6`)
 
 This document is an evidence-based parity snapshot against the reference tools named in
 [doctor-labs/sim-doctor#154](https://github.com/doctor-labs/sim-doctor/issues/154): SRLabs **SIMTester**,
