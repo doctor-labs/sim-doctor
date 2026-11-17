@@ -9,7 +9,7 @@
 //! command line.
 //!
 //! So each test here spawns the built binary. `binary()` is
-//! `option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor"))`, resolved by cargo at compile time, not
+//! `std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| std::ffi::OsString::from(format!("{}/target/debug/sim-doctor{}", env!("CARGO_MANIFEST_DIR"), std::env::consts::EXE_SUFFIX)))`, resolved by cargo at compile time, not
 //! `cargo run` and not a path guessed at at runtime, and the assertions are
 //! on the `ExitStatus` the kernel reported rather than on a value the crate
 //! produced for itself.
@@ -38,7 +38,13 @@ use sim_doctor::contract;
 
 /// The binary under test, as built by cargo for this integration test.
 fn binary() -> &'static str {
-    option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor"))
+    std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+        std::ffi::OsString::from(format!(
+            "{}/target/debug/sim-doctor{}",
+            env!("CARGO_MANIFEST_DIR"),
+            std::env::consts::EXE_SUFFIX
+        ))
+    })
 }
 
 /// A reader name that cannot exist, so a `scan` takes the no-reader/unknown-reader
@@ -3166,7 +3172,13 @@ fn gp_install_only_and_update_send_one_apdu_and_refuse_the_rest() {
 /// would be a class nothing went out at.
 #[test]
 fn the_class_flag_is_refused_where_it_does_not_apply() {
-    let bin = option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor"));
+    let bin = std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+        std::ffi::OsString::from(format!(
+            "{}/target/debug/sim-doctor{}",
+            env!("CARGO_MANIFEST_DIR"),
+            std::env::consts::EXE_SUFFIX
+        ))
+    });
 
     // A CLA that is neither of the two the tool can name.
     let out = std::process::Command::new(bin)

@@ -7,11 +7,19 @@ const PART1: &str = "400B911346610089F60008210101000000000A0500032A020100480049"
 const PART2: &str = "400B911346610089F60008210101000000000A0500032A02020059004F";
 
 fn data(args: &[&str]) -> serde_json::Value {
-    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args(["sms", "decode", "--tpdu", "--json"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args(["sms", "decode", "--tpdu", "--json"])
+    .args(args)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -47,15 +55,23 @@ fn a_missing_part_is_reported_and_the_rest_is_kept() {
 #[test]
 fn a_single_part_message_has_no_reassembly() {
     // the classic "How are you?" DELIVER, no user-data header
-    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args([
-            "sms",
-            "decode",
-            "--json",
-            "07911326040000F0040B911346610089F60000208062917314080CC8F71D14969741F977FD07",
-        ])
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args([
+        "sms",
+        "decode",
+        "--json",
+        "07911326040000F0040B911346610089F60000208062917314080CC8F71D14969741F977FD07",
+    ])
+    .output()
+    .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["payload"]["data"]["reassembled"], serde_json::json!([]));
 }

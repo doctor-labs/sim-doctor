@@ -207,7 +207,15 @@ struct Ran {
 }
 
 fn run(args: &[&str], replay: Option<&Path>) -> Ran {
-    let mut cmd = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")));
+    let mut cmd = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    );
     cmd.args(args)
         .env_remove("SIM_DOCTOR_RECORD")
         .env_remove("SIM_DOCTOR_TEST_REPLAY")
@@ -712,7 +720,10 @@ fn a_scan_that_cannot_write_its_report_exits_2_and_says_so() {
         let stdout = unsafe { Stdio::from_raw_fd(fds[1]) };
         let mut args = vec!["scan", "--tar", "focused", "--yes"];
         args.extend(extra);
-        let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
+        let out =
+            Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+                concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")
+            }))
             .args(&args)
             .env("SIM_DOCTOR_TEST_REPLAY", &msl0)
             .stdin(Stdio::null())
@@ -905,7 +916,15 @@ fn install_writes_the_same_files_everywhere() {
 fn mcp_session(lines: &[&str], env: &[(&str, &str)]) -> String {
     let mut input = lines.join("\n");
     input.push('\n');
-    let mut cmd = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")));
+    let mut cmd = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    );
     cmd.arg("mcp")
         .env_remove("SIM_DOCTOR_RECORD")
         .env_remove("SIM_DOCTOR_TEST_REPLAY")

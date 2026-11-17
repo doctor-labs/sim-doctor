@@ -3,11 +3,19 @@
 use std::process::Command;
 
 fn decode(args: &[&str]) -> serde_json::Value {
-    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args(["sms", "decode", "--json"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args(["sms", "decode", "--json"])
+    .args(args)
+    .output()
+    .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -59,9 +67,17 @@ fn ucs2_text_and_a_concatenation_header() {
 
 #[test]
 fn bad_hex_is_a_refusal_with_exit_two() {
-    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args(["sms", "decode", "zz"])
-        .output()
-        .unwrap();
+    let out = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args(["sms", "decode", "zz"])
+    .output()
+    .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }

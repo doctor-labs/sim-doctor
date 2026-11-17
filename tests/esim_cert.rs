@@ -29,10 +29,18 @@ M2IOIIskVvtMhvECICPDG2YKnGqzt5Sj6ulwq/ZLI2sH3yjElnCp9JVhudTz
 ";
 
 fn run(args: &[&str]) -> (Option<i32>, String) {
-    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args(args)
-        .output()
-        .expect("sim-doctor runs");
+    let out = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args(args)
+    .output()
+    .expect("sim-doctor runs");
     (
         out.status.code(),
         String::from_utf8_lossy(&out.stdout).into_owned(),

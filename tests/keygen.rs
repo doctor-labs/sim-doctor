@@ -33,11 +33,19 @@ fn secret_file(tag: &str) -> (PathBuf, impl Drop) {
 }
 
 fn keygen(args: &[&str]) -> Output {
-    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .arg("keygen")
-        .args(args)
-        .output()
-        .expect("the binary runs")
+    Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .arg("keygen")
+    .args(args)
+    .output()
+    .expect("the binary runs")
 }
 
 fn stdout(o: &Output) -> String {
@@ -111,10 +119,18 @@ fn a_different_secret_is_a_different_key() {
     let (path, _keep) = secret_file("two");
     let mine = keygen(&["-z", path.to_str().unwrap(), "-j", "7"]);
     assert!(mine.status.success());
-    let other = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args(["keygen", "-z", "/dev/null", "-j", "7"])
-        .output()
-        .expect("the binary runs");
+    let other = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args(["keygen", "-z", "/dev/null", "-j", "7"])
+    .output()
+    .expect("the binary runs");
     // /dev/null is an empty secret, which is refused, so the refusal is the proof
     // that an empty secret never reaches the derivation.
     assert!(!other.status.success(), "an empty secret must be refused");
@@ -178,10 +194,18 @@ fn json_carries_the_card_on_one_line_and_still_not_the_secret() {
 #[test]
 fn the_secret_is_never_accepted_on_the_command_line() {
     // There is no flag for it, so clap refuses the command before anything runs.
-    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args(["keygen", "-z", SECRET, "-j", "1"])
-        .output()
-        .expect("the binary runs");
+    let out = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .args(["keygen", "-z", SECRET, "-j", "1"])
+    .output()
+    .expect("the binary runs");
     // `-z` is a path; SECRET is not one, so this is a usage error, not a key.
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
@@ -210,17 +234,25 @@ fn a_plmn_that_cannot_be_an_imsi_is_refused() {
 fn a_secret_comes_from_the_environment_too() {
     let (path, _keep) = secret_file("env");
     let file = stdout(&keygen(&["-z", path.to_str().unwrap(), "-j", "5"]));
-    let from_env = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .args([
-            "keygen",
-            "--secret-env",
-            "SIM_DOCTOR_KEYGEN_TEST",
-            "-j",
-            "5",
-        ])
-        .env("SIM_DOCTOR_KEYGEN_TEST", SECRET)
-        .output()
-        .expect("the binary runs");
+    let from_env = Command::new(std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(
+        || {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        },
+    ))
+    .args([
+        "keygen",
+        "--secret-env",
+        "SIM_DOCTOR_KEYGEN_TEST",
+        "-j",
+        "5",
+    ])
+    .env("SIM_DOCTOR_KEYGEN_TEST", SECRET)
+    .output()
+    .expect("the binary runs");
     assert!(from_env.status.success());
     assert_eq!(field(&file, "Ki"), field(&stdout(&from_env), "Ki"));
 }

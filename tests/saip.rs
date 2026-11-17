@@ -40,13 +40,21 @@ fn write_fixture(name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 fn parse(path: &PathBuf, extra: &[&str]) -> Output {
-    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
-        .arg("saip")
-        .arg("parse")
-        .arg(path)
-        .args(extra)
-        .output()
-        .unwrap()
+    Command::new(
+        std::env::var_os("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| {
+            std::ffi::OsString::from(format!(
+                "{}/target/debug/sim-doctor{}",
+                env!("CARGO_MANIFEST_DIR"),
+                std::env::consts::EXE_SUFFIX
+            ))
+        }),
+    )
+    .arg("saip")
+    .arg("parse")
+    .arg(path)
+    .args(extra)
+    .output()
+    .unwrap()
 }
 
 #[test]
