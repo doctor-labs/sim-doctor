@@ -33,7 +33,7 @@ fn secret_file(tag: &str) -> (PathBuf, impl Drop) {
 }
 
 fn keygen(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .arg("keygen")
         .args(args)
         .output()
@@ -111,7 +111,7 @@ fn a_different_secret_is_a_different_key() {
     let (path, _keep) = secret_file("two");
     let mine = keygen(&["-z", path.to_str().unwrap(), "-j", "7"]);
     assert!(mine.status.success());
-    let other = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let other = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args(["keygen", "-z", "/dev/null", "-j", "7"])
         .output()
         .expect("the binary runs");
@@ -178,7 +178,7 @@ fn json_carries_the_card_on_one_line_and_still_not_the_secret() {
 #[test]
 fn the_secret_is_never_accepted_on_the_command_line() {
     // There is no flag for it, so clap refuses the command before anything runs.
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args(["keygen", "-z", SECRET, "-j", "1"])
         .output()
         .expect("the binary runs");
@@ -210,7 +210,7 @@ fn a_plmn_that_cannot_be_an_imsi_is_refused() {
 fn a_secret_comes_from_the_environment_too() {
     let (path, _keep) = secret_file("env");
     let file = stdout(&keygen(&["-z", path.to_str().unwrap(), "-j", "5"]));
-    let from_env = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let from_env = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args([
             "keygen",
             "--secret-env",

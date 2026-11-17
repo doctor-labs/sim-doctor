@@ -7,7 +7,7 @@ const PART1: &str = "400B911346610089F60008210101000000000A0500032A020100480049"
 const PART2: &str = "400B911346610089F60008210101000000000A0500032A02020059004F";
 
 fn data(args: &[&str]) -> serde_json::Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args(["sms", "decode", "--tpdu", "--json"])
         .args(args)
         .output()
@@ -47,7 +47,7 @@ fn a_missing_part_is_reported_and_the_rest_is_kept() {
 #[test]
 fn a_single_part_message_has_no_reassembly() {
     // the classic "How are you?" DELIVER, no user-data header
-    let out = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let out = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args([
             "sms",
             "decode",

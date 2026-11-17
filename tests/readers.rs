@@ -16,7 +16,7 @@ fn replay_log(name: &str) -> PathBuf {
 }
 
 fn run(args: &[&str], replay: &PathBuf) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args(args)
         .env("SIM_DOCTOR_TEST_REPLAY", replay)
         .output()

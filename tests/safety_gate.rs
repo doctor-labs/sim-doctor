@@ -23,7 +23,7 @@ const CANARY_KEY2: &str = "FEDCBA9876543210FEDCBA9876543210";
 const ISD: &str = "A000000151000000";
 
 fn binary() -> &'static str {
-    env!("CARGO_BIN_EXE_sim-doctor")
+    option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor"))
 }
 
 // ---------------------------------------------------------------------------

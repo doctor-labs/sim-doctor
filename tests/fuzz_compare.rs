@@ -11,7 +11,7 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn run(args: &[&str]) -> (i32, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_sim-doctor"))
+    let output = Command::new(option_env!("CARGO_BIN_EXE_sim-doctor").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/debug/sim-doctor")))
         .args(args)
         .output()
         .expect("sim-doctor runs");
