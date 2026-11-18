@@ -930,7 +930,7 @@ pub fn plans_from_csv(text: &str, default_type: Option<&str>) -> Result<Vec<Plan
             ));
         };
         let fplmn = get(&["fplmn"]).map(|s| {
-            s.split(|c: char| matches!(c, ';' | '|'))
+            s.split([';', '|'])
                 .map(|p| p.trim().to_string())
                 .filter(|p| !p.is_empty())
                 .collect::<Vec<_>>()

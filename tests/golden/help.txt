@@ -35,6 +35,8 @@ Commands:
   euicc         eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes
   card          A pySim-shell style shell over the card: select files, read them, send APDUs
   erase         Erase the provisioning records before programming: the reference programming tool's -e/--erase, as a command of its own
+  smdp          Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114)
+  smpp          Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210)
   shell         The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift
   explore       The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift
   help          Print this message or the help of the given subcommand(s)
@@ -1282,6 +1284,7 @@ Usage: sim-doctor program [OPTIONS] <COMMAND>
 
 Commands:
   plan  Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent
+  csv   Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1299,6 +1302,19 @@ Arguments:
 Options:
       --json  Emit the plan as a JSON document on stdout
   -h, --help  Print help
+
+$ sim-doctor program csv -h [exit 0]
+Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)
+
+Usage: sim-doctor program csv [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>  Path to the batch CSV file
+
+Options:
+      --type <TYPE>  Default card type when a row has no `type`/`card` column
+      --json         Emit plans as JSON on stdout
+  -h, --help         Print help (see more with '--help')
 
 $ sim-doctor ota-crypto -h [exit 0]
 Offline OTA ciphers and checksums (DES, 3DES, AES-CBC encrypt/decrypt, CBC-MAC / AES-CMAC sign and check), as pySim's OTA layer uses them. No card and no reader: pure crypto over hex given on the command line
@@ -1596,6 +1612,8 @@ Commands:
   reset                       Reset the eUICC memory (lpac `chip purge`, ES10c eUICCMemoryReset). Can erase every profile: nothing is selected by default, and sending needs both `--yes` and `--confirm-eid <EID>` matching the card. Never exposed over MCP
   set-default-dp              Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write: a dry run that opens no reader unless `--yes`, and it changes where the eUICC looks for profiles. Never exposed over MCP
   store-data                  One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA: the escape hatch for a function this tool does not implement (pySim-shell `do_es10x_store_data`). A dry run unless `--yes`: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP
+  download                    Download a profile from an activation code (LPA:1$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes
+  discovery                   Discover pending profile download events from an SM-DS (ES11, #118)
   help                        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -1838,6 +1856,38 @@ Options:
       --max-segment <BYTES>  Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks [default: 120]
   -h, --help                 Print help
 
+$ sim-doctor euicc download -h [exit 0]
+Download a profile from an activation code (LPA:1$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes
+
+Usage: sim-doctor euicc download [OPTIONS] --activation-code <CODE>
+
+Options:
+      --activation-code <CODE>    Activation code (LPA:1$<smdp>$<matching-id>[...])
+      --confirmation-code <CODE>  Confirmation code if required by the activation code
+      --ca <PEM>                  PEM trust anchor(s) for the SM-DP+ HTTPS connection
+      --http                      Use plain HTTP (self-hosted/local testing only)
+      --yes                       Send the download. Without it the plan is shown and nothing is sent
+      --reader <NAME>             The reader to use, matched against the driver's own name
+      --json                      Emit one lpac envelope on stdout, and nothing else
+      --aid <HEX>                 ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)
+      --max-segment <BYTES>       Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks [default: 120]
+  -h, --help                      Print help
+
+$ sim-doctor euicc discovery -h [exit 0]
+Discover pending profile download events from an SM-DS (ES11, #118)
+
+Usage: sim-doctor euicc discovery [OPTIONS]
+
+Options:
+      --smds <FQDN>          SM-DS address (FQDN). Defaults to the root SM-DS configured on the eUICC when omitted
+      --ca <PEM>             PEM trust anchor(s) for HTTPS
+      --http                 Use plain HTTP (self-hosted/local testing only)
+      --reader <NAME>        The reader to use, matched against the driver's own name
+      --json                 Emit one lpac envelope on stdout, and nothing else
+      --aid <HEX>            ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)
+      --max-segment <BYTES>  Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks [default: 120]
+  -h, --help                 Print help
+
 $ sim-doctor card -h [exit 0]
 A pySim-shell style shell over the card: select files, read them, send APDUs
 
@@ -1890,6 +1940,63 @@ Options:
       --channel <N>            Logical channel number, 0 (the basic channel, default) to 19. The SELECT and every following command, and the secure channel, use it [default: 0]
       --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
   -h, --help                   Print help (see more with '--help')
+
+$ sim-doctor smdp -h [exit 0]
+Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114)
+
+Usage: sim-doctor smdp [OPTIONS] <COMMAND>
+
+Commands:
+  serve  Start the self-hosted SM-DP+ test server
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
+
+$ sim-doctor smdp serve -h [exit 0]
+Start the self-hosted SM-DP+ test server
+
+Usage: sim-doctor smdp serve [OPTIONS]
+
+Options:
+      --listen <ADDR>             Address to listen on (e.g. 127.0.0.1:8080) [default: 127.0.0.1:8080]
+      --transaction-id <HEX>      Transaction ID to echo/use in responses (upper-case hex, 2-32 chars)
+      --bpp-base64 <B64>          BoundProfilePackage as base64 (BF36 TLV) for getBoundProfilePackage
+      --server-signed1 <B64>      InitiateAuthentication: serverSigned1 (base64, whole `30` TLV)
+      --server-signature1 <B64>   InitiateAuthentication: serverSignature1 (base64, value of `5F37`)
+      --euicc-ci-pk-id <B64>      InitiateAuthentication: euiccCiPKIdToBeUsed (base64, value of `04`)
+      --server-certificate <B64>  InitiateAuthentication: serverCertificate (base64, whole `30` TLV)
+      --profile-metadata <B64>    AuthenticateClient: profileMetadata (base64, whole `BF25` TLV)
+      --smdp-signed2 <B64>        AuthenticateClient: smdpSigned2 (base64, whole `30` TLV)
+      --smdp-signature2 <B64>     AuthenticateClient: smdpSignature2 (base64, value of `5F37`)
+      --smdp-certificate <B64>    AuthenticateClient: smdpCertificate (base64, whole `30` TLV)
+  -h, --help                      Print help
+
+$ sim-doctor smpp -h [exit 0]
+Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210)
+
+Usage: sim-doctor smpp [OPTIONS] <COMMAND>
+
+Commands:
+  serve  Start the self-hosted SMPP gateway server
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --simulator <HOST:PORT>  Talk to a card simulator at HOST:PORT instead of a PC/SC reader
+  -h, --help                   Print help (see more with '--help')
+
+$ sim-doctor smpp serve -h [exit 0]
+Start the self-hosted SMPP gateway server
+
+Usage: sim-doctor smpp serve [OPTIONS]
+
+Options:
+      --listen <ADDR>  Address to listen on (e.g. 127.0.0.1:2775) [default: 127.0.0.1:2775]
+      --json           Emit each received submit_sm as one JSON line on stdout
+      --reader <NAME>  When set together with --yes, deliver each received OTA SMS payload to this reader as an SMS-PP DOWNLOAD ENVELOPE (self-hosted push-to-card path)
+      --yes            Send received messages to the card. Required with --reader (nothing is sent without it)
+  -h, --help           Print help
 
 $ sim-doctor shell -h [exit 0]
 The walk bounds, shared by `scan` and `ts48 compare` so they cannot drift

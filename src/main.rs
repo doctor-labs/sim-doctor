@@ -810,9 +810,6 @@ struct DownloadArgs {
     /// Send the download. Without it the plan is shown and nothing is sent.
     #[arg(long)]
     yes: bool,
-    /// Emit one lpac envelope on stdout.
-    #[arg(long)]
-    json: bool,
     #[command(flatten)]
     flags: EuiccFlags,
 }
@@ -829,9 +826,6 @@ struct DiscoveryArgs {
     /// Use plain HTTP (self-hosted/local testing only).
     #[arg(long)]
     http: bool,
-    /// Emit one lpac envelope on stdout.
-    #[arg(long)]
-    json: bool,
     #[command(flatten)]
     flags: EuiccFlags,
 }
@@ -10329,7 +10323,7 @@ fn run_batch(args: BatchArgs) -> contract::ExitCode {
 
 /// `sim-doctor smdp serve`: self-hosted SM-DP+ test server (#114).
 fn run_smdp_serve(args: &SmdpServeArgs) -> contract::ExitCode {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     let stop = Arc::new(AtomicBool::new(false));
     let stop2 = stop.clone();
@@ -10485,7 +10479,7 @@ fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
 /// `sim-doctor euicc download`: online profile download (#118).
 fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
     const KIND: &str = contract::DEFAULT_KIND;
-    let json = args.json;
+    let json = args.flags.json;
     guard_exchange(KIND, json);
     let ac = match sim_doctor::activation::ActivationCode::parse(&args.activation_code) {
         Ok(ac) => ac,
@@ -10569,7 +10563,7 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
     // Select ISD-R
     let sel = sim_doctor::apdu::Command::case4(
         sim_doctor::apdu::Header::new(channel, 0xA4, 0x04, 0x00),
-        &euicc::ISDR_AID,
+        euicc::ISDR_AID,
         sim_doctor::apdu::Le::Short(0),
     );
     match sim_doctor::session::send(&mut *session, &sel, &policy) {
@@ -10830,7 +10824,7 @@ impl sim_doctor::es9::Es9Transport for HttpEs9Transport {
 /// `sim-doctor euicc discovery`: SM-DS discovery (#118).
 fn run_euicc_discovery(args: &DiscoveryArgs) -> contract::ExitCode {
     const KIND: &str = contract::DEFAULT_KIND;
-    let json = args.json;
+    let json = args.flags.json;
     guard_exchange(KIND, json);
     // Need eUICC challenge/info1; get from card on a single channel.
     let (mut session, reader, _) = match open_transport(args.flags.reader.as_deref(), false, None) {
@@ -10868,7 +10862,7 @@ fn run_euicc_discovery(args: &DiscoveryArgs) -> contract::ExitCode {
     let cla = 0x80u8 | (channel & 0x03);
     let sel = sim_doctor::apdu::Command::case4(
         sim_doctor::apdu::Header::new(channel, 0xA4, 0x04, 0x00),
-        &euicc::ISDR_AID,
+        euicc::ISDR_AID,
         sim_doctor::apdu::Le::Short(0),
     );
     let selected = matches!(sim_doctor::session::send(&mut *session, &sel, &policy), Ok(ex) if ex.is_success());
@@ -10990,13 +10984,11 @@ fn b64_std(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for c in data.chunks(3) {
-        let n = ((c.get(0).copied().unwrap_or(0) as u32) << 16)
+        let n = ((c.first().copied().unwrap_or(0) as u32) << 16)
             | ((c.get(1).copied().unwrap_or(0) as u32) << 8)
             | (c.get(2).copied().unwrap_or(0) as u32);
         for i in 0..4 {
-            if i == 1 && c.len() < 2 {
-                out.push('=');
-            } else if i == 2 && c.len() < 3 {
+            if (i == 1 && c.len() < 2) || (i == 2 && c.len() < 3) {
                 out.push('=');
             } else {
                 out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
