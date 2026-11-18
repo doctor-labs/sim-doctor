@@ -1843,6 +1843,15 @@ _arguments "${_arguments_options[@]}" : \
 ':file -- Path to the programming document (JSON, sim-doctor-program/1):_files' \
 && ret=0
 ;;
+(csv)
+_arguments "${_arguments_options[@]}" : \
+'--type=[Default card type when a row has no \`type\`/\`card\` column]:TYPE:_default' \
+'--json[Emit plans as JSON on stdout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':file -- Path to the batch CSV file:_files' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__program__subcmd__help_commands" \
@@ -1856,6 +1865,10 @@ _arguments "${_arguments_options[@]}" : \
         curcontext="${curcontext%:*:*}:sim-doctor-program-help-command-$line[1]:"
         case $line[1] in
             (plan)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(csv)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -2473,6 +2486,34 @@ _arguments "${_arguments_options[@]}" : \
 '::payload -- The ES10x request as hex\: `BF3E00`, `bf 3e 00`, `bf3e\:00` and `0xBF3E00` all parse. `-`, or no argument at all, reads it from stdin. Bounded\: more than 8192 bytes is refused:_default' \
 && ret=0
 ;;
+(download)
+_arguments "${_arguments_options[@]}" : \
+'--activation-code=[Activation code (LPA\:1\$<smdp>\$<matching-id>\[...\])]:CODE:_default' \
+'--confirmation-code=[Confirmation code if required by the activation code]:CODE:_default' \
+'--ca=[PEM trust anchor(s) for the SM-DP+ HTTPS connection]:PEM:_files' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--http[Use plain HTTP (self-hosted/local testing only)]' \
+'--yes[Send the download. Without it the plan is shown and nothing is sent]' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(discovery)
+_arguments "${_arguments_options[@]}" : \
+'--smds=[SM-DS address (FQDN). Defaults to the root SM-DS configured on the eUICC when omitted]:FQDN:_default' \
+'--ca=[PEM trust anchor(s) for HTTPS]:PEM:_files' \
+'--reader=[The reader to use, matched against the driver'\''s own name]:NAME:_default' \
+'--aid=[ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)]:HEX:_default' \
+'--max-segment=[Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks]:BYTES:_default' \
+'--http[Use plain HTTP (self-hosted/local testing only)]' \
+'--json[Emit one lpac envelope on stdout, and nothing else]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_sim-doctor__subcmd__euicc__subcmd__help_commands" \
@@ -2561,6 +2602,14 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(download)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(discovery)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -2625,6 +2674,117 @@ all\:"33\: all four protections"))' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
+;;
+(smdp)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__smdp_commands" \
+"*::: :->smdp" \
+&& ret=0
+
+    case $state in
+    (smdp)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-smdp-command-$line[1]:"
+        case $line[1] in
+            (serve)
+_arguments "${_arguments_options[@]}" : \
+'--listen=[Address to listen on (e.g. 127.0.0.1\:8080)]:ADDR:_default' \
+'--transaction-id=[Transaction ID to echo/use in responses (upper-case hex, 2-32 chars)]:HEX:_default' \
+'--bpp-base64=[BoundProfilePackage as base64 (BF36 TLV) for getBoundProfilePackage]:B64:_default' \
+'--server-signed1=[InitiateAuthentication\: serverSigned1 (base64, whole \`30\` TLV)]:B64:_default' \
+'--server-signature1=[InitiateAuthentication\: serverSignature1 (base64, value of \`5F37\`)]:B64:_default' \
+'--euicc-ci-pk-id=[InitiateAuthentication\: euiccCiPKIdToBeUsed (base64, value of \`04\`)]:B64:_default' \
+'--server-certificate=[InitiateAuthentication\: serverCertificate (base64, whole \`30\` TLV)]:B64:_default' \
+'--profile-metadata=[AuthenticateClient\: profileMetadata (base64, whole \`BF25\` TLV)]:B64:_default' \
+'--smdp-signed2=[AuthenticateClient\: smdpSigned2 (base64, whole \`30\` TLV)]:B64:_default' \
+'--smdp-signature2=[AuthenticateClient\: smdpSignature2 (base64, value of \`5F37\`)]:B64:_default' \
+'--smdp-certificate=[AuthenticateClient\: smdpCertificate (base64, whole \`30\` TLV)]:B64:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__smdp__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-smdp-help-command-$line[1]:"
+        case $line[1] in
+            (serve)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(smpp)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+":: :_sim-doctor__subcmd__smpp_commands" \
+"*::: :->smpp" \
+&& ret=0
+
+    case $state in
+    (smpp)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-smpp-command-$line[1]:"
+        case $line[1] in
+            (serve)
+_arguments "${_arguments_options[@]}" : \
+'--listen=[Address to listen on (e.g. 127.0.0.1\:2775)]:ADDR:_default' \
+'--reader=[When set together with --yes, deliver each received OTA SMS payload to this reader as an SMS-PP DOWNLOAD ENVELOPE (self-hosted push-to-card path)]:NAME:_default' \
+'--json[Emit each received submit_sm as one JSON line on stdout]' \
+'--yes[Send received messages to the card. Required with --reader (nothing is sent without it)]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__smpp__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-smpp-help-command-$line[1]:"
+        case $line[1] in
+            (serve)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
 ;;
 (help)
 _arguments "${_arguments_options[@]}" : \
@@ -3090,6 +3250,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(csv)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3298,6 +3462,14 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(download)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(discovery)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -3309,6 +3481,46 @@ _arguments "${_arguments_options[@]}" : \
 (erase)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
+;;
+(smdp)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__smdp_commands" \
+"*::: :->smdp" \
+&& ret=0
+
+    case $state in
+    (smdp)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-smdp-command-$line[1]:"
+        case $line[1] in
+            (serve)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(smpp)
+_arguments "${_arguments_options[@]}" : \
+":: :_sim-doctor__subcmd__help__subcmd__smpp_commands" \
+"*::: :->smpp" \
+&& ret=0
+
+    case $state in
+    (smpp)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:sim-doctor-help-smpp-command-$line[1]:"
+        case $line[1] in
+            (serve)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
 ;;
 (help)
 _arguments "${_arguments_options[@]}" : \
@@ -3354,6 +3566,8 @@ _sim-doctor_commands() {
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
 'erase:Erase the provisioning records before programming\: the reference programming tool'\''s -e/--erase, as a command of its own' \
+'smdp:Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114)' \
+'smpp:Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor commands' commands "$@"
@@ -3542,6 +3756,8 @@ _sim-doctor__subcmd__euicc_commands() {
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
 'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
 'store-data:One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA\: the escape hatch for a function this tool does not implement (pySim-shell \`do_es10x_store_data\`). A dry run unless \`--yes\`\: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP' \
+'download:Download a profile from an activation code (LPA\:1\$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes' \
+'discovery:Discover pending profile download events from an SM-DS (ES11, #118)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc commands' commands "$@"
@@ -3560,6 +3776,16 @@ _sim-doctor__subcmd__euicc__subcmd__delete_commands() {
 _sim-doctor__subcmd__euicc__subcmd__disable_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc disable commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__discovery_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__discovery_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc discovery commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__download_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__download_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc download commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__enable_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__enable_commands() {
@@ -3592,6 +3818,8 @@ _sim-doctor__subcmd__euicc__subcmd__help_commands() {
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
 'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
 'store-data:One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA\: the escape hatch for a function this tool does not implement (pySim-shell \`do_es10x_store_data\`). A dry run unless \`--yes\`\: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP' \
+'download:Download a profile from an activation code (LPA\:1\$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes' \
+'discovery:Discover pending profile download events from an SM-DS (ES11, #118)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor euicc help commands' commands "$@"
@@ -3610,6 +3838,16 @@ _sim-doctor__subcmd__euicc__subcmd__help__subcmd__delete_commands() {
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__disable_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor euicc help disable commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__discovery_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__discovery_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help discovery commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__download_commands] )) ||
+_sim-doctor__subcmd__euicc__subcmd__help__subcmd__download_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor euicc help download commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__euicc__subcmd__help__subcmd__enable_commands] )) ||
 _sim-doctor__subcmd__euicc__subcmd__help__subcmd__enable_commands() {
@@ -4480,6 +4718,8 @@ _sim-doctor__subcmd__help_commands() {
 'euicc:eUICC queries over ES10 (lpac\: chip info, profile list, notification list), and the profile and notification writes' \
 'card:A pySim-shell style shell over the card\: select files, read them, send APDUs' \
 'erase:Erase the provisioning records before programming\: the reference programming tool'\''s -e/--erase, as a command of its own' \
+'smdp:Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114)' \
+'smpp:Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor help commands' commands "$@"
@@ -4580,6 +4820,8 @@ _sim-doctor__subcmd__help__subcmd__euicc_commands() {
 'reset:Reset the eUICC memory (lpac \`chip purge\`, ES10c eUICCMemoryReset). Can erase every profile\: nothing is selected by default, and sending needs both \`--yes\` and \`--confirm-eid <EID>\` matching the card. Never exposed over MCP' \
 'set-default-dp:Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write\: a dry run that opens no reader unless \`--yes\`, and it changes where the eUICC looks for profiles. Never exposed over MCP' \
 'store-data:One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA\: the escape hatch for a function this tool does not implement (pySim-shell \`do_es10x_store_data\`). A dry run unless \`--yes\`\: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP' \
+'download:Download a profile from an activation code (LPA\:1\$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes' \
+'discovery:Discover pending profile download events from an SM-DS (ES11, #118)' \
     )
     _describe -t commands 'sim-doctor help euicc commands' commands "$@"
 }
@@ -4597,6 +4839,16 @@ _sim-doctor__subcmd__help__subcmd__euicc__subcmd__delete_commands() {
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__disable_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help euicc disable commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__discovery_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__discovery_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc discovery commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__download_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__euicc__subcmd__download_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help euicc download commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__euicc__subcmd__enable_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__euicc__subcmd__enable_commands() {
@@ -5041,8 +5293,14 @@ _sim-doctor__subcmd__help__subcmd__profile__subcmd__probe_commands() {
 _sim-doctor__subcmd__help__subcmd__program_commands() {
     local commands; commands=(
 'plan:Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent' \
+'csv:Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)' \
     )
     _describe -t commands 'sim-doctor help program commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__program__subcmd__csv_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__program__subcmd__csv_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help program csv commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__program__subcmd__plan_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__program__subcmd__plan_commands() {
@@ -5094,6 +5352,30 @@ _sim-doctor__subcmd__help__subcmd__saip__subcmd__personalize_commands() {
 _sim-doctor__subcmd__help__subcmd__scan_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor help scan commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__smdp_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__smdp_commands() {
+    local commands; commands=(
+'serve:Start the self-hosted SM-DP+ test server' \
+    )
+    _describe -t commands 'sim-doctor help smdp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__smdp__subcmd__serve_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__smdp__subcmd__serve_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help smdp serve commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__smpp_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__smpp_commands() {
+    local commands; commands=(
+'serve:Start the self-hosted SMPP gateway server' \
+    )
+    _describe -t commands 'sim-doctor help smpp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__help__subcmd__smpp__subcmd__serve_commands] )) ||
+_sim-doctor__subcmd__help__subcmd__smpp__subcmd__serve_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor help smpp serve commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__help__subcmd__sms_commands] )) ||
 _sim-doctor__subcmd__help__subcmd__sms_commands() {
@@ -5330,17 +5612,29 @@ _sim-doctor__subcmd__profile__subcmd__probe_commands() {
 _sim-doctor__subcmd__program_commands() {
     local commands; commands=(
 'plan:Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent' \
+'csv:Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor program commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__program__subcmd__csv_commands] )) ||
+_sim-doctor__subcmd__program__subcmd__csv_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor program csv commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__program__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__program__subcmd__help_commands() {
     local commands; commands=(
 'plan:Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent' \
+'csv:Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'sim-doctor program help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__program__subcmd__help__subcmd__csv_commands] )) ||
+_sim-doctor__subcmd__program__subcmd__help__subcmd__csv_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor program help csv commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__program__subcmd__help__subcmd__help_commands] )) ||
 _sim-doctor__subcmd__program__subcmd__help__subcmd__help_commands() {
@@ -5452,6 +5746,68 @@ _sim-doctor__subcmd__saip__subcmd__personalize_commands() {
 _sim-doctor__subcmd__scan_commands() {
     local commands; commands=()
     _describe -t commands 'sim-doctor scan commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smdp_commands] )) ||
+_sim-doctor__subcmd__smdp_commands() {
+    local commands; commands=(
+'serve:Start the self-hosted SM-DP+ test server' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor smdp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smdp__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__smdp__subcmd__help_commands() {
+    local commands; commands=(
+'serve:Start the self-hosted SM-DP+ test server' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor smdp help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smdp__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__smdp__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor smdp help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smdp__subcmd__help__subcmd__serve_commands] )) ||
+_sim-doctor__subcmd__smdp__subcmd__help__subcmd__serve_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor smdp help serve commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smdp__subcmd__serve_commands] )) ||
+_sim-doctor__subcmd__smdp__subcmd__serve_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor smdp serve commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smpp_commands] )) ||
+_sim-doctor__subcmd__smpp_commands() {
+    local commands; commands=(
+'serve:Start the self-hosted SMPP gateway server' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor smpp commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smpp__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__smpp__subcmd__help_commands() {
+    local commands; commands=(
+'serve:Start the self-hosted SMPP gateway server' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'sim-doctor smpp help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smpp__subcmd__help__subcmd__help_commands] )) ||
+_sim-doctor__subcmd__smpp__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor smpp help help commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smpp__subcmd__help__subcmd__serve_commands] )) ||
+_sim-doctor__subcmd__smpp__subcmd__help__subcmd__serve_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor smpp help serve commands' commands "$@"
+}
+(( $+functions[_sim-doctor__subcmd__smpp__subcmd__serve_commands] )) ||
+_sim-doctor__subcmd__smpp__subcmd__serve_commands() {
+    local commands; commands=()
+    _describe -t commands 'sim-doctor smpp serve commands' commands "$@"
 }
 (( $+functions[_sim-doctor__subcmd__sms_commands] )) ||
 _sim-doctor__subcmd__sms_commands() {

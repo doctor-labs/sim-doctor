@@ -11,6 +11,14 @@
 
 ### Added
 
+- `sim-doctor program plan` now lists supported card types in the plan and covers extended SIM/USIM/ISIM personalization fields (ICCID, IMSI, Ki, OPc/OP, ACC, MSISDN, FPLMN, SMSC/SMSP, ePDG, P-CSCF, IMPI, IMPU/domain) with offline APDU planning/notes per supported card type; key material is never printed (#113).
+- `sim-doctor program csv <FILE> [--type TYPE] [--json]`: offline batch-CSV planning for SIM/USIM/ISIM personalization (one dry-run plan per row, no card touched, key material omitted) (#113).
+- `sim-doctor euicc download --activation-code CODE [--confirmation-code CODE] [--ca PEM] [--http] [--yes] [--json]`: online profile download from an activation code (`LPA:1$...`, including confirmation-code-required flag parsing) via ES9+ / SGP.22 RSP flow (dry run unless `--yes`; HTTPS by default, `--http` for self-hosted/local testing) (#118).
+- `sim-doctor euicc discovery [--smds FQDN] [--ca PEM] [--http] [--json]`: SM-DS discovery (ES11) for pending profile download events (#118).
+- `sim-doctor smdp serve`: self-hosted SM-DP+ test server skeleton for local RSP/ES9+ integration (configurable canned ES9+ payloads, ES2+ placeholder endpoints, and SCP81 admin placeholder endpoint), no third-party account required (#114).
+- `sim-doctor smpp serve [--reader NAME --yes]`: self-hosted SMPP 3.4 gateway/ESME that receives `submit_sm` OTA SMS submissions and can best-effort deliver received payloads to a connected card as SMS-PP DOWNLOAD ENVELOPEs when `--reader --yes` is provided (#210, #114).
+- `scan --submit <HTTPS URL> [--submit-ca PEM]`: opt-in anonymized scan-result submission (off by default). The destination, trust anchor, and exact anonymized payload are printed before upload; HTTPS is required and certificate verification is always on (explicit CA/pinned bundle via `--submit-ca`) (#107).
+- `docs/PARITY.md`: evidence-based parity benchmark/gap snapshot versus SIMtester, pySim-shell, and GlobalPlatformPro (#154).
 - `sim-doctor gp cert verify --cert PATH --cert-issuer-hex HEX|--cert-issuer-file PATH`: checks the 5F37 signature of a 7F21 card certificate against the issuer public key, offline. Known answer from python cryptography (#249).
 - `sim-doctor gp put-key --lock-kdf kdf3`: diversifies ONE AES-128 master key with the KDD the card returns in INITIALIZE UPDATE and writes the three keys it derives. Wire bytes checked against python re-derived kdf3 keys (#248).
 - `sim-doctor shell` `switch_channel N` (1 to 15): uses an open logical channel, like `channel N`, under the pySim name (#162).

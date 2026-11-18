@@ -73,65 +73,106 @@ impl HttpResponse {
 }
 
 /// Server behavior configuration.
+///
+/// The server is a self-hosted test/integration SM-DP+ skeleton. For a working
+/// local ES9+ flow with `profile_download`/`euicc download`, callers must supply
+/// protocol-valid base64 TLV payloads (signed/authenticated material) via these
+/// fields; this module does not generate SGP.22 crypto material.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    /// Pre-canned BoundProfilePackage (base64) for GetBoundProfilePackage.
-    pub bpp_base64: Option<String>,
-    /// Transaction ID to echo/use.
+    /// Transaction ID to echo/use (upper-case hex, 2-32 chars, even length).
     pub transaction_id: Option<String>,
+    /// BoundProfilePackage (base64, BF36 TLV) for getBoundProfilePackage.
+    pub bpp_base64: Option<String>,
+    /// InitiateAuthentication: serverSigned1 (base64, whole `30` TLV).
+    pub server_signed1: Option<String>,
+    /// InitiateAuthentication: serverSignature1 (base64, value of `5F37`).
+    pub server_signature1: Option<String>,
+    /// InitiateAuthentication: euiccCiPKIdToBeUsed (base64, value of `04`).
+    pub euicc_ci_pk_id: Option<String>,
+    /// InitiateAuthentication: serverCertificate (base64, whole `30` TLV).
+    pub server_certificate: Option<String>,
+    /// AuthenticateClient: profileMetadata (base64, whole `BF25` TLV).
+    pub profile_metadata: Option<String>,
+    /// AuthenticateClient: smdpSigned2 (base64, whole `30` TLV).
+    pub smdp_signed2: Option<String>,
+    /// AuthenticateClient: smdpSignature2 (base64, value of `5F37`).
+    pub smdp_signature2: Option<String>,
+    /// AuthenticateClient: smdpCertificate (base64, whole `30` TLV).
+    pub smdp_certificate: Option<String>,
 }
 
 /// A simple ES9+ handler state.
 pub struct ServerState {
     /// Current configuration.
     pub config: Config,
+    /// Last parsed request body per function (for inspection/debug hooks).
+    pub last_transaction_id: Option<String>,
 }
 
 impl ServerState {
     /// Create a new handler state.
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            last_transaction_id: None,
+        }
+    }
+
+    fn tid(&self) -> String {
+        self.config
+            .transaction_id
+            .clone()
+            .or_else(|| self.last_transaction_id.clone())
+            .unwrap_or_else(|| "01020304".to_string())
     }
 
     /// Handle one ES9+ request path and return a response.
     pub fn handle(&mut self, req: &HttpRequest) -> HttpResponse {
-        let _body_json: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+        let body_json: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+        if let Some(tid) = body_json.get("transactionId").and_then(|v| v.as_str()) {
+            self.last_transaction_id = Some(tid.to_string());
+        }
         match req.path.as_str() {
             "/gsma/rsp2/es9plus/initiateAuthentication" => {
-                let tid = self
-                    .config
-                    .transaction_id
-                    .clone()
-                    .unwrap_or_else(|| "01020304".to_string());
-                // Minimal shape; real servers return signed material. This is a
-                // test host skeleton that echoes a transactionId.
+                let tid = self.tid();
                 HttpResponse::json(
                     200,
                     "OK",
                     json!({
                         "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
                         "transactionId": tid,
+                        "serverSigned1": self.config.server_signed1.clone().unwrap_or_default(),
+                        "serverSignature1": self.config.server_signature1.clone().unwrap_or_default(),
+                        "euiccCiPKIdToBeUsed": self.config.euicc_ci_pk_id.clone().unwrap_or_default(),
+                        "serverCertificate": self.config.server_certificate.clone().unwrap_or_default(),
                     }),
                 )
             }
-            "/gsma/rsp2/es9plus/authenticateClient" => HttpResponse::json(
-                200,
-                "OK",
-                json!({
-                    "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
-                    "profileMetadata": Value::Null,
-                    "smdpSigned2": Value::Null,
-                    "smdpSignature2": Value::Null,
-                    "smdpCertificate": Value::Null,
-                }),
-            ),
+            "/gsma/rsp2/es9plus/authenticateClient" => {
+                let tid = self.tid();
+                HttpResponse::json(
+                    200,
+                    "OK",
+                    json!({
+                        "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
+                        "transactionId": tid,
+                        "profileMetadata": self.config.profile_metadata.clone().unwrap_or_default(),
+                        "smdpSigned2": self.config.smdp_signed2.clone().unwrap_or_default(),
+                        "smdpSignature2": self.config.smdp_signature2.clone().unwrap_or_default(),
+                        "smdpCertificate": self.config.smdp_certificate.clone().unwrap_or_default(),
+                    }),
+                )
+            }
             "/gsma/rsp2/es9plus/getBoundProfilePackage" => {
+                let tid = self.tid();
                 let bpp = self.config.bpp_base64.clone().unwrap_or_default();
                 HttpResponse::json(
                     200,
                     "OK",
                     json!({
                         "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
+                        "transactionId": tid,
                         "boundProfilePackage": bpp,
                     }),
                 )
@@ -144,15 +185,28 @@ impl ServerState {
                     "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
                 }),
             ),
-            // ES2+ placeholder endpoints (issue #114 requests ES2+ hosting)
+            // ES2+ hosting primitives (self-hosted; no third-party account). Requests are
+            // accepted and acknowledged so local integrations can exercise the endpoints.
             p if p.starts_with("/gsma/rsp2/es2plus/") => HttpResponse::json(
                 200,
                 "OK",
                 json!({
                     "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
-                    "note": "self-hosted ES2+ placeholder"
+                    "function": p.rsplit('/').next().unwrap_or("es2plus"),
+                    "note": "self-hosted ES2+ placeholder endpoint (skeleton)"
                 }),
             ),
+            // SCP81 / RAM over HTTP admin primitives (self-hosted placeholder).
+            p if p.starts_with("/gsma/rsp2/scp81") || p.starts_with("/scp81") => {
+                HttpResponse::json(
+                    200,
+                    "OK",
+                    json!({
+                        "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
+                        "note": "self-hosted SCP81 admin placeholder (no TLS-PSK stack; message-level endpoint only)"
+                    }),
+                )
+            }
             _ => HttpResponse::json(
                 404,
                 "Not Found",

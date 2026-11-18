@@ -53,6 +53,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
             [CompletionResult]::new('erase', 'erase', [CompletionResultType]::ParameterValue, 'Erase the provisioning records before programming: the reference programming tool''s -e/--erase, as a command of its own')
+            [CompletionResult]::new('smdp', 'smdp', [CompletionResultType]::ParameterValue, 'Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114)')
+            [CompletionResult]::new('smpp', 'smpp', [CompletionResultType]::ParameterValue, 'Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -1383,6 +1385,7 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('plan', 'plan', [CompletionResultType]::ParameterValue, 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent')
+            [CompletionResult]::new('csv', 'csv', [CompletionResultType]::ParameterValue, 'Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -1392,12 +1395,23 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'sim-doctor;program;csv' {
+            [CompletionResult]::new('--type', '--type', [CompletionResultType]::ParameterName, 'Default card type when a row has no `type`/`card` column')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit plans as JSON on stdout')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            break
+        }
         'sim-doctor;program;help' {
             [CompletionResult]::new('plan', 'plan', [CompletionResultType]::ParameterValue, 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent')
+            [CompletionResult]::new('csv', 'csv', [CompletionResultType]::ParameterValue, 'Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
         'sim-doctor;program;help;plan' {
+            break
+        }
+        'sim-doctor;program;help;csv' {
             break
         }
         'sim-doctor;program;help;help' {
@@ -1660,6 +1674,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('reset', 'reset', [CompletionResultType]::ParameterValue, 'Reset the eUICC memory (lpac `chip purge`, ES10c eUICCMemoryReset). Can erase every profile: nothing is selected by default, and sending needs both `--yes` and `--confirm-eid <EID>` matching the card. Never exposed over MCP')
             [CompletionResult]::new('set-default-dp', 'set-default-dp', [CompletionResultType]::ParameterValue, 'Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write: a dry run that opens no reader unless `--yes`, and it changes where the eUICC looks for profiles. Never exposed over MCP')
             [CompletionResult]::new('store-data', 'store-data', [CompletionResultType]::ParameterValue, 'One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA: the escape hatch for a function this tool does not implement (pySim-shell `do_es10x_store_data`). A dry run unless `--yes`: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP')
+            [CompletionResult]::new('download', 'download', [CompletionResultType]::ParameterValue, 'Download a profile from an activation code (LPA:1$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes')
+            [CompletionResult]::new('discovery', 'discovery', [CompletionResultType]::ParameterValue, 'Discover pending profile download events from an SM-DS (ES11, #118)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -1844,6 +1860,32 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'sim-doctor;euicc;download' {
+            [CompletionResult]::new('--activation-code', '--activation-code', [CompletionResultType]::ParameterName, 'Activation code (LPA:1$<smdp>$<matching-id>[...])')
+            [CompletionResult]::new('--confirmation-code', '--confirmation-code', [CompletionResultType]::ParameterName, 'Confirmation code if required by the activation code')
+            [CompletionResult]::new('--ca', '--ca', [CompletionResultType]::ParameterName, 'PEM trust anchor(s) for the SM-DP+ HTTPS connection')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--aid', '--aid', [CompletionResultType]::ParameterName, 'ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)')
+            [CompletionResult]::new('--max-segment', '--max-segment', [CompletionResultType]::ParameterName, 'Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks')
+            [CompletionResult]::new('--http', '--http', [CompletionResultType]::ParameterName, 'Use plain HTTP (self-hosted/local testing only)')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send the download. Without it the plan is shown and nothing is sent')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one lpac envelope on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;euicc;discovery' {
+            [CompletionResult]::new('--smds', '--smds', [CompletionResultType]::ParameterName, 'SM-DS address (FQDN). Defaults to the root SM-DS configured on the eUICC when omitted')
+            [CompletionResult]::new('--ca', '--ca', [CompletionResultType]::ParameterName, 'PEM trust anchor(s) for HTTPS')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'The reader to use, matched against the driver''s own name')
+            [CompletionResult]::new('--aid', '--aid', [CompletionResultType]::ParameterName, 'ISD-R AID as hex (default A0000005591010FFFFFFFF8900000100)')
+            [CompletionResult]::new('--max-segment', '--max-segment', [CompletionResultType]::ParameterName, 'Most data bytes in one STORE DATA block, 1 to 255 (default 120, as lpac; 255 is the short-APDU Lc limit). Some eUICCs reject full 255-byte blocks')
+            [CompletionResult]::new('--http', '--http', [CompletionResultType]::ParameterName, 'Use plain HTTP (self-hosted/local testing only)')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit one lpac envelope on stdout, and nothing else')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'sim-doctor;euicc;help' {
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'EID, EUICCInfo1 and EUICCInfo2 (lpac `chip info`)')
             [CompletionResult]::new('profiles', 'profiles', [CompletionResultType]::ParameterValue, 'Installed profiles: ICCID, state, class, nickname, provider, name (lpac `profile list`)')
@@ -1858,6 +1900,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('reset', 'reset', [CompletionResultType]::ParameterValue, 'Reset the eUICC memory (lpac `chip purge`, ES10c eUICCMemoryReset). Can erase every profile: nothing is selected by default, and sending needs both `--yes` and `--confirm-eid <EID>` matching the card. Never exposed over MCP')
             [CompletionResult]::new('set-default-dp', 'set-default-dp', [CompletionResultType]::ParameterValue, 'Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write: a dry run that opens no reader unless `--yes`, and it changes where the eUICC looks for profiles. Never exposed over MCP')
             [CompletionResult]::new('store-data', 'store-data', [CompletionResultType]::ParameterValue, 'One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA: the escape hatch for a function this tool does not implement (pySim-shell `do_es10x_store_data`). A dry run unless `--yes`: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP')
+            [CompletionResult]::new('download', 'download', [CompletionResultType]::ParameterValue, 'Download a profile from an activation code (LPA:1$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes')
+            [CompletionResult]::new('discovery', 'discovery', [CompletionResultType]::ParameterValue, 'Discover pending profile download events from an SM-DS (ES11, #118)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -1912,6 +1956,12 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         'sim-doctor;euicc;help;store-data' {
             break
         }
+        'sim-doctor;euicc;help;download' {
+            break
+        }
+        'sim-doctor;euicc;help;discovery' {
+            break
+        }
         'sim-doctor;euicc;help;help' {
             break
         }
@@ -1962,6 +2012,67 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
             break
         }
+        'sim-doctor;smdp' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('serve', 'serve', [CompletionResultType]::ParameterValue, 'Start the self-hosted SM-DP+ test server')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;smdp;serve' {
+            [CompletionResult]::new('--listen', '--listen', [CompletionResultType]::ParameterName, 'Address to listen on (e.g. 127.0.0.1:8080)')
+            [CompletionResult]::new('--transaction-id', '--transaction-id', [CompletionResultType]::ParameterName, 'Transaction ID to echo/use in responses (upper-case hex, 2-32 chars)')
+            [CompletionResult]::new('--bpp-base64', '--bpp-base64', [CompletionResultType]::ParameterName, 'BoundProfilePackage as base64 (BF36 TLV) for getBoundProfilePackage')
+            [CompletionResult]::new('--server-signed1', '--server-signed1', [CompletionResultType]::ParameterName, 'InitiateAuthentication: serverSigned1 (base64, whole `30` TLV)')
+            [CompletionResult]::new('--server-signature1', '--server-signature1', [CompletionResultType]::ParameterName, 'InitiateAuthentication: serverSignature1 (base64, value of `5F37`)')
+            [CompletionResult]::new('--euicc-ci-pk-id', '--euicc-ci-pk-id', [CompletionResultType]::ParameterName, 'InitiateAuthentication: euiccCiPKIdToBeUsed (base64, value of `04`)')
+            [CompletionResult]::new('--server-certificate', '--server-certificate', [CompletionResultType]::ParameterName, 'InitiateAuthentication: serverCertificate (base64, whole `30` TLV)')
+            [CompletionResult]::new('--profile-metadata', '--profile-metadata', [CompletionResultType]::ParameterName, 'AuthenticateClient: profileMetadata (base64, whole `BF25` TLV)')
+            [CompletionResult]::new('--smdp-signed2', '--smdp-signed2', [CompletionResultType]::ParameterName, 'AuthenticateClient: smdpSigned2 (base64, whole `30` TLV)')
+            [CompletionResult]::new('--smdp-signature2', '--smdp-signature2', [CompletionResultType]::ParameterName, 'AuthenticateClient: smdpSignature2 (base64, value of `5F37`)')
+            [CompletionResult]::new('--smdp-certificate', '--smdp-certificate', [CompletionResultType]::ParameterName, 'AuthenticateClient: smdpCertificate (base64, whole `30` TLV)')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;smdp;help' {
+            [CompletionResult]::new('serve', 'serve', [CompletionResultType]::ParameterValue, 'Start the self-hosted SM-DP+ test server')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;smdp;help;serve' {
+            break
+        }
+        'sim-doctor;smdp;help;help' {
+            break
+        }
+        'sim-doctor;smpp' {
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help (see more with ''--help'')')
+            [CompletionResult]::new('serve', 'serve', [CompletionResultType]::ParameterValue, 'Start the self-hosted SMPP gateway server')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;smpp;serve' {
+            [CompletionResult]::new('--listen', '--listen', [CompletionResultType]::ParameterName, 'Address to listen on (e.g. 127.0.0.1:2775)')
+            [CompletionResult]::new('--reader', '--reader', [CompletionResultType]::ParameterName, 'When set together with --yes, deliver each received OTA SMS payload to this reader as an SMS-PP DOWNLOAD ENVELOPE (self-hosted push-to-card path)')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'Emit each received submit_sm as one JSON line on stdout')
+            [CompletionResult]::new('--yes', '--yes', [CompletionResultType]::ParameterName, 'Send received messages to the card. Required with --reader (nothing is sent without it)')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'sim-doctor;smpp;help' {
+            [CompletionResult]::new('serve', 'serve', [CompletionResultType]::ParameterValue, 'Start the self-hosted SMPP gateway server')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'sim-doctor;smpp;help;serve' {
+            break
+        }
+        'sim-doctor;smpp;help;help' {
+            break
+        }
         'sim-doctor;help' {
             [CompletionResult]::new('modules', 'modules', [CompletionResultType]::ParameterValue, 'Describe the crate module roots and the layering between them')
             [CompletionResult]::new('readers', 'readers', [CompletionResultType]::ParameterValue, 'List the PC/SC readers by name and index, for --reader or --reader-index')
@@ -1991,6 +2102,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('euicc', 'euicc', [CompletionResultType]::ParameterValue, 'eUICC queries over ES10 (lpac: chip info, profile list, notification list), and the profile and notification writes')
             [CompletionResult]::new('card', 'card', [CompletionResultType]::ParameterValue, 'A pySim-shell style shell over the card: select files, read them, send APDUs')
             [CompletionResult]::new('erase', 'erase', [CompletionResultType]::ParameterValue, 'Erase the provisioning records before programming: the reference programming tool''s -e/--erase, as a command of its own')
+            [CompletionResult]::new('smdp', 'smdp', [CompletionResultType]::ParameterValue, 'Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114)')
+            [CompletionResult]::new('smpp', 'smpp', [CompletionResultType]::ParameterValue, 'Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210)')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -2257,9 +2370,13 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         }
         'sim-doctor;help;program' {
             [CompletionResult]::new('plan', 'plan', [CompletionResultType]::ParameterValue, 'Parse a pySim-prog-style programming document and emit the APDU sequence (offline). No card is touched and nothing is sent')
+            [CompletionResult]::new('csv', 'csv', [CompletionResultType]::ParameterValue, 'Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline)')
             break
         }
         'sim-doctor;help;program;plan' {
+            break
+        }
+        'sim-doctor;help;program;csv' {
             break
         }
         'sim-doctor;help;ota-crypto' {
@@ -2339,6 +2456,8 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
             [CompletionResult]::new('reset', 'reset', [CompletionResultType]::ParameterValue, 'Reset the eUICC memory (lpac `chip purge`, ES10c eUICCMemoryReset). Can erase every profile: nothing is selected by default, and sending needs both `--yes` and `--confirm-eid <EID>` matching the card. Never exposed over MCP')
             [CompletionResult]::new('set-default-dp', 'set-default-dp', [CompletionResultType]::ParameterValue, 'Set the default SM-DP+ address (ES10a SetDefaultDpAddress, SGP.22 v2.5 clause 5.7.4). A write: a dry run that opens no reader unless `--yes`, and it changes where the eUICC looks for profiles. Never exposed over MCP')
             [CompletionResult]::new('store-data', 'store-data', [CompletionResultType]::ParameterValue, 'One operator-supplied ES10x request, sent to the ISD-R as raw STORE DATA: the escape hatch for a function this tool does not implement (pySim-shell `do_es10x_store_data`). A dry run unless `--yes`: the card may act on an arbitrary ES10 request in ways this tool cannot undo. No keys are involved - this is not SCP03 - so none are asked for. The payload is bounded and refused above it, hex or stdin, and the card answer is reported verbatim even when this tool cannot decode it. Never exposed over MCP')
+            [CompletionResult]::new('download', 'download', [CompletionResultType]::ParameterValue, 'Download a profile from an activation code (LPA:1$...) via ES9+ (online profile download, #118). Parses the activation code, contacts the SM-DP+, and runs the SGP.22 RSP download flow. Dry run unless --yes')
+            [CompletionResult]::new('discovery', 'discovery', [CompletionResultType]::ParameterValue, 'Discover pending profile download events from an SM-DS (ES11, #118)')
             break
         }
         'sim-doctor;help;euicc;info' {
@@ -2392,10 +2511,30 @@ Register-ArgumentCompleter -Native -CommandName 'sim-doctor' -ScriptBlock {
         'sim-doctor;help;euicc;store-data' {
             break
         }
+        'sim-doctor;help;euicc;download' {
+            break
+        }
+        'sim-doctor;help;euicc;discovery' {
+            break
+        }
         'sim-doctor;help;card' {
             break
         }
         'sim-doctor;help;erase' {
+            break
+        }
+        'sim-doctor;help;smdp' {
+            [CompletionResult]::new('serve', 'serve', [CompletionResultType]::ParameterValue, 'Start the self-hosted SM-DP+ test server')
+            break
+        }
+        'sim-doctor;help;smdp;serve' {
+            break
+        }
+        'sim-doctor;help;smpp' {
+            [CompletionResult]::new('serve', 'serve', [CompletionResultType]::ParameterValue, 'Start the self-hosted SMPP gateway server')
+            break
+        }
+        'sim-doctor;help;smpp;serve' {
             break
         }
         'sim-doctor;help;help' {

@@ -136,18 +136,10 @@ fn redact_value(v: &mut Value, key: &str) {
 /// Submit an (already anonymized or to-be-anonymized) scan envelope to
 /// `endpoint` over HTTPS.
 ///
-/// If `pin_sha256_hex` is `Some`, the server leaf certificate's DER-encoded
-/// form must hash (SHA-256) to that value; note: the current HTTPS transport
-/// verifies chains against configured roots but does not expose a pin hook, so
-/// when a pin is requested we require an explicit CA bundle flow is not enough
-/// and we reject unless the transport can enforce it. To keep behavior honest
-/// and safe, pinning is implemented by requiring a PEM file path in
-/// `pin_ca_file` that contains the pinned certificate as a trust anchor and
-/// documenting that the connection is anchored to that cert; callers that need
-/// strict leaf pinning should supply the endpoint's cert.
-///
-/// `anonymize_first` controls whether [`anonymize`] is applied (it should be
-/// true for scan submissions).
+/// The destination and the exact payload sent are printed to stderr before the
+/// request (opt-in transparency). `pin_ca_file`, when provided, is a PEM trust
+/// anchor (explicit CA / pinned certificate bundle) for the TLS connection.
+/// Certificate verification is always on.
 pub fn submit_envelope(
     endpoint: &str,
     envelope: &Value,
@@ -165,6 +157,18 @@ pub fn submit_envelope(
     };
     let bytes = serde_json::to_vec(&body).map_err(|e| Error::Serialize(e.to_string()))?;
 
+    eprintln!("sim-doctor: --submit (opt-in): POST {url}");
+    if let Some(ca) = pin_ca_file {
+        eprintln!("sim-doctor: --submit trust anchor: {ca}");
+    }
+    eprintln!(
+        "sim-doctor: --submit anonymized={anonymize_first}, {} bytes",
+        bytes.len()
+    );
+    if let Ok(text) = serde_json::to_string_pretty(&body) {
+        eprintln!("sim-doctor: --submit payload (exact):\n{text}");
+    }
+
     let config = if let Some(path) = pin_ca_file {
         HttpsConfig {
             trust: Trust::Bundle(PathBuf::from(path)),
@@ -181,6 +185,7 @@ pub fn submit_envelope(
     if resp.status < 200 || resp.status >= 300 {
         return Err(Error::Http(format!("HTTP {}", resp.status)));
     }
+    eprintln!("sim-doctor: --submit complete: HTTP {}", resp.status);
     Ok(json!({ "submitted": true, "status": resp.status, "anonymized": anonymize_first }))
 }
 
