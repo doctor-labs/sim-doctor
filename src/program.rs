@@ -61,8 +61,14 @@ the correct ADM/PIN for the selected card type, and an explicit opt-in to write 
 
 /// Offline-plannable card types (canonical names and aliases accepted by [`Document::card_type`]).
 pub const SUPPORTED_CARD_TYPES: &[(&str, &[&str])] = &[
-    ("magicsim", &["magic", "supersim", "fakemagicsim", "fake-magic-sim"]),
-    ("opencells", &["opencells-sim", "wavemobile", "wavemobile-sim"]),
+    (
+        "magicsim",
+        &["magic", "supersim", "fakemagicsim", "fake-magic-sim"],
+    ),
+    (
+        "opencells",
+        &["opencells-sim", "wavemobile", "wavemobile-sim"],
+    ),
     ("grcardsim", &["grcard", "gialer", "gialersim"]),
     ("sysmosim-gr2", &["sysmosimgr2", "gr2"]),
     ("sysmoisim-sja2", &["sysmousim-sja2", "sja2"]),
@@ -180,7 +186,12 @@ pub struct Document {
     #[serde(default, alias = "p_cscf", skip_serializing_if = "Option::is_none")]
     pub pcscf: Option<String>,
     /// ePDG identifier/selection (FQDN or address) for USIM/ISIM ePDG EFs (e.g. EF.ePDGId/EF.ePDGSelection).
-    #[serde(default, alias = "e_pdg", alias = "epdg_id", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "e_pdg",
+        alias = "epdg_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub epdg: Option<String>,
 }
 
@@ -443,7 +454,12 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
 }
 
 fn validate_extra_fields(doc: &Document) -> Result<(), Error> {
-    if let Some(msisdn) = doc.msisdn.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(msisdn) = doc
+        .msisdn
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if !msisdn
             .chars()
             .all(|c| c.is_ascii_digit() || matches!(c, '+' | '*' | '#'))
@@ -481,7 +497,13 @@ fn add_generic_sim_fields(
     isim_capable: bool,
 ) {
     // MSISDN (EF.MSISDN 6F40, linear fixed record; encoding/record length card-dependent)
-    if doc.msisdn.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) && !writes.iter().any(|w| w.to_lowercase().contains("msisdn")) {
+    if doc
+        .msisdn
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+        && !writes.iter().any(|w| w.to_lowercase().contains("msisdn"))
+    {
         let (path, file) = if isim_capable {
             (vec!["3F00".into(), "7FFF".into(), "6F40".into()], "6F40")
         } else {
@@ -502,7 +524,15 @@ fn add_generic_sim_fields(
         writes.push("Msisdn".into());
     }
     // SMSC/SMSP may be needed on sysmocom path or if not covered
-    if doc.smsp.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) && !writes.iter().any(|w| w.to_lowercase().contains("smsp") || w.to_lowercase().contains("sms")) {
+    if doc
+        .smsp
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+        && !writes
+            .iter()
+            .any(|w| w.to_lowercase().contains("smsp") || w.to_lowercase().contains("sms"))
+    {
         needs.push("SMSC/SMSP (EF.SMSP) programming for this card type requires the EF path/record layout on the live card (commonly 7F10/6F42 on SIM/USIM).".into());
         writes.push("Smsp".into());
     }
@@ -529,13 +559,35 @@ fn add_generic_sim_fields(
     }
     // ISIM / IMS fields
     let isim_fields: Vec<(&str, &str, &str, bool)> = vec![
-        ("impi", "EF.IMPI (6F02, ADF.ISIM, transparent tag 0x80)", "6F02", doc.impi.as_deref().is_some()),
-        ("domain", "EF.DOMAIN (6F03, ADF.ISIM, transparent tag 0x80)", "6F03", doc.domain.as_deref().is_some()),
-        ("impu", "EF.IMPU (6F04, ADF.ISIM, linear-fixed records)", "6F04", doc.impu.as_deref().is_some()),
-        ("pcscf", "EF.P-CSCF (6F09, ADF.ISIM, linear-fixed records)", "6F09", doc.pcscf.as_deref().is_some()),
+        (
+            "impi",
+            "EF.IMPI (6F02, ADF.ISIM, transparent tag 0x80)",
+            "6F02",
+            doc.impi.as_deref().is_some(),
+        ),
+        (
+            "domain",
+            "EF.DOMAIN (6F03, ADF.ISIM, transparent tag 0x80)",
+            "6F03",
+            doc.domain.as_deref().is_some(),
+        ),
+        (
+            "impu",
+            "EF.IMPU (6F04, ADF.ISIM, linear-fixed records)",
+            "6F04",
+            doc.impu.as_deref().is_some(),
+        ),
+        (
+            "pcscf",
+            "EF.P-CSCF (6F09, ADF.ISIM, linear-fixed records)",
+            "6F09",
+            doc.pcscf.as_deref().is_some(),
+        ),
     ];
     for (key, desc, fid, present) in isim_fields {
-        if !present { continue; }
+        if !present {
+            continue;
+        }
         let path = if isim_capable {
             vec!["3F00".into(), "7FFF".into(), "ADF.ISIM".into(), fid.into()]
         } else {
@@ -556,7 +608,12 @@ fn add_generic_sim_fields(
         writes.push(key.to_ascii_uppercase());
     }
     // ePDG (USIM/ISIM ePDG selection/identifier EFs)
-    if doc.epdg.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) {
+    if doc
+        .epdg
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+    {
         steps.push(PlanStep {
             description: "Program ePDG identifier/selection (EF.ePDGId 6F65 / EF.ePDGSelection 6F64 or card-specific ePDG EFs)".into(),
             apdu: None,
@@ -867,7 +924,9 @@ pub fn plans_from_csv(text: &str, default_type: Option<&str>) -> Result<Vec<Plan
         let Some(r#type) = r#type else {
             return Err(Error::new(
                 "document-invalid",
-                format!("row {rowno}: missing card type (no `type` column/value and no default type)"),
+                format!(
+                    "row {rowno}: missing card type (no `type` column/value and no default type)"
+                ),
             ));
         };
         let fplmn = get(&["fplmn"]).map(|s| {
@@ -993,7 +1052,11 @@ mod tests {
         assert_eq!(plan.kind, PLAN_KIND);
         assert!(!plan.card_touched);
         assert!(!plan.steps.is_empty());
-        let apdus: Vec<_> = plan.steps.iter().filter_map(|s| s.apdu.as_deref()).collect();
+        let apdus: Vec<_> = plan
+            .steps
+            .iter()
+            .filter_map(|s| s.apdu.as_deref())
+            .collect();
         assert!(
             apdus.iter().any(|a| a.starts_with("A0A4")),
             "expected SELECT APDUs, got {apdus:?}"
@@ -1017,10 +1080,12 @@ mod tests {
         }"#,
         )
         .unwrap();
-        assert!(plan
-            .steps
-            .iter()
-            .any(|s| s.description.contains("PROPRIETARY") || s.description.contains("VERIFY CHV")));
+        assert!(
+            plan.steps
+                .iter()
+                .any(|s| s.description.contains("PROPRIETARY")
+                    || s.description.contains("VERIFY CHV"))
+        );
     }
 
     #[test]
@@ -1061,7 +1126,10 @@ mod tests {
         }"#,
         )
         .unwrap();
-        assert!(plan.steps.iter().any(|s| s.field.as_deref() == Some("Fplmn")));
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| s.field.as_deref() == Some("Fplmn")));
         assert!(plan.needs_live_card.iter().any(|n| n.contains("FPLMN")));
     }
 
@@ -1084,7 +1152,10 @@ mod tests {
         assert!(plan.writes.iter().any(|w| w == "Msisdn"));
         assert!(plan.writes.iter().any(|w| w == "IMPI"));
         assert!(plan.writes.iter().any(|w| w == "IMPU"));
-        assert!(plan.writes.iter().any(|w| w.contains("ePDG") || w == "ePDG"));
+        assert!(plan
+            .writes
+            .iter()
+            .any(|w| w.contains("ePDG") || w == "ePDG"));
     }
 
     #[test]

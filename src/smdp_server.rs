@@ -197,14 +197,16 @@ impl ServerState {
                 }),
             ),
             // SCP81 / RAM over HTTP admin primitives (self-hosted placeholder).
-            p if p.starts_with("/gsma/rsp2/scp81") || p.starts_with("/scp81") => HttpResponse::json(
-                200,
-                "OK",
-                json!({
-                    "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
-                    "note": "self-hosted SCP81 admin placeholder (no TLS-PSK stack; message-level endpoint only)"
-                }),
-            ),
+            p if p.starts_with("/gsma/rsp2/scp81") || p.starts_with("/scp81") => {
+                HttpResponse::json(
+                    200,
+                    "OK",
+                    json!({
+                        "header": {"functionExecutionStatus": {"status": "Executed-Success"}},
+                        "note": "self-hosted SCP81 admin placeholder (no TLS-PSK stack; message-level endpoint only)"
+                    }),
+                )
+            }
             _ => HttpResponse::json(
                 404,
                 "Not Found",

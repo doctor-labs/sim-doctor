@@ -10376,11 +10376,17 @@ fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
     if let (Some(reader), true) = (args.reader.as_deref(), args.yes) {
         match open_transport(Some(reader), false, None) {
             Ok((session, name, _)) => {
-                eprintln!("sim-doctor: smpp serve: will push received OTA SMS to reader {}", name.as_str());
+                eprintln!(
+                    "sim-doctor: smpp serve: will push received OTA SMS to reader {}",
+                    name.as_str()
+                );
                 *card.borrow_mut() = Some(session);
             }
             Err(e) => {
-                eprintln!("sim-doctor: smpp serve: cannot open reader for card delivery: {}", e.into_failure().message);
+                eprintln!(
+                    "sim-doctor: smpp serve: cannot open reader for card delivery: {}",
+                    e.into_failure().message
+                );
             }
         }
     }
@@ -10389,7 +10395,10 @@ fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
     let result = sim_doctor::smpp::serve(&args.listen, stop, |ev| match ev {
         sim_doctor::smpp::Event::Bound { system_id } => {
             if json {
-                println!("{}", serde_json::json!({"event":"bound","system_id":system_id}));
+                println!(
+                    "{}",
+                    serde_json::json!({"event":"bound","system_id":system_id})
+                );
             } else {
                 eprintln!("bound: {system_id}");
             }
@@ -10401,20 +10410,29 @@ fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
                 if let Some(sess) = guard.as_mut() {
                     // Best-effort SMS-PP DOWNLOAD ENVELOPE delivery to the card.
                     let body = &m.short_message;
-                    let data = sim_doctor::tar::inner_tlv(sim_doctor::tar::TAG_SMS_PP_DOWNLOAD, body)
-                        .unwrap_or_else(|| body.clone());
+                    let data =
+                        sim_doctor::tar::inner_tlv(sim_doctor::tar::TAG_SMS_PP_DOWNLOAD, body)
+                            .unwrap_or_else(|| body.clone());
                     match sim_doctor::cardsh::envelope_command(0x80, &data) {
                         Ok(cmd) => {
                             let policy = sim_doctor::session::Policy::default();
                             match sim_doctor::session::send(sess.as_mut(), &cmd, &policy) {
                                 Ok(ex) => {
                                     let ok = ex.is_success();
-                                    delivered = Some(serde_json::json!({"sent": true, "ok": ok, "status": format!("{:?}", ex.status())}));
-                                    if !json { eprintln!("card envelope delivery: ok={ok}"); }
+                                    delivered = Some(
+                                        serde_json::json!({"sent": true, "ok": ok, "status": format!("{:?}", ex.status())}),
+                                    );
+                                    if !json {
+                                        eprintln!("card envelope delivery: ok={ok}");
+                                    }
                                 }
                                 Err(e) => {
-                                    delivered = Some(serde_json::json!({"sent": false, "error": e.to_string()}));
-                                    if !json { eprintln!("card envelope delivery failed: {e}"); }
+                                    delivered = Some(
+                                        serde_json::json!({"sent": false, "error": e.to_string()}),
+                                    );
+                                    if !json {
+                                        eprintln!("card envelope delivery failed: {e}");
+                                    }
                                 }
                             }
                         }
@@ -10423,7 +10441,8 @@ fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
                         }
                     }
                 } else {
-                    delivered = Some(serde_json::json!({"sent": false, "error": "no card session"}));
+                    delivered =
+                        Some(serde_json::json!({"sent": false, "error": "no card session"}));
                 }
             }
             if json {
@@ -10433,7 +10452,9 @@ fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
                     "data_coding": m.data_coding,
                     "short_message_hex": hex::encode(&m.short_message),
                 });
-                if let Some(d) = delivered { v["card_delivery"] = d; }
+                if let Some(d) = delivered {
+                    v["card_delivery"] = d;
+                }
                 println!("{}", v);
             } else {
                 println!(
@@ -10478,7 +10499,9 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
         }
     };
     if ac.confirmation_code_required && args.confirmation_code.is_none() {
-        eprintln!("sim-doctor: note: activation code requires a confirmation code (--confirmation-code)");
+        eprintln!(
+            "sim-doctor: note: activation code requires a confirmation code (--confirmation-code)"
+        );
     }
     let data = serde_json::json!({
         "dry_run": !args.yes,
@@ -10492,25 +10515,43 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
         },
     });
     if !args.yes {
-        return emit_offline_euicc(data, |d| {
-            format!(
+        return emit_offline_euicc(
+            data,
+            |d| {
+                format!(
                 "download plan\nsmdp: {}\nmatching-id: {}\nconfirmation-code-required: {}\nconfirmation-code-supplied: {}\ndry run: nothing sent (use --yes)",
                 d["activation"]["smdp_address"].as_str().unwrap_or(""),
                 d["activation"]["matching_id"].as_str().unwrap_or(""),
                 d["activation"]["confirmation_code_required"],
                 d["confirmation_code_supplied"]
             )
-        }, json);
+            },
+            json,
+        );
     }
     // Open card and keep a logical ISD-R channel for the full RSP sequence.
     let (mut session, reader, _) = match open_transport(args.flags.reader.as_deref(), false, None) {
         Ok(o) => o,
-        Err(f) => return report_refusal(KIND, &f.into_failure().message, serde_json::json!({"error":"reader-unavailable"}), json),
+        Err(f) => {
+            return report_refusal(
+                KIND,
+                &f.into_failure().message,
+                serde_json::json!({"error":"reader-unavailable"}),
+                json,
+            )
+        }
     };
     let max = args.flags.max_segment as usize;
     let (channel, open_ex) = match sim_doctor::session::open_channel(&mut *session) {
         Ok(v) => v,
-        Err(e) => return report_refusal(KIND, &format!("open channel: {e}"), serde_json::json!({"error":"channel-open-failed"}), json),
+        Err(e) => {
+            return report_refusal(
+                KIND,
+                &format!("open channel: {e}"),
+                serde_json::json!({"error":"channel-open-failed"}),
+                json,
+            )
+        }
     };
     let Some(channel) = channel else {
         return report_refusal(
@@ -10535,20 +10576,46 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
         Ok(ex) if ex.is_success() => {}
         Ok(ex) => {
             close_channel(&mut *session, channel);
-            return report_refusal(KIND, "not an eUICC: ISD-R select refused", serde_json::json!({"error":"not-an-euicc","status": format!("{:?}", ex)}), json);
+            return report_refusal(
+                KIND,
+                "not an eUICC: ISD-R select refused",
+                serde_json::json!({"error":"not-an-euicc","status": format!("{:?}", ex)}),
+                json,
+            );
         }
         Err(e) => {
             close_channel(&mut *session, channel);
-            return report_refusal(KIND, &format!("select ISD-R: {e}"), serde_json::json!({"error":"card-failed"}), json);
+            return report_refusal(
+                KIND,
+                &format!("select ISD-R: {e}"),
+                serde_json::json!({"error":"card-failed"}),
+                json,
+            );
         }
     }
 
     // Best-effort ctxParams1 from GetEuiccInfo2 response (passed to AuthenticateServer).
-    let ctx_params1 = match sim_doctor::es10::store_data_sized(&mut *session, cla, &sim_doctor::es10::get_euicc_info2_request(), max, &policy) {
-        Ok(sent) if sent.complete && sent.exchanges.last().is_some_and(sim_doctor::session::Exchange::is_success) => {
+    let ctx_params1 = match sim_doctor::es10::store_data_sized(
+        &mut *session,
+        cla,
+        &sim_doctor::es10::get_euicc_info2_request(),
+        max,
+        &policy,
+    ) {
+        Ok(sent)
+            if sent.complete
+                && sent
+                    .exchanges
+                    .last()
+                    .is_some_and(sim_doctor::session::Exchange::is_success) =>
+        {
             // Use the raw info2 response as context material when available.
             let raw = sent.data().to_vec();
-            if raw.is_empty() { Vec::new() } else { raw }
+            if raw.is_empty() {
+                Vec::new()
+            } else {
+                raw
+            }
         }
         _ => Vec::new(),
     };
@@ -10565,8 +10632,9 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
         sim_doctor::profile_download::run(
             &mut client,
             &mut |step, req| {
-                let sent = sim_doctor::es10::store_data_sized(&mut *session, cla, &req, max, &policy)
-                    .map_err(|e| format!("{step}: {e}"))?;
+                let sent =
+                    sim_doctor::es10::store_data_sized(&mut *session, cla, &req, max, &policy)
+                        .map_err(|e| format!("{step}: {e}"))?;
                 let last = sent.exchanges.last();
                 if !sent.complete || !last.is_some_and(sim_doctor::session::Exchange::is_success) {
                     return Err(format!("{step}: ES10 request refused"));
@@ -10581,7 +10649,10 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
         } else {
             sim_doctor::es9_https::Trust::GsmaCi
         };
-        let config = sim_doctor::es9_https::HttpsConfig { trust, ..Default::default() };
+        let config = sim_doctor::es9_https::HttpsConfig {
+            trust,
+            ..Default::default()
+        };
         match sim_doctor::es9_https::HttpsTransport::new(&config) {
             Ok(t) => {
                 let transport: Box<dyn sim_doctor::es9::Es9Transport> = Box::new(t);
@@ -10589,10 +10660,18 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
                 sim_doctor::profile_download::run(
                     &mut client,
                     &mut |step, req| {
-                        let sent = sim_doctor::es10::store_data_sized(&mut *session, cla, &req, max, &policy)
-                            .map_err(|e| format!("{step}: {e}"))?;
+                        let sent = sim_doctor::es10::store_data_sized(
+                            &mut *session,
+                            cla,
+                            &req,
+                            max,
+                            &policy,
+                        )
+                        .map_err(|e| format!("{step}: {e}"))?;
                         let last = sent.exchanges.last();
-                        if !sent.complete || !last.is_some_and(sim_doctor::session::Exchange::is_success) {
+                        if !sent.complete
+                            || !last.is_some_and(sim_doctor::session::Exchange::is_success)
+                        {
                             return Err(format!("{step}: ES10 request refused"));
                         }
                         Ok(sent.data().to_vec())
@@ -10602,7 +10681,12 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
             }
             Err(e) => {
                 close_channel(&mut *session, channel);
-                return report_refusal(KIND, &format!("https transport: {e}"), serde_json::json!({"error":{"kind":"transport","message":e.to_string()}}), json)
+                return report_refusal(
+                    KIND,
+                    &format!("https transport: {e}"),
+                    serde_json::json!({"error":{"kind":"transport","message":e.to_string()}}),
+                    json,
+                );
             }
         }
     };
@@ -10623,12 +10707,28 @@ fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
                 "reader": reader.as_str(),
                 "activation": ac.to_json(),
             });
-            emit_offline_euicc(data, |d| format!("profile downloaded (transaction {})", d["transaction_id"].as_str().unwrap_or("")), json)
+            emit_offline_euicc(
+                data,
+                |d| {
+                    format!(
+                        "profile downloaded (transaction {})",
+                        d["transaction_id"].as_str().unwrap_or("")
+                    )
+                },
+                json,
+            )
         }
-        Ok(sim_doctor::profile_download::Outcome::Preview) => {
-            emit_offline_euicc(serde_json::json!({"dry_run":true,"card_touched":false}), |_| "dry run".to_string(), json)
-        }
-        Err(f) => report_refusal(KIND, &f.error.to_string(), serde_json::json!({"error":{"kind":f.error.kind(),"message":f.error.to_string(),"retryable":f.error.retryable(),"cancel_error":f.cancel_error}}), json),
+        Ok(sim_doctor::profile_download::Outcome::Preview) => emit_offline_euicc(
+            serde_json::json!({"dry_run":true,"card_touched":false}),
+            |_| "dry run".to_string(),
+            json,
+        ),
+        Err(f) => report_refusal(
+            KIND,
+            &f.error.to_string(),
+            serde_json::json!({"error":{"kind":f.error.kind(),"message":f.error.to_string(),"retryable":f.error.retryable(),"cancel_error":f.cancel_error}}),
+            json,
+        ),
     }
 }
 
@@ -10650,35 +10750,80 @@ fn euicc_es10_exchange_on_channel(
 
 /// Minimal plain-HTTP ES9 transport for local/self-hosted servers.
 struct HttpEs9Transport;
-impl HttpEs9Transport { fn new() -> Self { Self } }
+impl HttpEs9Transport {
+    fn new() -> Self {
+        Self
+    }
+}
 impl sim_doctor::es9::Es9Transport for HttpEs9Transport {
-    fn post(&mut self, url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<sim_doctor::es9::Response, sim_doctor::es9::TransportError> {
+    fn post(
+        &mut self,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<sim_doctor::es9::Response, sim_doctor::es9::TransportError> {
         // very small blocking HTTP/1.1 POST (self-hosted/local testing only)
-        let url = url.strip_prefix("http://").ok_or_else(|| sim_doctor::es9::TransportError("http transport needs http:// URL".into()))?;
-        let (host_port, path) = url.split_once('/').map(|(h,p)| (h, format!("/{p}"))).unwrap_or((url, "/".into()));
-        let (host, port) = if let Some((h,p)) = host_port.rsplit_once(':') {
-            (h.to_string(), p.parse::<u16>().map_err(|_| sim_doctor::es9::TransportError("bad port".into()))?)
+        let url = url.strip_prefix("http://").ok_or_else(|| {
+            sim_doctor::es9::TransportError("http transport needs http:// URL".into())
+        })?;
+        let (host_port, path) = url
+            .split_once('/')
+            .map(|(h, p)| (h, format!("/{p}")))
+            .unwrap_or((url, "/".into()));
+        let (host, port) = if let Some((h, p)) = host_port.rsplit_once(':') {
+            (
+                h.to_string(),
+                p.parse::<u16>()
+                    .map_err(|_| sim_doctor::es9::TransportError("bad port".into()))?,
+            )
         } else {
             (host_port.to_string(), 80)
         };
         use std::io::{Read, Write};
-        let mut stream = std::net::TcpStream::connect((host.as_str(), port)).map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
-        let mut req = format!("POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: close\r\n", path, host, body.len());
-        for (k,v) in headers { req.push_str(&format!("{k}: {v}\r\n")); }
+        let mut stream = std::net::TcpStream::connect((host.as_str(), port))
+            .map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
+        let mut req = format!(
+            "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
+            path,
+            host,
+            body.len()
+        );
+        for (k, v) in headers {
+            req.push_str(&format!("{k}: {v}\r\n"));
+        }
         req.push_str("\r\n");
-        stream.write_all(req.as_bytes()).and_then(|_| stream.write_all(body)).map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
+        stream
+            .write_all(req.as_bytes())
+            .and_then(|_| stream.write_all(body))
+            .map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
         let mut resp = Vec::new();
-        stream.read_to_end(&mut resp).map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
-        let split = resp.windows(4).position(|w| w==b"\r\n\r\n").map(|p| p+4).unwrap_or(resp.len());
+        stream
+            .read_to_end(&mut resp)
+            .map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
+        let split = resp
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|p| p + 4)
+            .unwrap_or(resp.len());
         let (head_bytes, body_bytes) = resp.split_at(split);
         let head = String::from_utf8_lossy(head_bytes);
         let mut lines = head.split("\r\n");
-        let status = lines.next().and_then(|l| l.split_whitespace().nth(1)).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+        let status = lines
+            .next()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(0);
         let mut rh = Vec::new();
         for line in lines {
-            if let Some((k,v)) = line.split_once(':') { rh.push((k.trim().to_string(), v.trim().to_string())); }
+            if let Some((k, v)) = line.split_once(':') {
+                rh.push((k.trim().to_string(), v.trim().to_string()));
+            }
         }
-        Ok(sim_doctor::es9::Response { status, headers: rh, body: body_bytes.to_vec() })
+        Ok(sim_doctor::es9::Response {
+            status,
+            headers: rh,
+            body: body_bytes.to_vec(),
+        })
     }
 }
 
@@ -10690,15 +10835,34 @@ fn run_euicc_discovery(args: &DiscoveryArgs) -> contract::ExitCode {
     // Need eUICC challenge/info1; get from card on a single channel.
     let (mut session, reader, _) = match open_transport(args.flags.reader.as_deref(), false, None) {
         Ok(o) => o,
-        Err(f) => return report_refusal(KIND, &f.into_failure().message, serde_json::json!({"error":"reader-unavailable"}), json),
+        Err(f) => {
+            return report_refusal(
+                KIND,
+                &f.into_failure().message,
+                serde_json::json!({"error":"reader-unavailable"}),
+                json,
+            )
+        }
     };
     let max = args.flags.max_segment as usize;
     let (channel, _) = match sim_doctor::session::open_channel(&mut *session) {
         Ok(v) => v,
-        Err(e) => return report_refusal(KIND, &format!("open channel: {e}"), serde_json::json!({"error":"channel-open-failed"}), json),
+        Err(e) => {
+            return report_refusal(
+                KIND,
+                &format!("open channel: {e}"),
+                serde_json::json!({"error":"channel-open-failed"}),
+                json,
+            )
+        }
     };
     let Some(channel) = channel else {
-        return report_refusal(KIND, "the card did not open a logical channel (not an eUICC?)", serde_json::json!({"error":"channel-unavailable"}), json);
+        return report_refusal(
+            KIND,
+            "the card did not open a logical channel (not an eUICC?)",
+            serde_json::json!({"error":"channel-unavailable"}),
+            json,
+        );
     };
     let policy = sim_doctor::session::Policy::default();
     let cla = 0x80u8 | (channel & 0x03);
@@ -10709,32 +10873,66 @@ fn run_euicc_discovery(args: &DiscoveryArgs) -> contract::ExitCode {
     );
     let selected = matches!(sim_doctor::session::send(&mut *session, &sel, &policy), Ok(ex) if ex.is_success());
     let (challenge_b64, info1_b64, configured_root) = if selected {
-        let challenge_b64 = euicc_es10_exchange_on_channel(&mut *session, cla, &sim_doctor::es10::get_euicc_challenge_request(), max, &policy)
-            .ok()
-            .and_then(|resp| sim_doctor::es10::decode_get_euicc_challenge(&resp).ok())
-            .map(|c| b64_std(&c.challenge));
-        let info1_b64 = euicc_es10_exchange_on_channel(&mut *session, cla, &sim_doctor::es10::get_euicc_info1_request(), max, &policy)
-            .ok()
-            .map(|resp| b64_std(&resp));
-        let configured_root = euicc_es10_exchange_on_channel(&mut *session, cla, &sim_doctor::es10::get_euicc_configured_addresses_request(), max, &policy)
-            .ok()
-            .and_then(|r| sim_doctor::es10::decode_configured_addresses(&r).ok())
-            .and_then(|a| a.root_ds_address);
+        let challenge_b64 = euicc_es10_exchange_on_channel(
+            &mut *session,
+            cla,
+            &sim_doctor::es10::get_euicc_challenge_request(),
+            max,
+            &policy,
+        )
+        .ok()
+        .and_then(|resp| sim_doctor::es10::decode_get_euicc_challenge(&resp).ok())
+        .map(|c| b64_std(&c.challenge));
+        let info1_b64 = euicc_es10_exchange_on_channel(
+            &mut *session,
+            cla,
+            &sim_doctor::es10::get_euicc_info1_request(),
+            max,
+            &policy,
+        )
+        .ok()
+        .map(|resp| b64_std(&resp));
+        let configured_root = euicc_es10_exchange_on_channel(
+            &mut *session,
+            cla,
+            &sim_doctor::es10::get_euicc_configured_addresses_request(),
+            max,
+            &policy,
+        )
+        .ok()
+        .and_then(|r| sim_doctor::es10::decode_configured_addresses(&r).ok())
+        .and_then(|a| a.root_ds_address);
         (challenge_b64, info1_b64, configured_root)
     } else {
         (None, None, None)
     };
     let _ = sim_doctor::session::close_channel(&mut *session, channel);
 
-    let smds_str = if let Some(s) = &args.smds { s.clone() } else {
+    let smds_str = if let Some(s) = &args.smds {
+        s.clone()
+    } else {
         match configured_root {
             Some(a) => a,
-            None => return report_refusal(KIND, "no SM-DS address (give --smds)", serde_json::json!({"error":{"kind":"no-smds"}}), json),
+            None => {
+                return report_refusal(
+                    KIND,
+                    "no SM-DS address (give --smds)",
+                    serde_json::json!({"error":{"kind":"no-smds"}}),
+                    json,
+                )
+            }
         }
     };
     let smds = match sim_doctor::es9::SmdpAddress::parse(&smds_str) {
         Ok(a) => a,
-        Err(e) => return report_refusal(KIND, &format!("bad SM-DS address: {e}"), serde_json::json!({"error":{"kind":"bad-smds","message":e.to_string()}}), json),
+        Err(e) => {
+            return report_refusal(
+                KIND,
+                &format!("bad SM-DS address: {e}"),
+                serde_json::json!({"error":{"kind":"bad-smds","message":e.to_string()}}),
+                json,
+            )
+        }
     };
     let do_discover = |t: &mut dyn sim_doctor::es9::Es9Transport| {
         sim_doctor::es11::discover(t, &smds, challenge_b64.as_deref(), info1_b64.as_deref())
@@ -10743,20 +10941,48 @@ fn run_euicc_discovery(args: &DiscoveryArgs) -> contract::ExitCode {
         let mut t = HttpEs9Transport::new();
         do_discover(&mut t)
     } else {
-        let trust = if let Some(ca) = &args.ca { sim_doctor::es9_https::Trust::Bundle(ca.clone()) } else { sim_doctor::es9_https::Trust::GsmaCi };
-        let config = sim_doctor::es9_https::HttpsConfig { trust, ..Default::default() };
+        let trust = if let Some(ca) = &args.ca {
+            sim_doctor::es9_https::Trust::Bundle(ca.clone())
+        } else {
+            sim_doctor::es9_https::Trust::GsmaCi
+        };
+        let config = sim_doctor::es9_https::HttpsConfig {
+            trust,
+            ..Default::default()
+        };
         match sim_doctor::es9_https::HttpsTransport::new(&config) {
             Ok(mut t) => do_discover(&mut t),
-            Err(e) => return report_refusal(KIND, &format!("https transport: {e}"), serde_json::json!({"error":{"kind":"transport","message":e.to_string()}}), json),
+            Err(e) => {
+                return report_refusal(
+                    KIND,
+                    &format!("https transport: {e}"),
+                    serde_json::json!({"error":{"kind":"transport","message":e.to_string()}}),
+                    json,
+                )
+            }
         }
     };
     match result {
         Ok(d) => {
             let events: Vec<serde_json::Value> = d.events.iter().map(|e| serde_json::json!({"smdp_address": e.smdp_address, "matching_id": e.matching_id, "raw": e.raw})).collect();
             let data = serde_json::json!({"reader": reader.as_str(), "smds": smds_str, "events": events, "raw": d.raw});
-            emit_offline_euicc(data, |d| format!("{} event(s)", d["events"].as_array().map(|a| a.len()).unwrap_or(0)), json)
+            emit_offline_euicc(
+                data,
+                |d| {
+                    format!(
+                        "{} event(s)",
+                        d["events"].as_array().map(|a| a.len()).unwrap_or(0)
+                    )
+                },
+                json,
+            )
         }
-        Err(e) => report_refusal(KIND, &e.to_string(), serde_json::json!({"error":{"kind":"discovery-failed","message":e.to_string()}}), json),
+        Err(e) => report_refusal(
+            KIND,
+            &e.to_string(),
+            serde_json::json!({"error":{"kind":"discovery-failed","message":e.to_string()}}),
+            json,
+        ),
     }
 }
 
@@ -10768,9 +10994,13 @@ fn b64_std(data: &[u8]) -> String {
             | ((c.get(1).copied().unwrap_or(0) as u32) << 8)
             | (c.get(2).copied().unwrap_or(0) as u32);
         for i in 0..4 {
-            if i == 1 && c.len() < 2 { out.push('='); }
-            else if i == 2 && c.len() < 3 { out.push('='); }
-            else { out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char); }
+            if i == 1 && c.len() < 2 {
+                out.push('=');
+            } else if i == 2 && c.len() < 3 {
+                out.push('=');
+            } else {
+                out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            }
         }
     }
     out
