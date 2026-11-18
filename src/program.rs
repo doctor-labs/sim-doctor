@@ -387,16 +387,21 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
     } else if let Some(model) = sysmocom_model(&card_type) {
         let req = build_sysmocom_request(doc, &mcc, &mnc, opc.as_deref())?;
         let at = sysmocom::At::new();
-        let planned = at.plan(model, &req).map_err(|e| match e {
-            sysmocom::Error::NothingToProgram(msg) => Error::new("nothing-to-program", msg),
-            other => Error::new("plan-invalid", other.to_string()),
-        })?;
-        for pw in &planned {
-            append_sysmocom_step(&mut steps, model, pw);
-            let f = format!("{:?}", pw.field);
-            if !writes.contains(&f) {
-                writes.push(f);
+        match at.plan(model, &req) {
+            Ok(planned) => {
+                for pw in &planned {
+                    append_sysmocom_step(&mut steps, model, pw);
+                    let f = format!("{:?}", pw.field);
+                    if !writes.contains(&f) {
+                        writes.push(f);
+                    }
+                }
             }
+            Err(sysmocom::Error::NothingToProgram(_)) => {
+                // Vendor-file surface does not cover the requested fields; still account
+                // for them below as generic/live-card steps where possible.
+            }
+            Err(other) => return Err(Error::new("plan-invalid", other.to_string())),
         }
         // sysmocom vendor-file surface is limited; account for remaining requested fields.
         add_generic_sim_fields(&mut steps, &mut needs_live_card, &mut writes, doc, true);
@@ -415,6 +420,12 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
 
     writes.sort();
     writes.dedup();
+    if steps.is_empty() && writes.is_empty() {
+        return Err(Error::new(
+            "nothing-to-program",
+            "document contains no fields to program for the selected card type",
+        ));
+    }
 
     Ok(Plan {
         kind: PLAN_KIND.to_owned(),
@@ -433,7 +444,10 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
 
 fn validate_extra_fields(doc: &Document) -> Result<(), Error> {
     if let Some(msisdn) = doc.msisdn.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        if !msisdn.chars().all(|c| c.is_ascii_digit() || c == '+' || c == '*' || c == '#' ) {
+        if !msisdn
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '+' | '*' | '#'))
+        {
             return Err(Error::new(
                 "document-invalid",
                 "`msisdn` must contain digits (and optionally +/*/#)",
