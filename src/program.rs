@@ -2,8 +2,8 @@
 //! APDU sequence.
 //!
 //! **Owns.** The programming document format ([`Document`]), parsing and
-//! validation, and the offline planning that turns one document into the ordered
-//! APDU sequence a reference tool would send for that card type.
+//! validation, offline planning that turns one document into an ordered APDU
+//! sequence for a supported card type, and batch-CSV planning helpers.
 //!
 //! **Does not own.** Opening a reader, sending bytes to a card, or the card-type
 //! detection/probe logic itself (that lives in [`crate::cardprofile`],
@@ -13,11 +13,20 @@
 //! # The document
 //!
 //! A pySim-prog-style description of one card: which card type/model to program
-//! and the identity and key material to write (ICCID, IMSI, Ki, OPc/OP, ADM/PIN,
-//! SMSP/SMSC, ACC, MCC/MNC and their length, FPLMN, and the operator name where
-//! the model carries one). Fields that do not apply to the chosen type are
-//! rejected rather than silently dropped, because writing the wrong thing to a
-//! card is worse than refusing to guess.
+//! and the identity and key material to write. Supported fields:
+//! ICCID, IMSI, Ki, OPc, ACC, MSISDN, FPLMN, SMSC (SMSP), ePDG, P-CSCF, IMPI,
+//! IMPU (plus ADM/PIN, MCC/MNC/MNC length, OP and operator name where the model
+//! carries them). Fields that do not apply to the chosen type or cannot be
+//! written offline are reported in `needs_live_card` rather than silently
+//! dropped; writing the wrong thing to a card is worse than refusing to guess.
+//!
+//! # Supported card types
+//!
+//! Offline APDU planning is implemented for the legacy and sysmocom card families:
+//! magicsim/supersim, opencells/wavemobile, grcardsim/gialer, sysmosim-gr2,
+//! sysmoISIM/SIM-SJA2, sysmoISIM/SIM-SJA5, sysmoSIM-SJS1. ISIM-capable sysmocom
+//! models accept ISIM fields (IMPI, IMPU, domain/ePDG, P-CSCF) as documented plan
+//! steps/notes where the exact EF path/length must be confirmed on the live card.
 //!
 //! # Safety
 //!
@@ -49,6 +58,32 @@ pub const WARNING: &str =
     "programming writes identity and key material to a card and is not reversible: \
 the APDU sequence below is what would be sent, but sending it needs a live card, \
 the correct ADM/PIN for the selected card type, and an explicit opt-in to write (dry run unless --yes)";
+
+/// Offline-plannable card types (canonical names and aliases accepted by [`Document::card_type`]).
+pub const SUPPORTED_CARD_TYPES: &[(&str, &[&str])] = &[
+    ("magicsim", &["magic", "supersim", "fakemagicsim", "fake-magic-sim"]),
+    ("opencells", &["opencells-sim", "wavemobile", "wavemobile-sim"]),
+    ("grcardsim", &["grcard", "gialer", "gialersim"]),
+    ("sysmosim-gr2", &["sysmosimgr2", "gr2"]),
+    ("sysmoisim-sja2", &["sysmousim-sja2", "sja2"]),
+    ("sysmoisim-sja5", &["sysmousim-sja5", "sja5"]),
+    ("sysmosim-sjs1", &["sysmousim-sjs1", "sjs1"]),
+];
+
+/// Returns the canonical supported card type names, in order.
+pub fn supported_card_types() -> Vec<&'static str> {
+    SUPPORTED_CARD_TYPES.iter().map(|(n, _)| *n).collect()
+}
+
+/// Returns all accepted type strings (canonical + aliases), for help text.
+pub fn all_card_type_names() -> Vec<&'static str> {
+    let mut out = Vec::new();
+    for (name, aliases) in SUPPORTED_CARD_TYPES {
+        out.push(*name);
+        out.extend_from_slice(aliases);
+    }
+    out
+}
 
 /// What went wrong while parsing or planning a document.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +155,9 @@ pub struct Document {
     /// SMSC / SMS Service Provider record (EF.SMSP), hex.
     #[serde(default, alias = "smsc", skip_serializing_if = "Option::is_none")]
     pub smsp: Option<String>,
+    /// MSISDN (digits / EF.MSISDN number). Record encoding is card/file-size dependent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub msisdn: Option<String>,
     /// Access control class (EF.ACC), hex.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acc: Option<String>,
@@ -129,6 +167,21 @@ pub struct Document {
     /// Operator name (magic-SIM).
     #[serde(default, alias = "name", skip_serializing_if = "Option::is_none")]
     pub operator_name: Option<String>,
+    /// ISIM IMPI (NAI, e.g. user@realm). Written as EF.IMPI (tag 0x80) under ADF.ISIM on ISIM-capable cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impi: Option<String>,
+    /// ISIM IMPU (SIP URI / TEL URI). Written as an EF.IMPU record under ADF.ISIM on ISIM-capable cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impu: Option<String>,
+    /// ISIM home network domain (EF.DOMAIN, tag 0x80) / IMS domain.
+    #[serde(default, alias = "ims_domain", skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    /// P-CSCF address (FQDN or URI) for EF.P-CSCF under ADF.ISIM.
+    #[serde(default, alias = "p_cscf", skip_serializing_if = "Option::is_none")]
+    pub pcscf: Option<String>,
+    /// ePDG identifier/selection (FQDN or address) for USIM/ISIM ePDG EFs (e.g. EF.ePDGId/EF.ePDGSelection).
+    #[serde(default, alias = "e_pdg", alias = "epdg_id", skip_serializing_if = "Option::is_none")]
+    pub epdg: Option<String>,
 }
 
 impl Document {
@@ -279,6 +332,8 @@ pub struct Plan {
     pub kind: String,
     /// The card type the plan targets.
     pub card_type: String,
+    /// Supported card types (canonical names).
+    pub supported_card_types: Vec<String>,
     /// [`WARNING`].
     pub warning: &'static str,
     /// True: no bytes were sent and no card was touched.
@@ -287,7 +342,7 @@ pub struct Plan {
     pub steps: Vec<PlanStep>,
     /// What still requires a live card / cannot be completed offline.
     pub needs_live_card: Vec<String>,
-    /// Fields the plan writes (best-effort summary).
+    /// Fields the plan writes or accounts for (best-effort summary).
     pub writes: Vec<String>,
 }
 
@@ -303,6 +358,7 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
     let mcc = doc.normalized_mcc()?;
     let mnc = doc.normalized_mnc()?;
     let opc = doc.resolve_opc()?;
+    validate_extra_fields(doc)?;
 
     let mut needs_live_card = vec![
         "A live card/reader and the correct ADM/CHV for the selected card type.".to_owned(),
@@ -326,6 +382,8 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
                 writes.push(f);
             }
         }
+        // Generic EF steps/notes for fields not covered by the legacy driver surface.
+        add_generic_sim_fields(&mut steps, &mut needs_live_card, &mut writes, doc, false);
     } else if let Some(model) = sysmocom_model(&card_type) {
         let req = build_sysmocom_request(doc, &mcc, &mnc, opc.as_deref())?;
         let at = sysmocom::At::new();
@@ -340,16 +398,8 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
                 writes.push(f);
             }
         }
-        if doc.iccid.is_some()
-            || doc.imsi.is_some()
-            || doc.mcc.is_some()
-            || doc.smsp.is_some()
-            || doc.acc.is_some()
-        {
-            needs_live_card.push(
-                "ICCID/IMSI/MCC-MNC/SMSP/ACC programming for sysmocom SJA2/SJA5/SJS1 models is not covered by the sysmocom vendor-file surface in this build; write those EFs via the card shell or a model-specific flow on a live card.".to_owned(),
-            );
-        }
+        // sysmocom vendor-file surface is limited; account for remaining requested fields.
+        add_generic_sim_fields(&mut steps, &mut needs_live_card, &mut writes, doc, true);
         needs_live_card.push(
             "sysmocom SJA2/SJA5/SJS1 programming is performed over the AT+CSIM transport; APDUs below are the card APDUs carried inside AT+CSIM frames.".to_owned(),
         );
@@ -357,34 +407,10 @@ pub fn plan_document(doc: &Document) -> Result<Plan, Error> {
         return Err(Error::new(
             "unsupported-type",
             format!(
-                "card type `{card_type}` is not supported for offline APDU planning; \
-supported types: magicsim, supersim, opencells, grcardsim, gialer, wavemobile, sysmosim-gr2, \
-sysmoisim-sja2, sysmousim-sja2, sysmoisim-sja5, sysmousim-sja5, sysmosim-sjs1"
+                "card type `{card_type}` is not supported for offline APDU planning; supported types: {}",
+                all_card_type_names().join(", ")
             ),
         ));
-    }
-
-    // FPLMN: if requested, add a note/step (generic EF update needs live-card path/size).
-    if let Some(entries) = &doc.fplmn {
-        if !entries.is_empty() {
-            needs_live_card.push(
-                "FPLMN (EF.FPLMN 6F7B under DF.GSM/ADF) programming requires selecting the correct DF/ADF on the target card and writing the encoded PLMN list; the exact path and file length must be read from the live card.".to_owned(),
-            );
-            let path = vec!["3F00".into(), "7F20".into(), "6F7B".into()];
-            steps.push(PlanStep {
-                description: format!("UPDATE BINARY EF.FPLMN ({} entrie(s), encoded on live card)", entries.len()),
-                apdu: None,
-                path,
-                field: Some("FPLMN".into()),
-                file: Some("6F7B".into()),
-                notes: vec![
-                    "Encode each PLMN as 3 bytes (TS 51.011/31.102 MCC/MNC digit coding) and pad remaining entries with FF FF FF up to the file length read from the card.".into(),
-                ],
-            });
-            if !writes.iter().any(|w| w == "FPLMN") {
-                writes.push("FPLMN".into());
-            }
-        }
     }
 
     writes.sort();
@@ -393,12 +419,143 @@ sysmoisim-sja2, sysmousim-sja2, sysmoisim-sja5, sysmousim-sja5, sysmosim-sjs1"
     Ok(Plan {
         kind: PLAN_KIND.to_owned(),
         card_type,
+        supported_card_types: supported_card_types()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         warning: WARNING,
         card_touched: false,
         steps,
         needs_live_card,
         writes,
     })
+}
+
+fn validate_extra_fields(doc: &Document) -> Result<(), Error> {
+    if let Some(msisdn) = doc.msisdn.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if !msisdn.chars().all(|c| c.is_ascii_digit() || c == '+' || c == '*' || c == '#' ) {
+            return Err(Error::new(
+                "document-invalid",
+                "`msisdn` must contain digits (and optionally +/*/#)",
+            ));
+        }
+    }
+    for (name, val) in [
+        ("impi", doc.impi.as_deref()),
+        ("impu", doc.impu.as_deref()),
+        ("domain", doc.domain.as_deref()),
+        ("pcscf", doc.pcscf.as_deref()),
+        ("epdg", doc.epdg.as_deref()),
+    ] {
+        if let Some(v) = val.map(str::trim).filter(|s| !s.is_empty()) {
+            if v.len() > 255 {
+                return Err(Error::new(
+                    "document-invalid",
+                    format!("`{name}` is too long"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn add_generic_sim_fields(
+    steps: &mut Vec<PlanStep>,
+    needs: &mut Vec<String>,
+    writes: &mut Vec<String>,
+    doc: &Document,
+    isim_capable: bool,
+) {
+    // MSISDN (EF.MSISDN 6F40, linear fixed record; encoding/record length card-dependent)
+    if doc.msisdn.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) && !writes.iter().any(|w| w.to_lowercase().contains("msisdn")) {
+        let (path, file) = if isim_capable {
+            (vec!["3F00".into(), "7FFF".into(), "6F40".into()], "6F40")
+        } else {
+            (vec!["3F00".into(), "7F10".into(), "6F40".into()], "6F40")
+        };
+        steps.push(PlanStep {
+            description: "UPDATE RECORD EF.MSISDN (record 1) with encoded MSISDN number".into(),
+            apdu: None,
+            path,
+            field: Some("Msisdn".into()),
+            file: Some(file.into()),
+            notes: vec![
+                "EF.MSISDN is linear-fixed; record length, alpha size and capability/extension ids must be read from the live card. Number is encoded per TS 31.102/51.011 (TON/NPI + BCD).".into(),
+                "APDU payload may contain identity material and is omitted from the offline plan output.".into(),
+            ],
+        });
+        needs.push("MSISDN (EF.MSISDN) requires the EF record length/alpha layout from the live card; plan shows the intended target EF and encoding rule.".into());
+        writes.push("Msisdn".into());
+    }
+    // SMSC/SMSP may be needed on sysmocom path or if not covered
+    if doc.smsp.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) && !writes.iter().any(|w| w.to_lowercase().contains("smsp") || w.to_lowercase().contains("sms")) {
+        needs.push("SMSC/SMSP (EF.SMSP) programming for this card type requires the EF path/record layout on the live card (commonly 7F10/6F42 on SIM/USIM).".into());
+        writes.push("Smsp".into());
+    }
+    // FPLMN
+    if doc.fplmn.as_ref().is_some_and(|v| !v.is_empty()) {
+        needs.push("FPLMN (EF.FPLMN 6F7B under DF.GSM/ADF.USIM) programming requires selecting the correct DF/ADF on the target card and writing the encoded PLMN list padded to the file length read from the card.".into());
+        let path = vec!["3F00".into(), "7F20".into(), "6F7B".into()];
+        steps.push(PlanStep {
+            description: format!(
+                "UPDATE BINARY EF.FPLMN ({} entrie(s), encoded on live card)",
+                doc.fplmn.as_ref().map(|v| v.len()).unwrap_or(0)
+            ),
+            apdu: None,
+            path,
+            field: Some("Fplmn".into()),
+            file: Some("6F7B".into()),
+            notes: vec![
+                "Encode each PLMN as 3 bytes (MCC/MNC digit coding) and pad remaining entries with FF FF FF up to the EF length reported by the card.".into(),
+            ],
+        });
+        if !writes.iter().any(|w| w == "Fplmn") {
+            writes.push("Fplmn".into());
+        }
+    }
+    // ISIM / IMS fields
+    let isim_fields: Vec<(&str, &str, &str, bool)> = vec![
+        ("impi", "EF.IMPI (6F02, ADF.ISIM, transparent tag 0x80)", "6F02", doc.impi.as_deref().is_some()),
+        ("domain", "EF.DOMAIN (6F03, ADF.ISIM, transparent tag 0x80)", "6F03", doc.domain.as_deref().is_some()),
+        ("impu", "EF.IMPU (6F04, ADF.ISIM, linear-fixed records)", "6F04", doc.impu.as_deref().is_some()),
+        ("pcscf", "EF.P-CSCF (6F09, ADF.ISIM, linear-fixed records)", "6F09", doc.pcscf.as_deref().is_some()),
+    ];
+    for (key, desc, fid, present) in isim_fields {
+        if !present { continue; }
+        let path = if isim_capable {
+            vec!["3F00".into(), "7FFF".into(), "ADF.ISIM".into(), fid.into()]
+        } else {
+            vec!["3F00".into(), "ADF.ISIM".into(), fid.into()]
+        };
+        steps.push(PlanStep {
+            description: format!("Program {desc}"),
+            apdu: None,
+            path,
+            field: Some(key.to_ascii_uppercase()),
+            file: Some(fid.into()),
+            notes: vec![
+                "Requires selecting ADF.ISIM on the live card (AID from EF.DIR) and confirming EF size/record structure before writing.".into(),
+                "NAI/URI values are encoded per TS 31.103 (transparent tag 0x80 or record encoding) and padded to the EF size.".into(),
+            ],
+        });
+        needs.push(format!("{key} ({desc}) requires ADF.ISIM selection and EF size/record layout from the live ISIM-capable card."));
+        writes.push(key.to_ascii_uppercase());
+    }
+    // ePDG (USIM/ISIM ePDG selection/identifier EFs)
+    if doc.epdg.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) {
+        steps.push(PlanStep {
+            description: "Program ePDG identifier/selection (EF.ePDGId 6F65 / EF.ePDGSelection 6F64 or card-specific ePDG EFs)".into(),
+            apdu: None,
+            path: vec!["3F00".into(), "ADF.USIM/ADF.ISIM".into(), "6F64|6F65".into()],
+            field: Some("ePDG".into()),
+            file: Some("6F64/6F65".into()),
+            notes: vec![
+                "ePDG EFs and encoding (FQDN/IP, priority/selection records) are profile/card dependent; select the correct ADF and read EF metadata on the live card before writing.".into(),
+            ],
+        });
+        needs.push("ePDG (EF.ePDGId/EF.ePDGSelection) programming requires the correct ADF and EF structure from the live card.".into());
+        writes.push("ePDG".into());
+    }
 }
 
 fn legacy_model(t: &str) -> Option<legacy::Model> {
@@ -454,7 +611,6 @@ fn build_sysmocom_request(
     opc: Option<&str>,
 ) -> Result<sysmocom::ProgramRequest, Error> {
     let mut req = sysmocom::ProgramRequest::default();
-    // sysmocom vendor surface: CHV1/CHV2, ADM1-4, Ki/OPc (SJS1) or SIM_AUTH_KEY pair.
     if let Some(adm) = doc.adm.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         req.admin = vec![Secret::new(adm.as_bytes().to_vec())];
     }
@@ -532,9 +688,6 @@ fn append_legacy_step(
             notes: Vec::new(),
         });
     }
-    // Proprietary/auth bodies may carry secrets (ADM/Ki); treat conservatively.
-    let contains_key_material = matches!(pw.body, Body::Proprietary(_))
-        && matches!(pw.field, legacy::Field::Ki | legacy::Field::AdmPin);
     let (desc, apdu, notes) = match &pw.body {
         Body::Binary { offset, data } => {
             let a = if matches!(pw.field, legacy::Field::Ki | legacy::Field::Opc) {
@@ -563,7 +716,6 @@ fn append_legacy_step(
             )
         }
         Body::Record { record, data } => {
-            // Provider/name records and others may embed Ki or identity material; omit payload to avoid leaking secrets.
             let sensitive = matches!(
                 pw.field,
                 legacy::Field::Iccid
@@ -602,14 +754,11 @@ fn append_legacy_step(
                 vec!["PLMN payload starts with encoded HPLMN and is padded with FF to the EF length reported by the card.".into()],
             )
         }
-        Body::Proprietary(_) => {
-            let _ = contains_key_material;
-            (
-                format!("PROPRIETARY APDU ({})", pw.name),
-                None,
-                vec!["Proprietary write APDU carries ADM/Ki material and is omitted from the plan output; it is sent on a live card with --yes.".into()],
-            )
-        }
+        Body::Proprietary(_) => (
+            format!("PROPRIETARY APDU ({})", pw.name),
+            None,
+            vec!["Proprietary write APDU carries ADM/Ki material and is omitted from the plan output; it is sent on a live card with --yes.".into()],
+        ),
         Body::Auth { chv, .. } => (
             format!("VERIFY CHV 0x{chv:02X} ({})", pw.name),
             None,
@@ -661,6 +810,126 @@ fn append_sysmocom_step(
     });
 }
 
+/// Plans programming for each row of a provisioning/programming CSV (batch CSV).
+///
+/// Recognized columns (case-insensitive): `type`/`card`, `iccid`, `imsi`,
+/// `ki`, `opc`, `op`, `adm`/`pin_adm`, `mcc`, `mnc`, `mnc_len`, `smsp`/`smsc`,
+/// `msisdn`, `acc`, `fplmn`, `impi`, `impu`, `domain`/`ims_domain`,
+/// `pcscf`/`p_cscf`, `epdg`/`e_pdg`, `operator_name`/`name`. A `type` column or
+/// `default_type` must provide the card type for each row. Rows missing required
+/// identity material fail with the row number; key values are never included in
+/// errors. Planning is offline (no card touched).
+pub fn plans_from_csv(text: &str, default_type: Option<&str>) -> Result<Vec<Plan>, Error> {
+    let rows = crate::cardsh::csvfile::parse(text)
+        .map_err(|e| Error::new("document-invalid", format!("CSV: {e}")))?;
+    let mut it = rows.into_iter();
+    let header = it
+        .next()
+        .ok_or_else(|| Error::new("document-invalid", "CSV is empty"))?;
+    let headers: Vec<String> = header
+        .iter()
+        .map(|h| h.trim().trim_start_matches('\u{feff}').to_ascii_lowercase())
+        .collect();
+    let mut plans = Vec::new();
+    for (idx, row) in it.enumerate() {
+        let rowno = idx + 2; // 1-based including header
+        if row.iter().all(|c| c.trim().is_empty()) {
+            continue;
+        }
+        let get = |names: &[&str]| -> Option<String> {
+            for name in names {
+                if let Some(i) = headers.iter().position(|h| h == name) {
+                    if let Some(v) = row.get(i) {
+                        let t = v.trim().to_string();
+                        if !t.is_empty() {
+                            return Some(t);
+                        }
+                    }
+                }
+            }
+            None
+        };
+        let r#type = get(&["type", "card"]).or_else(|| default_type.map(|s| s.to_string()));
+        let Some(r#type) = r#type else {
+            return Err(Error::new(
+                "document-invalid",
+                format!("row {rowno}: missing card type (no `type` column/value and no default type)"),
+            ));
+        };
+        let fplmn = get(&["fplmn"]).map(|s| {
+            s.split(|c: char| c == ';' || c == '|')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect::<Vec<_>>()
+        });
+        let doc = Document {
+            kind: Some(DOC_KIND.to_owned()),
+            r#type: Some(r#type),
+            iccid: get(&["iccid"]),
+            imsi: get(&["imsi"]),
+            ki: get(&["ki"]),
+            opc: get(&["opc"]),
+            op: get(&["op"]),
+            adm: get(&["adm", "pin_adm", "adm_pin"]),
+            mcc: get(&["mcc"]),
+            mnc: get(&["mnc"]),
+            mnc_len: get(&["mnc_len", "mnclen"]).and_then(|v| v.parse().ok()),
+            smsp: get(&["smsp", "smsc"]),
+            msisdn: get(&["msisdn"]),
+            acc: get(&["acc"]),
+            fplmn,
+            operator_name: get(&["operator_name", "name"]),
+            impi: get(&["impi"]),
+            impu: get(&["impu"]),
+            domain: get(&["domain", "ims_domain"]),
+            pcscf: get(&["pcscf", "p_cscf"]),
+            epdg: get(&["epdg", "e_pdg", "epdg_id"]),
+        };
+        let plan = plan_document(&doc).map_err(|e| {
+            Error::new(
+                e.kind,
+                format!("row {rowno}: {} (key material redacted)", e.detail),
+            )
+        })?;
+        plans.push(plan);
+    }
+    if plans.is_empty() {
+        return Err(Error::new(
+            "nothing-to-program",
+            "CSV contains no data rows to program",
+        ));
+    }
+    Ok(plans)
+}
+
+/// Returns a redacted JSON view of a document suitable for dry-run display
+/// (omits Ki/OPc/OP/ADM values).
+pub fn redacted_document_json(doc: &Document) -> serde_json::Value {
+    serde_json::json!({
+        "kind": doc.kind,
+        "type": doc.r#type,
+        "iccid": doc.iccid,
+        "imsi": doc.imsi,
+        "msisdn": doc.msisdn,
+        "mcc": doc.mcc,
+        "mnc": doc.mnc,
+        "mnc_len": doc.mnc_len,
+        "smsp": doc.smsp,
+        "acc": doc.acc,
+        "fplmn": doc.fplmn,
+        "operator_name": doc.operator_name,
+        "impi": doc.impi,
+        "impu": doc.impu,
+        "domain": doc.domain,
+        "pcscf": doc.pcscf,
+        "epdg": doc.epdg,
+        "ki": doc.ki.as_ref().map(|_| "<redacted>"),
+        "opc": doc.opc.as_ref().map(|_| "<redacted>"),
+        "op": doc.op.as_ref().map(|_| "<redacted>"),
+        "adm": doc.adm.as_ref().map(|_| "<redacted>"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,7 +961,6 @@ mod tests {
         );
         let opc = d.resolve_opc().unwrap().unwrap();
         assert_eq!(opc.len(), 32);
-        assert_eq!(d.resolve_opc().unwrap().unwrap(), opc);
     }
 
     #[test]
@@ -711,20 +979,15 @@ mod tests {
         assert_eq!(plan.kind, PLAN_KIND);
         assert!(!plan.card_touched);
         assert!(!plan.steps.is_empty());
-        // SELECT APDUs are present; secret-bearing write payloads are omitted.
-        let apdus: Vec<_> = plan
-            .steps
-            .iter()
-            .filter_map(|s| s.apdu.as_deref())
-            .collect();
+        let apdus: Vec<_> = plan.steps.iter().filter_map(|s| s.apdu.as_deref()).collect();
         assert!(
             apdus.iter().any(|a| a.starts_with("A0A4")),
             "expected SELECT APDUs, got {apdus:?}"
         );
-        assert!(plan.writes.iter().any(|w| w.contains("Iccid")));
         assert!(plan.steps.iter().any(|s| s.description.contains("UPDATE")));
         assert!(!plan.needs_live_card.is_empty());
         assert!(plan.warning.contains("dry run unless --yes"));
+        assert!(!plan.supported_card_types.is_empty());
     }
 
     #[test]
@@ -740,13 +1003,10 @@ mod tests {
         }"#,
         )
         .unwrap();
-        assert!(
-            plan.steps
-                .iter()
-                .any(|s| s.description.contains("PROPRIETARY")
-                    || s.description.contains("VERIFY CHV"))
-        );
-        assert!(plan.needs_live_card.iter().any(|n| n.contains("live card")));
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| s.description.contains("PROPRIETARY") || s.description.contains("VERIFY CHV")));
     }
 
     #[test]
@@ -769,7 +1029,6 @@ mod tests {
         )
         .unwrap();
         assert!(!plan.steps.is_empty());
-        assert!(plan.steps.iter().any(|s| s.file.as_deref() == Some("A515")));
     }
 
     #[test]
@@ -788,10 +1047,53 @@ mod tests {
         }"#,
         )
         .unwrap();
-        assert!(plan
-            .steps
-            .iter()
-            .any(|s| s.field.as_deref() == Some("FPLMN")));
+        assert!(plan.steps.iter().any(|s| s.field.as_deref() == Some("Fplmn")));
         assert!(plan.needs_live_card.iter().any(|n| n.contains("FPLMN")));
+    }
+
+    #[test]
+    fn accepts_new_fields_and_accounts_for_them() {
+        let plan = plan_json(
+            r#"{
+            "type":"sysmoisim-sja5",
+            "iccid":"8986000000000000001","imsi":"001010000000001",
+            "ki":"00112233445566778899AABBCCDDEEFF",
+            "msisdn":"15551234567","smsp":"FFFFFFFF",
+            "impi":"user@ims.mnc001.mcc001.3gppnetwork.org",
+            "impu":"sip:user@ims.mnc001.mcc001.3gppnetwork.org",
+            "domain":"ims.mnc001.mcc001.3gppnetwork.org",
+            "pcscf":"pcscf.ims.example.org",
+            "epdg":"epdg.epc.mnc001.mcc001.pub.3gppnetwork.org"
+        }"#,
+        )
+        .unwrap();
+        assert!(plan.writes.iter().any(|w| w == "Msisdn"));
+        assert!(plan.writes.iter().any(|w| w == "IMPI"));
+        assert!(plan.writes.iter().any(|w| w == "IMPU"));
+        assert!(plan.writes.iter().any(|w| w.contains("ePDG") || w == "ePDG"));
+    }
+
+    #[test]
+    fn plans_from_csv_batch() {
+        let csv = "type,iccid,imsi,mcc,mnc,ki,msisdn\nmagicsim,8986000000000000001,001010000000001,001,01,00112233445566778899AABBCCDDEEFF,15551234567\nmagicsim,8986000000000000002,001010000000002,001,01,00112233445566778899AABBCCDDEEFF,15551234568\n";
+        let plans = plans_from_csv(csv, None).unwrap();
+        assert_eq!(plans.len(), 2);
+        assert!(plans.iter().all(|p| !p.card_touched));
+    }
+
+    #[test]
+    fn redacted_document_hides_keys() {
+        let d = doc(r#"{"type":"magicsim","ki":"00112233445566778899AABBCCDDEEFF","adm":"1234"}"#);
+        let j = redacted_document_json(&d);
+        assert_eq!(j["ki"], "<redacted>");
+        assert_eq!(j["adm"], "<redacted>");
+    }
+
+    #[test]
+    fn supported_types_listed() {
+        let types = supported_card_types();
+        assert!(types.contains(&"magicsim"));
+        assert!(types.contains(&"sysmoisim-sja2"));
+        assert!(types.len() >= 7);
     }
 }

@@ -213,6 +213,12 @@ exit codes do not change. `scan --tui` is still the findings view described abov
 | `euicc notifications remove SEQ [--yes] [...]` | remove a notification from the list; a dry run unless `--yes`, see below |
 | `euicc notifications dump [--seq N] [-o FILE] [...]` | read the full signed pending notifications into a re-loadable JSON file; read-only, see below |
 | `euicc notifications replay --from FILE [--yes] [--json]` | send dumped notifications to their operators over ES9+ HTTPS; a dry run unless `--yes`, see below |
+| `euicc download --activation-code CODE [--confirmation-code CODE] [--ca PEM] [--http] [--yes] [--json]` | online profile download from an activation code (ES9+, SGP.22 RSP flow); dry run unless `--yes`, see below |
+| `euicc discovery [--smds FQDN] [--ca PEM] [--http] [--json]` | SM-DS discovery (ES11) for pending profile download events |
+| `program plan <FILE> [--json]` | offline SIM/USIM/ISIM personalization/programming plan (APDU sequence) from a JSON document; no card touched, key material omitted |
+| `program csv <FILE> [--type TYPE] [--json]` | offline batch-CSV planning for SIM/USIM/ISIM personalization (one dry-run plan per row); no card touched, key material omitted |
+| `smdp serve [--listen ADDR] [--transaction-id HEX] [--bpp-base64 B64] [...]` | self-hosted SM-DP+ test server skeleton for local ES9+/ES2+ integration (no third-party account) |
+| `smpp serve [--listen ADDR] [--json] [--reader NAME --yes]` | self-hosted SMPP 3.4 gateway/ESME; can best-effort push received OTA SMS payloads to a card when `--reader --yes` is given |
 
 `scan` flags (`sim-doctor scan --help` is the full contract):
 
@@ -229,6 +235,8 @@ exit codes do not change. `scan --tui` is still the findings view described abov
 | `--fail-on <LEVEL>` | exit 1 (3 under `--baseline`) on a finding at or above `info\|low\|medium\|high\|critical`; default `critical` |
 | `--baseline <FILE>` | compare with a previous `scan --json` envelope; only new findings gate (exit 3). Replaces the old `--baseline` writer and `--diff` |
 | `--sarif <FILE>` | also write SARIF 2.1.0 |
+| `--submit <URL>` | opt-in: upload the anonymized scan envelope to this HTTPS endpoint (off by default; destination and exact anonymized payload are printed before upload) |
+| `--submit-ca <PEM>` | PEM trust anchor / explicit CA bundle for `--submit` (certificate verification always on) |
 
 ### `ts48 compare`
 
@@ -272,8 +280,7 @@ card-supplied text sanitized. Exit codes: `0` answered; `1` the card is not an e
 SELECT was refused: `data.error.kind` is `not-an-euicc`), the card refused a logical channel or an
 ES10 request, the response was malformed, or no reader or card; `129` bad command line; `130`
 interrupted. The swSIM fixture is not an eUICC, so these are tested against synthetic responses
-through the replay transport and still need a live-card check (tracked on #92). The online side
-(download, discovery) is not here; `notifications replay` below is the one command that sends anything.
+through the replay transport and still need a live-card check (tracked on #92). `notifications replay` sends dumped notifications to an operator server, and `euicc download` / `euicc discovery` provide online profile download (ES9+, activation code `LPA:1$...`) and SM-DS discovery (ES11) paths; `euicc download` and `discovery` are dry-run/explicit-send flows and require `--yes` for network/card-changing download actions.
 
 `euicc nickname ICCID NAME` (lpac `profile nickname`, ES10c SetNickname) is the first command here that
 changes the card, and it is cautious by default. The ICCID (18 to 20 digits) and the name (at most 64

@@ -403,6 +403,101 @@ enum Command {
     /// WARNING this operation always carries.
     #[command(long_about = erase_help())]
     Erase(EraseArgs),
+
+    /// Run a self-hosted SM-DP+ test server (ES9+ / ES2+ placeholders) for local RSP testing (#114).
+    ///
+    /// Binds an HTTP listener and serves the ES9+ profile download endpoints so profile
+    /// downloads and notifications can be exercised without any third-party SM-DP+ account.
+    /// This is test/integration infrastructure and must not be exposed publicly.
+    Smdp(SmdpArgs),
+
+    /// Run a self-hosted SMPP 3.4 gateway/ESME server to receive OTA SMS submissions (#210).
+    ///
+    /// Accepts SMPP bind and submit_sm PDUs and emits the received OTA SMS payloads as
+    /// JSON lines on stdout. No third-party SMSC service is required.
+    Smpp(SmppArgs),
+}
+
+/// Everything `sim-doctor smdp serve` takes.
+#[derive(Args)]
+struct SmdpArgs {
+    #[command(subcommand)]
+    action: SmdpAction,
+}
+
+#[derive(Subcommand)]
+enum SmdpAction {
+    /// Start the self-hosted SM-DP+ test server.
+    Serve(SmdpServeArgs),
+}
+
+/// Arguments for `smdp serve`.
+#[derive(Args)]
+struct SmdpServeArgs {
+    /// Address to listen on (e.g. 127.0.0.1:8080).
+    #[arg(long, value_name = "ADDR", default_value = "127.0.0.1:8080")]
+    listen: String,
+    /// Transaction ID to echo/use in responses (upper-case hex, 2-32 chars).
+    #[arg(long, value_name = "HEX")]
+    transaction_id: Option<String>,
+    /// BoundProfilePackage as base64 (BF36 TLV) for getBoundProfilePackage.
+    #[arg(long, value_name = "B64")]
+    bpp_base64: Option<String>,
+    /// InitiateAuthentication: serverSigned1 (base64, whole `30` TLV).
+    #[arg(long, value_name = "B64")]
+    server_signed1: Option<String>,
+    /// InitiateAuthentication: serverSignature1 (base64, value of `5F37`).
+    #[arg(long, value_name = "B64")]
+    server_signature1: Option<String>,
+    /// InitiateAuthentication: euiccCiPKIdToBeUsed (base64, value of `04`).
+    #[arg(long, value_name = "B64")]
+    euicc_ci_pk_id: Option<String>,
+    /// InitiateAuthentication: serverCertificate (base64, whole `30` TLV).
+    #[arg(long, value_name = "B64")]
+    server_certificate: Option<String>,
+    /// AuthenticateClient: profileMetadata (base64, whole `BF25` TLV).
+    #[arg(long, value_name = "B64")]
+    profile_metadata: Option<String>,
+    /// AuthenticateClient: smdpSigned2 (base64, whole `30` TLV).
+    #[arg(long, value_name = "B64")]
+    smdp_signed2: Option<String>,
+    /// AuthenticateClient: smdpSignature2 (base64, value of `5F37`).
+    #[arg(long, value_name = "B64")]
+    smdp_signature2: Option<String>,
+    /// AuthenticateClient: smdpCertificate (base64, whole `30` TLV).
+    #[arg(long, value_name = "B64")]
+    smdp_certificate: Option<String>,
+}
+
+/// Everything `sim-doctor smpp serve` takes.
+#[derive(Args)]
+struct SmppArgs {
+    #[command(subcommand)]
+    action: SmppAction,
+}
+
+#[derive(Subcommand)]
+enum SmppAction {
+    /// Start the self-hosted SMPP gateway server.
+    Serve(SmppServeArgs),
+}
+
+/// Arguments for `smpp serve`.
+#[derive(Args)]
+struct SmppServeArgs {
+    /// Address to listen on (e.g. 127.0.0.1:2775).
+    #[arg(long, value_name = "ADDR", default_value = "127.0.0.1:2775")]
+    listen: String,
+    /// Emit each received submit_sm as one JSON line on stdout.
+    #[arg(long)]
+    json: bool,
+    /// When set together with --yes, deliver each received OTA SMS payload to this reader
+    /// as an SMS-PP DOWNLOAD ENVELOPE (self-hosted push-to-card path).
+    #[arg(long, value_name = "NAME")]
+    reader: Option<String>,
+    /// Send received messages to the card. Required with --reader (nothing is sent without it).
+    #[arg(long)]
+    yes: bool,
 }
 
 /// Everything `sim-doctor erase` takes.
@@ -602,6 +697,12 @@ enum EuiccAction {
     /// answer is reported verbatim even when this tool cannot decode it.
     /// Never exposed over MCP.
     StoreData(RawStoreDataArgs),
+    /// Download a profile from an activation code (LPA:1$...) via ES9+ (online
+    /// profile download, #118). Parses the activation code, contacts the SM-DP+,
+    /// and runs the SGP.22 RSP download flow. Dry run unless --yes.
+    Download(DownloadArgs),
+    /// Discover pending profile download events from an SM-DS (ES11, #118).
+    Discovery(DiscoveryArgs),
 }
 
 /// Everything `sim-doctor euicc notifications` takes: the list, or `remove`.
@@ -687,6 +788,50 @@ struct RawStoreDataArgs {
     /// CLA/INS/P1/P2/Lc and payload bytes, and `card_touched` is false.
     #[arg(long)]
     yes: bool,
+    #[command(flatten)]
+    flags: EuiccFlags,
+}
+
+/// Everything `sim-doctor euicc download` takes.
+#[derive(Args)]
+struct DownloadArgs {
+    /// Activation code (LPA:1$<smdp>$<matching-id>[...]).
+    #[arg(long, value_name = "CODE")]
+    activation_code: String,
+    /// Confirmation code if required by the activation code.
+    #[arg(long, value_name = "CODE")]
+    confirmation_code: Option<String>,
+    /// PEM trust anchor(s) for the SM-DP+ HTTPS connection.
+    #[arg(long, value_name = "PEM")]
+    ca: Option<std::path::PathBuf>,
+    /// Use plain HTTP (self-hosted/local testing only).
+    #[arg(long)]
+    http: bool,
+    /// Send the download. Without it the plan is shown and nothing is sent.
+    #[arg(long)]
+    yes: bool,
+    /// Emit one lpac envelope on stdout.
+    #[arg(long)]
+    json: bool,
+    #[command(flatten)]
+    flags: EuiccFlags,
+}
+
+/// Everything `sim-doctor euicc discovery` takes.
+#[derive(Args)]
+struct DiscoveryArgs {
+    /// SM-DS address (FQDN). Defaults to the root SM-DS configured on the eUICC when omitted.
+    #[arg(long, value_name = "FQDN")]
+    smds: Option<String>,
+    /// PEM trust anchor(s) for HTTPS.
+    #[arg(long, value_name = "PEM")]
+    ca: Option<std::path::PathBuf>,
+    /// Use plain HTTP (self-hosted/local testing only).
+    #[arg(long)]
+    http: bool,
+    /// Emit one lpac envelope on stdout.
+    #[arg(long)]
+    json: bool,
     #[command(flatten)]
     flags: EuiccFlags,
 }
@@ -3614,6 +3759,11 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
         },
         Command::Program(args) => match args.action {
             ProgramAction::Plan { file, json } => run_program_plan(&file, json),
+            ProgramAction::Csv {
+                file,
+                card_type,
+                json,
+            } => run_program_csv(&file, card_type.as_deref(), json),
         },
         Command::Completions(args) => run_completions(args),
         Command::Ci(args) => run_ci(args),
@@ -3947,6 +4097,14 @@ fn dispatch(d: &kit::SimDoctor, command: Command) -> contract::ExitCode {
             EuiccAction::Reset(a) => run_euicc_reset(&a),
             EuiccAction::SetDefaultDp(a) => run_euicc_default_dp(&a),
             EuiccAction::StoreData(a) => run_euicc_store_data(&a),
+            EuiccAction::Download(a) => run_euicc_download(&a),
+            EuiccAction::Discovery(a) => run_euicc_discovery(&a),
+        },
+        Command::Smdp(args) => match args.action {
+            SmdpAction::Serve(a) => run_smdp_serve(&a),
+        },
+        Command::Smpp(args) => match args.action {
+            SmppAction::Serve(a) => run_smpp_serve(&a),
         },
         Command::Trace(args) => run_trace(&args),
         Command::Mcp => run_mcp(d),
@@ -7393,6 +7551,22 @@ enum ProgramAction {
         #[arg(long)]
         json: bool,
     },
+    /// Plan SIM/USIM/ISIM personalization for each row of a batch CSV (offline).
+    ///
+    /// Reads a CSV with a header row (type/card, iccid, imsi, ki, opc, op, adm,
+    /// mcc, mnc, smsp/smsc, msisdn, acc, fplmn, impi, impu, domain, pcscf, epdg,
+    /// operator_name/name). Produces one dry-run plan per data row: no card is
+    /// touched and key material is never printed.
+    Csv {
+        /// Path to the batch CSV file.
+        file: std::path::PathBuf,
+        /// Default card type when a row has no `type`/`card` column.
+        #[arg(long = "type", value_name = "TYPE")]
+        card_type: Option<String>,
+        /// Emit plans as JSON on stdout.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Runs `sim-doctor program plan`: reads a programming document and prints the
@@ -7445,6 +7619,10 @@ fn run_program_plan(path: &std::path::Path, json: bool) -> contract::ExitCode {
         plan.card_type,
         plan.steps.len()
     ));
+    out.push_str(&format!(
+        "supported card types: {}\n",
+        plan.supported_card_types.join(", ")
+    ));
     out.push_str(&format!("WARNING: {}\n", plan.warning));
     out.push_str("card_touched: false (offline plan; no card, no reader, nothing sent)\n");
     for (i, step) in plan.steps.iter().enumerate() {
@@ -7464,6 +7642,79 @@ fn run_program_plan(path: &std::path::Path, json: bool) -> contract::ExitCode {
         }
     }
     match emit_stdout(out.trim_end(), "the program plan") {
+        Ok(()) => contract::ExitCode::Success,
+        Err(message) => refuse(message),
+    }
+}
+
+/// Runs `sim-doctor program csv`: offline batch-CSV planning (no card touched,
+/// key material never printed).
+fn run_program_csv(
+    path: &std::path::Path,
+    default_type: Option<&str>,
+    json: bool,
+) -> contract::ExitCode {
+    const KIND: &str = "program";
+    let refuse = |m: String| {
+        eprintln!("sim-doctor: {m}");
+        if json {
+            let data = serde_json::json!({ "error": m });
+            if let Ok(line) =
+                contract::Envelope::new(KIND, contract::ExitCode::Error, &m, data).to_json()
+            {
+                let _ = emit_stdout(&line, "the program csv plan error");
+            }
+        }
+        contract::ExitCode::Error
+    };
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(err) => return refuse(format!("cannot read {}: {err}", path.display())),
+    };
+    let plans = match sim_doctor::program::plans_from_csv(&text, default_type) {
+        Ok(p) => p,
+        Err(err) => return refuse(format!("{}: {}", err.kind, err.detail)),
+    };
+    if json {
+        let value = serde_json::json!({
+            "kind": "sim-doctor-program-csv-plan/1",
+            "card_touched": false,
+            "rows": plans.len(),
+            "warning": sim_doctor::program::WARNING,
+            "plans": plans,
+        });
+        let envelope = contract::Envelope::new(
+            KIND,
+            contract::ExitCode::Success,
+            contract::OK_MESSAGE,
+            value,
+        );
+        let line = match envelope.to_json() {
+            Ok(l) => l,
+            Err(e) => return refuse(e.to_string()),
+        };
+        return match emit_stdout(&line, "the program csv plan") {
+            Ok(()) => contract::ExitCode::Success,
+            Err(message) => refuse(message),
+        };
+    }
+    let mut out = String::new();
+    out.push_str(&format!(
+        "sim-doctor program csv: {} row(s) planned (offline)\n",
+        plans.len()
+    ));
+    out.push_str(&format!("WARNING: {}\n", sim_doctor::program::WARNING));
+    out.push_str("card_touched: false (no card, no reader, nothing sent; key material omitted)\n");
+    for (i, plan) in plans.iter().enumerate() {
+        out.push_str(&format!(
+            "\nrow {}: {} ({} step(s))\n",
+            i + 1,
+            plan.card_type,
+            plan.steps.len()
+        ));
+        out.push_str(&format!("  writes: {}\n", plan.writes.join(", ")));
+    }
+    match emit_stdout(out.trim_end(), "the program csv plan") {
         Ok(()) => contract::ExitCode::Success,
         Err(message) => refuse(message),
     }
@@ -10074,4 +10325,453 @@ fn run_batch(args: BatchArgs) -> contract::ExitCode {
         print!("{}", report.to_text());
     }
     code
+}
+
+/// `sim-doctor smdp serve`: self-hosted SM-DP+ test server (#114).
+fn run_smdp_serve(args: &SmdpServeArgs) -> contract::ExitCode {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop2 = stop.clone();
+    let _ = std::thread::spawn(move || {
+        // crude stop on stdin close not needed; run until process killed
+        let _ = stop2;
+    });
+    let config = sim_doctor::smdp_server::Config {
+        transaction_id: args.transaction_id.clone(),
+        bpp_base64: args.bpp_base64.clone(),
+        server_signed1: args.server_signed1.clone(),
+        server_signature1: args.server_signature1.clone(),
+        euicc_ci_pk_id: args.euicc_ci_pk_id.clone(),
+        server_certificate: args.server_certificate.clone(),
+        profile_metadata: args.profile_metadata.clone(),
+        smdp_signed2: args.smdp_signed2.clone(),
+        smdp_signature2: args.smdp_signature2.clone(),
+        smdp_certificate: args.smdp_certificate.clone(),
+    };
+    eprintln!("sim-doctor: smdp serve listening on {}", args.listen);
+    match sim_doctor::smdp_server::serve(&args.listen, config, stop) {
+        Ok(()) => contract::ExitCode::Success,
+        Err(e) => {
+            eprintln!("sim-doctor: smdp serve: {e}");
+            contract::ExitCode::Findings
+        }
+    }
+}
+
+/// `sim-doctor smpp serve`: self-hosted SMPP gateway (#210).
+fn run_smpp_serve(args: &SmppServeArgs) -> contract::ExitCode {
+    use std::cell::RefCell;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let stop = Arc::new(AtomicBool::new(false));
+    let json = args.json;
+
+    if args.reader.is_some() && !args.yes {
+        eprintln!("sim-doctor: smpp serve: --reader requires --yes to send OTA SMS to the card (nothing sent)");
+    }
+
+    // Optional card session for push-to-card delivery (best-effort, self-hosted).
+    let card: RefCell<Option<Box<dyn sim_doctor::transport::CardSession>>> = RefCell::new(None);
+    if let (Some(reader), true) = (args.reader.as_deref(), args.yes) {
+        match open_transport(Some(reader), false, None) {
+            Ok((session, name, _)) => {
+                eprintln!("sim-doctor: smpp serve: will push received OTA SMS to reader {}", name.as_str());
+                *card.borrow_mut() = Some(session);
+            }
+            Err(e) => {
+                eprintln!("sim-doctor: smpp serve: cannot open reader for card delivery: {}", e.into_failure().message);
+            }
+        }
+    }
+
+    eprintln!("sim-doctor: smpp serve listening on {}", args.listen);
+    let result = sim_doctor::smpp::serve(&args.listen, stop, |ev| match ev {
+        sim_doctor::smpp::Event::Bound { system_id } => {
+            if json {
+                println!("{}", serde_json::json!({"event":"bound","system_id":system_id}));
+            } else {
+                eprintln!("bound: {system_id}");
+            }
+        }
+        sim_doctor::smpp::Event::Message(m) => {
+            let mut delivered: Option<serde_json::Value> = None;
+            if args.yes && args.reader.is_some() {
+                let mut guard = card.borrow_mut();
+                if let Some(sess) = guard.as_mut() {
+                    // Best-effort SMS-PP DOWNLOAD ENVELOPE delivery to the card.
+                    let body = &m.short_message;
+                    let data = sim_doctor::tar::inner_tlv(sim_doctor::tar::TAG_SMS_PP_DOWNLOAD, body)
+                        .unwrap_or_else(|| body.clone());
+                    match sim_doctor::cardsh::envelope_command(0x80, &data) {
+                        Ok(cmd) => {
+                            let policy = sim_doctor::session::Policy::default();
+                            match sim_doctor::session::send(sess.as_mut(), &cmd, &policy) {
+                                Ok(ex) => {
+                                    let ok = ex.is_success();
+                                    delivered = Some(serde_json::json!({"sent": true, "ok": ok, "status": format!("{:?}", ex.status())}));
+                                    if !json { eprintln!("card envelope delivery: ok={ok}"); }
+                                }
+                                Err(e) => {
+                                    delivered = Some(serde_json::json!({"sent": false, "error": e.to_string()}));
+                                    if !json { eprintln!("card envelope delivery failed: {e}"); }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            delivered = Some(serde_json::json!({"sent": false, "error": e}));
+                        }
+                    }
+                } else {
+                    delivered = Some(serde_json::json!({"sent": false, "error": "no card session"}));
+                }
+            }
+            if json {
+                let mut v = serde_json::json!({
+                    "event":"submit_sm",
+                    "destination_addr": m.destination_addr,
+                    "data_coding": m.data_coding,
+                    "short_message_hex": hex::encode(&m.short_message),
+                });
+                if let Some(d) = delivered { v["card_delivery"] = d; }
+                println!("{}", v);
+            } else {
+                println!(
+                    "submit_sm to={} dc={} hex={}",
+                    m.destination_addr,
+                    m.data_coding,
+                    hex::encode(&m.short_message)
+                );
+            }
+        }
+        sim_doctor::smpp::Event::Unbound => {
+            if json {
+                println!("{}", serde_json::json!({"event":"unbound"}));
+            } else {
+                eprintln!("unbound");
+            }
+        }
+    });
+    match result {
+        Ok(()) => contract::ExitCode::Success,
+        Err(e) => {
+            eprintln!("sim-doctor: smpp serve: {e}");
+            contract::ExitCode::Findings
+        }
+    }
+}
+
+/// `sim-doctor euicc download`: online profile download (#118).
+fn run_euicc_download(args: &DownloadArgs) -> contract::ExitCode {
+    const KIND: &str = contract::DEFAULT_KIND;
+    let json = args.json;
+    guard_exchange(KIND, json);
+    let ac = match sim_doctor::activation::ActivationCode::parse(&args.activation_code) {
+        Ok(ac) => ac,
+        Err(e) => {
+            return report_refusal(
+                KIND,
+                &format!("bad activation code: {e}"),
+                serde_json::json!({"error":{"kind":"bad-activation-code","message":e.to_string()}}),
+                json,
+            )
+        }
+    };
+    if ac.confirmation_code_required && args.confirmation_code.is_none() {
+        eprintln!("sim-doctor: note: activation code requires a confirmation code (--confirmation-code)");
+    }
+    let data = serde_json::json!({
+        "dry_run": !args.yes,
+        "card_touched": false,
+        "activation": ac.to_json(),
+        "confirmation_code_supplied": args.confirmation_code.is_some(),
+        "note": if args.yes {
+            "sending ES9+ profile download to the SM-DP+ (card/network access)"
+        } else {
+            "dry run: re-run with --yes to download the profile"
+        },
+    });
+    if !args.yes {
+        return emit_offline_euicc(data, |d| {
+            format!(
+                "download plan\nsmdp: {}\nmatching-id: {}\nconfirmation-code-required: {}\nconfirmation-code-supplied: {}\ndry run: nothing sent (use --yes)",
+                d["activation"]["smdp_address"].as_str().unwrap_or(""),
+                d["activation"]["matching_id"].as_str().unwrap_or(""),
+                d["activation"]["confirmation_code_required"],
+                d["confirmation_code_supplied"]
+            )
+        }, json);
+    }
+    // Open card and keep a logical ISD-R channel for the full RSP sequence.
+    let (mut session, reader, _) = match open_transport(args.flags.reader.as_deref(), false, None) {
+        Ok(o) => o,
+        Err(f) => return report_refusal(KIND, &f.into_failure().message, serde_json::json!({"error":"reader-unavailable"}), json),
+    };
+    let max = args.flags.max_segment as usize;
+    let (channel, open_ex) = match sim_doctor::session::open_channel(&mut *session) {
+        Ok(v) => v,
+        Err(e) => return report_refusal(KIND, &format!("open channel: {e}"), serde_json::json!({"error":"channel-open-failed"}), json),
+    };
+    let Some(channel) = channel else {
+        return report_refusal(
+            KIND,
+            "the card did not open a logical channel (not an eUICC?)",
+            serde_json::json!({"error":"channel-unavailable","status": format!("{:?}", open_ex)}),
+            json,
+        );
+    };
+    let close_channel = |s: &mut dyn sim_doctor::transport::CardSession, ch: u8| {
+        let _ = sim_doctor::session::close_channel(s, ch);
+    };
+    let policy = sim_doctor::session::Policy::default();
+    let cla = 0x80u8 | (channel & 0x03);
+    // Select ISD-R
+    let sel = sim_doctor::apdu::Command::case4(
+        sim_doctor::apdu::Header::new(channel, 0xA4, 0x04, 0x00),
+        &euicc::ISDR_AID,
+        sim_doctor::apdu::Le::Short(0),
+    );
+    match sim_doctor::session::send(&mut *session, &sel, &policy) {
+        Ok(ex) if ex.is_success() => {}
+        Ok(ex) => {
+            close_channel(&mut *session, channel);
+            return report_refusal(KIND, "not an eUICC: ISD-R select refused", serde_json::json!({"error":"not-an-euicc","status": format!("{:?}", ex)}), json);
+        }
+        Err(e) => {
+            close_channel(&mut *session, channel);
+            return report_refusal(KIND, &format!("select ISD-R: {e}"), serde_json::json!({"error":"card-failed"}), json);
+        }
+    }
+
+    // Best-effort ctxParams1 from GetEuiccInfo2 response (passed to AuthenticateServer).
+    let ctx_params1 = match sim_doctor::es10::store_data_sized(&mut *session, cla, &sim_doctor::es10::get_euicc_info2_request(), max, &policy) {
+        Ok(sent) if sent.complete && sent.exchanges.last().is_some_and(sim_doctor::session::Exchange::is_success) => {
+            // Use the raw info2 response as context material when available.
+            let raw = sent.data().to_vec();
+            if raw.is_empty() { Vec::new() } else { raw }
+        }
+        _ => Vec::new(),
+    };
+
+    let smdp = ac.smdp.clone();
+    let plan = sim_doctor::profile_download::Plan {
+        ctx_params1,
+        apply: true,
+    };
+
+    let outcome = if args.http {
+        let transport: Box<dyn sim_doctor::es9::Es9Transport> = Box::new(HttpEs9Transport::new());
+        let mut client = sim_doctor::es9::Es9Client::new(transport, smdp.clone());
+        sim_doctor::profile_download::run(
+            &mut client,
+            &mut |step, req| {
+                let sent = sim_doctor::es10::store_data_sized(&mut *session, cla, &req, max, &policy)
+                    .map_err(|e| format!("{step}: {e}"))?;
+                let last = sent.exchanges.last();
+                if !sent.complete || !last.is_some_and(sim_doctor::session::Exchange::is_success) {
+                    return Err(format!("{step}: ES10 request refused"));
+                }
+                Ok(sent.data().to_vec())
+            },
+            &plan,
+        )
+    } else {
+        let trust = if let Some(ca) = &args.ca {
+            sim_doctor::es9_https::Trust::Bundle(ca.clone())
+        } else {
+            sim_doctor::es9_https::Trust::GsmaCi
+        };
+        let config = sim_doctor::es9_https::HttpsConfig { trust, ..Default::default() };
+        match sim_doctor::es9_https::HttpsTransport::new(&config) {
+            Ok(t) => {
+                let transport: Box<dyn sim_doctor::es9::Es9Transport> = Box::new(t);
+                let mut client = sim_doctor::es9::Es9Client::new(transport, smdp.clone());
+                sim_doctor::profile_download::run(
+                    &mut client,
+                    &mut |step, req| {
+                        let sent = sim_doctor::es10::store_data_sized(&mut *session, cla, &req, max, &policy)
+                            .map_err(|e| format!("{step}: {e}"))?;
+                        let last = sent.exchanges.last();
+                        if !sent.complete || !last.is_some_and(sim_doctor::session::Exchange::is_success) {
+                            return Err(format!("{step}: ES10 request refused"));
+                        }
+                        Ok(sent.data().to_vec())
+                    },
+                    &plan,
+                )
+            }
+            Err(e) => {
+                close_channel(&mut *session, channel);
+                return report_refusal(KIND, &format!("https transport: {e}"), serde_json::json!({"error":{"kind":"transport","message":e.to_string()}}), json)
+            }
+        }
+    };
+    close_channel(&mut *session, channel);
+
+    // Note: confirmation code hashCc is not computed/injected by this build's
+    // profile_download flow; if the activation requires one, the SM-DP+/eUICC may refuse.
+    if ac.confirmation_code_required && args.confirmation_code.is_some() {
+        eprintln!("sim-doctor: note: confirmation code was provided but hashCc injection is not implemented in this download flow; the server/eUICC may refuse if required.");
+    }
+
+    match outcome {
+        Ok(sim_doctor::profile_download::Outcome::Installed(inst)) => {
+            let data = serde_json::json!({
+                "downloaded": true,
+                "card_touched": true,
+                "transaction_id": hex::encode(&inst.transaction_id),
+                "reader": reader.as_str(),
+                "activation": ac.to_json(),
+            });
+            emit_offline_euicc(data, |d| format!("profile downloaded (transaction {})", d["transaction_id"].as_str().unwrap_or("")), json)
+        }
+        Ok(sim_doctor::profile_download::Outcome::Preview) => {
+            emit_offline_euicc(serde_json::json!({"dry_run":true,"card_touched":false}), |_| "dry run".to_string(), json)
+        }
+        Err(f) => report_refusal(KIND, &f.error.to_string(), serde_json::json!({"error":{"kind":f.error.kind(),"message":f.error.to_string(),"retryable":f.error.retryable(),"cancel_error":f.cancel_error}}), json),
+    }
+}
+
+fn euicc_es10_exchange_on_channel(
+    session: &mut dyn sim_doctor::transport::CardSession,
+    cla: u8,
+    request: &[u8],
+    max_segment: usize,
+    policy: &sim_doctor::session::Policy,
+) -> Result<Vec<u8>, String> {
+    let sent = sim_doctor::es10::store_data_sized(session, cla, request, max_segment, policy)
+        .map_err(|e| e.to_string())?;
+    let last = sent.exchanges.last();
+    if !sent.complete || !last.is_some_and(sim_doctor::session::Exchange::is_success) {
+        return Err("ES10 request refused".into());
+    }
+    Ok(sent.data().to_vec())
+}
+
+/// Minimal plain-HTTP ES9 transport for local/self-hosted servers.
+struct HttpEs9Transport;
+impl HttpEs9Transport { fn new() -> Self { Self } }
+impl sim_doctor::es9::Es9Transport for HttpEs9Transport {
+    fn post(&mut self, url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<sim_doctor::es9::Response, sim_doctor::es9::TransportError> {
+        // very small blocking HTTP/1.1 POST (self-hosted/local testing only)
+        let url = url.strip_prefix("http://").ok_or_else(|| sim_doctor::es9::TransportError("http transport needs http:// URL".into()))?;
+        let (host_port, path) = url.split_once('/').map(|(h,p)| (h, format!("/{p}"))).unwrap_or((url, "/".into()));
+        let (host, port) = if let Some((h,p)) = host_port.rsplit_once(':') {
+            (h.to_string(), p.parse::<u16>().map_err(|_| sim_doctor::es9::TransportError("bad port".into()))?)
+        } else {
+            (host_port.to_string(), 80)
+        };
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect((host.as_str(), port)).map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
+        let mut req = format!("POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: close\r\n", path, host, body.len());
+        for (k,v) in headers { req.push_str(&format!("{k}: {v}\r\n")); }
+        req.push_str("\r\n");
+        stream.write_all(req.as_bytes()).and_then(|_| stream.write_all(body)).map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
+        let mut resp = Vec::new();
+        stream.read_to_end(&mut resp).map_err(|e| sim_doctor::es9::TransportError(e.to_string()))?;
+        let split = resp.windows(4).position(|w| w==b"\r\n\r\n").map(|p| p+4).unwrap_or(resp.len());
+        let (head_bytes, body_bytes) = resp.split_at(split);
+        let head = String::from_utf8_lossy(head_bytes);
+        let mut lines = head.split("\r\n");
+        let status = lines.next().and_then(|l| l.split_whitespace().nth(1)).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+        let mut rh = Vec::new();
+        for line in lines {
+            if let Some((k,v)) = line.split_once(':') { rh.push((k.trim().to_string(), v.trim().to_string())); }
+        }
+        Ok(sim_doctor::es9::Response { status, headers: rh, body: body_bytes.to_vec() })
+    }
+}
+
+/// `sim-doctor euicc discovery`: SM-DS discovery (#118).
+fn run_euicc_discovery(args: &DiscoveryArgs) -> contract::ExitCode {
+    const KIND: &str = contract::DEFAULT_KIND;
+    let json = args.json;
+    guard_exchange(KIND, json);
+    // Need eUICC challenge/info1; get from card on a single channel.
+    let (mut session, reader, _) = match open_transport(args.flags.reader.as_deref(), false, None) {
+        Ok(o) => o,
+        Err(f) => return report_refusal(KIND, &f.into_failure().message, serde_json::json!({"error":"reader-unavailable"}), json),
+    };
+    let max = args.flags.max_segment as usize;
+    let (channel, _) = match sim_doctor::session::open_channel(&mut *session) {
+        Ok(v) => v,
+        Err(e) => return report_refusal(KIND, &format!("open channel: {e}"), serde_json::json!({"error":"channel-open-failed"}), json),
+    };
+    let Some(channel) = channel else {
+        return report_refusal(KIND, "the card did not open a logical channel (not an eUICC?)", serde_json::json!({"error":"channel-unavailable"}), json);
+    };
+    let policy = sim_doctor::session::Policy::default();
+    let cla = 0x80u8 | (channel & 0x03);
+    let sel = sim_doctor::apdu::Command::case4(
+        sim_doctor::apdu::Header::new(channel, 0xA4, 0x04, 0x00),
+        &euicc::ISDR_AID,
+        sim_doctor::apdu::Le::Short(0),
+    );
+    let selected = matches!(sim_doctor::session::send(&mut *session, &sel, &policy), Ok(ex) if ex.is_success());
+    let (challenge_b64, info1_b64, configured_root) = if selected {
+        let challenge_b64 = euicc_es10_exchange_on_channel(&mut *session, cla, &sim_doctor::es10::get_euicc_challenge_request(), max, &policy)
+            .ok()
+            .and_then(|resp| sim_doctor::es10::decode_get_euicc_challenge(&resp).ok())
+            .map(|c| b64_std(&c.challenge));
+        let info1_b64 = euicc_es10_exchange_on_channel(&mut *session, cla, &sim_doctor::es10::get_euicc_info1_request(), max, &policy)
+            .ok()
+            .map(|resp| b64_std(&resp));
+        let configured_root = euicc_es10_exchange_on_channel(&mut *session, cla, &sim_doctor::es10::get_euicc_configured_addresses_request(), max, &policy)
+            .ok()
+            .and_then(|r| sim_doctor::es10::decode_configured_addresses(&r).ok())
+            .and_then(|a| a.root_ds_address);
+        (challenge_b64, info1_b64, configured_root)
+    } else {
+        (None, None, None)
+    };
+    let _ = sim_doctor::session::close_channel(&mut *session, channel);
+
+    let smds_str = if let Some(s) = &args.smds { s.clone() } else {
+        match configured_root {
+            Some(a) => a,
+            None => return report_refusal(KIND, "no SM-DS address (give --smds)", serde_json::json!({"error":{"kind":"no-smds"}}), json),
+        }
+    };
+    let smds = match sim_doctor::es9::SmdpAddress::parse(&smds_str) {
+        Ok(a) => a,
+        Err(e) => return report_refusal(KIND, &format!("bad SM-DS address: {e}"), serde_json::json!({"error":{"kind":"bad-smds","message":e.to_string()}}), json),
+    };
+    let do_discover = |t: &mut dyn sim_doctor::es9::Es9Transport| {
+        sim_doctor::es11::discover(t, &smds, challenge_b64.as_deref(), info1_b64.as_deref())
+    };
+    let result = if args.http {
+        let mut t = HttpEs9Transport::new();
+        do_discover(&mut t)
+    } else {
+        let trust = if let Some(ca) = &args.ca { sim_doctor::es9_https::Trust::Bundle(ca.clone()) } else { sim_doctor::es9_https::Trust::GsmaCi };
+        let config = sim_doctor::es9_https::HttpsConfig { trust, ..Default::default() };
+        match sim_doctor::es9_https::HttpsTransport::new(&config) {
+            Ok(mut t) => do_discover(&mut t),
+            Err(e) => return report_refusal(KIND, &format!("https transport: {e}"), serde_json::json!({"error":{"kind":"transport","message":e.to_string()}}), json),
+        }
+    };
+    match result {
+        Ok(d) => {
+            let events: Vec<serde_json::Value> = d.events.iter().map(|e| serde_json::json!({"smdp_address": e.smdp_address, "matching_id": e.matching_id, "raw": e.raw})).collect();
+            let data = serde_json::json!({"reader": reader.as_str(), "smds": smds_str, "events": events, "raw": d.raw});
+            emit_offline_euicc(data, |d| format!("{} event(s)", d["events"].as_array().map(|a| a.len()).unwrap_or(0)), json)
+        }
+        Err(e) => report_refusal(KIND, &e.to_string(), serde_json::json!({"error":{"kind":"discovery-failed","message":e.to_string()}}), json),
+    }
+}
+
+fn b64_std(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in data.chunks(3) {
+        let n = ((c.get(0).copied().unwrap_or(0) as u32) << 16)
+            | ((c.get(1).copied().unwrap_or(0) as u32) << 8)
+            | (c.get(2).copied().unwrap_or(0) as u32);
+        for i in 0..4 {
+            if i == 1 && c.len() < 2 { out.push('='); }
+            else if i == 2 && c.len() < 3 { out.push('='); }
+            else { out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char); }
+        }
+    }
+    out
 }
